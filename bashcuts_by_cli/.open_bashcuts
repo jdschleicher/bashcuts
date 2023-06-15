@@ -1,0 +1,22 @@
+#OPEN SNIPPENTS
+alias o-snip-apex="start ~/AppData/Roaming/Code/User/snippets/Apex.code-snippets"
+alias o-snip-lwc="start ~/AppData/Roaming/Code/User/snippets/lwc.code-snippets"
+alias o-snip-powershell="start ~/AppData/Roaming/Code/User/snippets/powershell.code-snippets"
+alias o-snip-az="start ~/AppData/Roaming/Code/User/snippets/azure-cli.code-snippets"
+
+#OPEN ALIAS FILE
+alias o-bashrc="start ~/.bashrc"
+alias o-sfdx="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.sfdxcli_bashcuts"
+alias o-az="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.az_bashcuts"
+alias o-cci="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ccicli_bashcuts"
+alias o-git="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.gitcli_bashcuts"
+alias o-gh="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ghcli_bashcuts"
+alias o-common="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.bash_commons"
+alias o-bcut-bashrc="start $PATH_TO_BASHCUTS/bashcuts/.bcut_home"
+alias o-gcl="git config --local -e" #open up local config file for editing
+alias o-gcg="git config --global -e"
+alias o-sfdx-alias="start ~/.sfdx/alias.json"
+alias o-support="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.support_bashcuts"
+alias o-robot="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.robot_bashcuts"
+alias o-bashcuts="code $PATH_TO_BASHCUTS/bashcuts"
+alias o-open-shortcuts="start $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.open_bashcuts"

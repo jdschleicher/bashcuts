@@ -1,0 +1,3 @@
+new-support-ticket() {
+    start $NEW_SUPPORT_TICKET_URL
+}

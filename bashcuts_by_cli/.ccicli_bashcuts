@@ -1,0 +1,25 @@
+
+
+#CUMULUS CI cci
+alias cci-changes-list-all="cci task run list_changes --org dev"
+alias cci-changes-list-x-Profile="cci task run list_changes --org dev -o exclude 'Profile:'"
+alias cci-retrieve="cci task run retrieve_changes --org dev -o exclude "Profile:""
+
+cci-open() {
+    cci org browser $1
+}
+
+cci-new-dev() {
+    #creates scratch org aligned with dev configurations for Cumulus CI
+    cci flow run dev_org --org dev
+}
+
+cci-scratch-delete() {
+    cci org scratch_delete $1
+}
+
+cci-new-qa() {
+    #creates scratch org aligned with dev configurations for Cumulus CI
+    cci flow run qa_org --org qa
+}
+

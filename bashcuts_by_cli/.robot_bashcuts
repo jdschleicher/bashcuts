@@ -1,0 +1,22 @@
+robot-debug-variable-setup() {
+    export ROBOT_DEBUG=TRUE;
+}
+
+robot-debug-start() {
+    export ROBOT_DEBUG=TRUE; robot --rpa -d robot-tests-output . 
+}
+
+robot-test-debug-start() {
+    echo What is the test to run? 
+    read -e ROBOT_TEST_PATH_TO_FILE
+    echo "export ROBOT_DEBUG=TRUE; robot --rpa -d robot-tests-output $ROBOT_TEST_PATH_TO_FILE"
+    export ROBOT_DEBUG=TRUE; robot --rpa -d robot-tests-output $ROBOT_TEST_PATH_TO_FILE
+}
+
+robot-quick-test() {
+    export ROBOT_DEBUG=TRUE; robot --rpa -d robot-tests-output module-project/robot/tests/create_contact.robot
+}
+
+robot-quick-create-contact() {
+    export ROBOT_DEBUG=TRUE; robot --rpa -d robot-tests-output robotframework/CumulusCI/cumulusci/robotframework/tests/salesforce/create_contact.robot
+}

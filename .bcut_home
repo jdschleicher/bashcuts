@@ -1,0 +1,76 @@
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.bash_commons ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.bash_commons; 
+else
+    echo "missing commons"
+fi
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.sfdxcli_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.sfdxcli_bashcuts; 
+else
+    echo "missing sfdxcli"
+fi
+
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.gitcli_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.gitcli_bashcuts; 
+else
+    echo "missing gitcli_bashcuts"
+fi
+
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ghcli_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ghcli_bashcuts; 
+else
+    echo "missing ghcli_bashcuts"
+fi
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.open_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.open_bashcuts; 
+else
+    echo "missing open_bashcuts"
+fi
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ccicli_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.ccicli_bashcuts; 
+else
+    echo "missing ccicli_bashcuts"
+fi
+
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.az_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.az_bashcuts; 
+else
+    echo "missing az_bashcuts"
+fi
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.support_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.support_bashcuts; 
+else
+    echo "missing support_bashcuts"
+fi
+
+if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.robot_bashcuts ]; 
+then 
+    source $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.robot_bashcuts; 
+else
+    echo "missing robot_bashcuts"
+fi
+
+
+
+
+
+
+
+
+
+

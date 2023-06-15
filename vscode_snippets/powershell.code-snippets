@@ -1,0 +1,221 @@
+	// Place your POWERSHELL snippets here. Each snippet is defined under a snippet name and has a scope, prefix, body and 
+	// description. Add comma separated ids of the languages where the snippet is applicable in the scope field. If scope 
+	// is left empty or omitted, the snippet gets applied to all languages. The prefix is what is 
+	// used to trigger the snippet and the body will be expanded and inserted. Possible variables are: 
+	// $1, $2 for tab stops, $0 for the final cursor position, and ${1:label}, ${2:another} for placeholders. 
+	// Placeholders with the same ids are connected.
+
+
+
+	/****************  LWC GENERAL SNIPPETS *******************/
+
+{
+	"MANDATORY PARAM": {
+		"prefix": "pow-param-mandatory",
+		"body": [
+			"[Parameter(Mandatory=$$true)]${1:}"
+		],
+		"description": "Mandatroy Paramater Annotation"
+	},
+
+	"WRITE HOST": {
+		"prefix": "pow-wh",
+		"body": [
+			"Write-Host \"${1:WRITE_HOST_MESSAGE}\";"
+		],
+		"description": "Write Host Setup"
+	},
+
+	"IS NULL OR EMPTY STRING": {
+		"prefix": "pow-isnullorempty",
+		"body": [
+			"[string]::IsNullOrEmpty($${1:VARIABLE_NAME})"
+		],
+		"description": "Is null or empty string"
+	},
+
+	"NEW GUID WITHOUT HYPHEN": {
+		"prefix": "pow-new-guid-n",
+		"body": [
+			"$(New-Guid).ToString(\"N\")" 
+		],
+		"description": "New Guid for unique value without hyphens or dashes"
+	},
+
+	"NEW VARIABLE OF GUID WITHOUT HYPHEN": {
+		"prefix": "pow-new-guid-n-tovar",
+		"body": [
+			"$${1:GUID_VARIABLE_NAME} = $(New-Guid).ToString(\"N\")" 
+		],
+		"description": "New Guid for unique value without hyphens or dashes"
+	},
+
+	"NEW LIST": {
+		"prefix": "pow-list-var",
+		"body": [
+			"$${1:LIST_VARIABLE_NAME} = [system.collections.generic.list[${2:LIST_TYPE}]]::new()"
+		],
+		"description": "Powershell syntax for new List"
+	},
+
+	"POWERSHELL PROPERTY": {
+		"prefix": "pow-prop",
+		"body": [
+			"[${1:TYPE}] $${PROPERTY_NAME}"
+		],
+		"description": "Powershell syntax for new Class property"
+	},
+
+	"POWERSHELL LIST": {
+		"prefix": "pow-list",
+		"body": [
+			"system.collections.generic.list[${1:TYPE}]"
+		],
+		"description": "Powershell new generic .NET list with choice of type"
+	},
+
+	"POWERSHELL OBJECT INITIALIZATION SYNTAX": {
+		"prefix": "pow-obj",
+		"body": [
+			"[${1:TYPE}]::new()"
+		],
+		"description": "Powershell syntax for initializing new object"
+	},
+
+	"POWERSHELL OBJECT INITIALIZATION ASSIGNED TO VARIABLE": {
+		"prefix": "pow-obj-var",
+		"body": [
+			"$${1:VARIABLE_NAME} = [${2:TYPE}]::new()"
+		],
+		"description": "Powershell syntax for initializing new object and assigning to variable"
+	},
+
+	"CHECK IF DIRECTORY EXISTS AND CREATE NEW IF NOT": {
+		"prefix": "pow-new-directory-check-exists",
+		"body": [
+			"$${1:DIRECTORY_PATH_VARIABLE} = ${2:DIRECTORY_PATH_TO_CHECK}",
+			"if (-not (Test-Path $${1:DIRECTORY_PATH_VARIABLE})) {",
+		    "	New-Item -Type Directory $${1:DIRECTORY_PATH_VARIABLE}",
+            "}"
+		],
+		"description": "Powershell syntax checking if a directory path exists, and if not, create that directory"
+	},
+
+	"CONVERT LIST TO ONE STRING OF COMMA SEPARATED VALUES": {
+		"prefix": "pow-string-csv",
+		"body": [
+			"$${1:NEW_STRING_CSV} = ($${2:LIST_VARIABLE_TO_CONVERT}| foreach { \"'$$_'\" }) -join ','"
+		],
+		"description": "Powershell syntax for taking a list collection of strings and converting to one string made up of comma separated values from the list"
+	},
+
+	"CREATE FRESH DIRECTORY AND DELETE IF CURRENTLY SAME DIRECTORY NAME EXISTS": {
+		"prefix": "pow-new-directory-delete-existing",
+		"body": [
+			"if (Test-Path $$PATH_TO_DIRECTORY) {",
+			"	Remove-Item $$PATH_TO_DIRECTORY -Recurse -Force",
+			"}", 
+		    "",
+			"New-Item $$PATH_TO_DIRECTORY -ItemType Directory"
+		],
+		"description": "Powershell syntax for creating a directory by variable name that may already exist"
+	},
+
+	"NEW HASH TABLE": {
+		"prefix": "pow-new-hashtable",
+		"body": [
+			"$$HASH_TABLE_VARIABLE = @{ ",
+			"	$KEY = \"$VALUE\"        ",
+			" }"
+		],
+		"description": "Powershell syntax for new hash table"
+	},
+
+	"NEW PSCUSTOM OBJECT INITIALIZATION": {
+		"prefix": "pow-new-pscustomobject",
+		"body": [
+			"$${1:PSCUSTOMOBJECT_VARIABLE} = [PSCustomObject]@{ ",
+			"	\"${2:$FIRST_PROP}\" = ${3:$FIRST_PROP_VALUE};        ",
+			"}"
+		],
+		"description": "Powershell syntax for new PSCustomObject"
+	},	
+
+	"NEW KEY VALUE PAIR": {
+		"prefix": "pow-key-value",
+		"body": [
+			"$KEY = \"$VALUE\""
+		],
+		"description": "Powershell syntax for key pair for a hashtable"
+	},
+
+	"LOOP THROUGH HASHTABLE": {
+		"prefix": "pow-foreach-hashtable",
+		"body": [
+			"ForEach ($${1:KEY_VAR} in $${2:MAP_VAR}.Keys) {",
+			"   $${3:MAP_VALUE_VARIABLE} = $($$2[\"$$1\"])",
+			"}"
+		],
+		"description": "foreach syntax to loop through hashtable"
+	},
+
+	"BASE 64 ENCODE UTF-8 SETUP": {
+		"prefix": "pow-base64-encode-utf-8",
+		"body": [
+			"$$enc = [System.Text.Encoding]::UTF8",
+			"$$enc_utf8_bytes = $$enc.GetBytes($${1:VALUE_TO_BASE_64_ENCODE})",
+			"$$base64encoded_${1:VALUE_TO_BASE_64_ENCODE} = [Convert]::ToBase64String($$enc_utf8_bytes)"
+
+		],
+		"description": "creates a utf-8 formatted, base64 encoded string of an existing string value. Can be used for authentication purposes"
+	},
+
+	"BASE 64 DECODE UTF-8 SETUP": {
+		"prefix": "pow-base64-decode-utf-8",
+		"body": [
+			"$$decoded_base64_${1:VALUE_TO_BASE64_DECODE} = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($${1:VALUE_TO_BASE64_DECODE}))"
+		],
+		"description": "decodes a utf-8 formatted, base64 encoded string of an existing string value. Can be used for authentication purposes"
+	},
+
+	"NEW DATE TIMESTAMP TO VARAIBLE" : {
+		"prefix": "pow-new-date-timestamp",
+		"body": [
+			"$${1:TIMESTAMP_VARIABLE} = (Get-Date -Format \"MMddyyyy_HHmm\")" 
+		],
+		"description": "Get current timestamp and set to variable"
+	},
+
+	"NEW GET RANDOM VARIABLE" : {
+		"prefix": "pow-new-random-characters",
+		"body": [
+			"$${1:RANDOM_VARIABLE} = (Get-Random -Count ${2:COUNT_OF_RANDOM_VARIABLES} )" 
+		],
+		"description": "Get random character value and set to variable"
+	}
+
+	// "BUILD CONDITIONAL POWERSHELL KEY TO LIST HASHTABLE": {
+	// 	"prefix": "pow-new-map-cond",
+	// 	"description": "Markup for creating a map that expects a list to be added to it within a foreach loop",
+	// 	"body": [
+	// 		"foreach ( $${2:MAP_KEY_VAR} in $${1:LIST_TO_BE_ITERATED_OVER} ) {",
+	// 		"	if ($${3:MAP_TO_VALUES_VAR}.ContainsKey($${2:MAP_KEY_VAR})) {",
+	// 		"",
+	// 		"		$${3:MAP_TO_VALUES_VAR}[$${2:MAP_KEY_VAR}].Add($${4:NEW_LIST_TO_BE_ADDED_TO_VAR}) | Out-Null",
+	// 		"",
+	// 		"	} else {",
+	// 		"",
+	// 		" 		$${4:NEW_LIST_TO_BE_ADDED_TO_VAR} = [system.collections.generic.list[string]]::new();",
+	// 		"",
+	// 		"		$${3:MAP_TO_VALUES_VAR}.Add($${2:MAP_KEY_VAR}, $${4:NEW_LIST_TO_BE_ADDED_TO_VAR}) | Out-Null",
+	// 		"",
+	// 		"	}",
+	// 		"}",
+	// 	]
+	
+	// }
+
+
+
+
+}

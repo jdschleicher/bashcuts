@@ -1,0 +1,160 @@
+
+# AZURE DEVOPS CLI
+az-show-my-features() {
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Feature'"
+}
+
+az-show-my-tasks() {
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Task'"
+}
+
+az-query-all-pie-by-phrase() {
+    echo "What phrase would you like to query?"
+    read query_item
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title],[System.AreaPath] from workitems where [System.AreaPath] = 'DTC Release\PIE' and ([Title] contains '$query_item' or [Description] contains '$query_item')" 
+}
+
+az-set-default-org-by-bashrc() {
+    echo az devops configure --defaults organization=$AZ_DEFAULT_ORG
+    az devops configure --defaults organization="$AZ_DEFAULT_ORG"
+}
+
+az-set-default-organization() {
+    echo What url represents the organization to default?
+    read DEFAULT_ORG_URL
+    echo az devops configure -d organization=$DEFAULT_ORG_URL
+    az devops configure -d organization=$DEFAULT_ORG_URL
+}
+
+az-create-child-tasks () {
+    echo What is the parent User Story ID to add tasks to?
+    read PARENT_ID
+    echo What are the Task IDs to add to the User Story? \(comma seprated list\)
+    read TASK_IDS
+
+    az boards work-item relation add --id "$PARENT_ID" \
+        --relation-type "child" \
+        --target-id "$TASK_IDS"
+
+}
+
+az-create-template-current-sprint-dx-support() {
+    US_DESCRIPTION="Efforts for DX release support"
+    TASK_DESCRIPTION="Support efforts for DX Release"
+    STORY_POINTS="3"
+    PRIORITY="2"
+    ACCEPTANCE_CRITERIA="Support DX Development Team"
+    echo az boards work-item create --title \"$AZ_USER_STORY_TITLE\" \
+        --assigned-to \"$AZ_USER_EMAIL\" \
+        --project \"$AZ_PROJECT\" \
+        --area \"$AZ_AREA\" \
+        --iteration \"$AZ_ITERATION\\$AZ_CURRENT_SPRINT\" \
+        --fields \
+        \"Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS\" \
+        \"Microsoft.VSTS.Common.Priority=$PRIORITY\" \
+        \"Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA\"  \
+        --type \"user story\"  \
+        --description \"$DESCRIPTION\"
+
+    az boards work-item create --title "$AZ_USER_STORY_TITLE" \
+           --assigned-to "$AZ_USER_EMAIL" \
+           --project "$AZ_PROJECT" \
+           --area "$AZ_AREA" \
+           --iteration "$AZ_ITERATION\\$AZ_CURRENT_SPRINT" \
+           --fields \
+            "Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS" \
+            "Microsoft.VSTS.Common.Priority=$PRIORITY" \
+            "Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA"  \
+            --type "user story"  \
+            --description "$DESCRIPTION" \
+            --open
+}
+
+az-create-userstory() {
+    echo What is the title? 
+    read STORY_TITLE  
+    echo What is the description? 
+    read DESCRIPTION  
+    echo What is the priority? 
+    read -p "1=LOW,2=MEDIUM,3=HIGH: " PRIORITY
+    echo What is the story point amount? 
+    read STORY_POINTS
+    echo What is the Acceptance Criteria?
+    read ACCEPTANCE_CRITERIA
+    DASH="-"
+    FORMATTED_AC="${DASH}${ACCEPTANCE_CRITERIA}"
+    UPDATED_AC=$FORMATTED_AC
+    read -p "More AC (Y/N)?" AC_ANSWER 
+    while [[ ${AC_ANSWER^^} != 'N' ]] 
+        do 
+            read -p "Enter additional AC: " ADDITIONAL_AC 
+            LINEBREAK="<br/><br/>" 
+            
+            UPDATED_AC="${UPDATED_AC} ${LINEBREAK} ${DASH}${ADDITIONAL_AC}" 
+            echo $UPDATED_AC 
+            read -p "More AC (Y/N)? " AC_ANSWER
+        done 
+
+    echo az boards work-item create --title \"$STORY_TITLE\" \
+           --assigned-to \"$AZ_USER_EMAIL\" \
+           --project \"$AZ_PROJECT\" \
+           --area \"$AZ_AREA\" \
+           --iteration \"$AZ_ITERATION\" \
+           --fields \
+            \"Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS\" \
+            \"Microsoft.VSTS.Common.Priority=$PRIORITY\" \
+            \"Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA\"  \
+            --type \"user story\"  \
+            --description \"$DESCRIPTION\"
+
+    az boards work-item create --title "$STORY_TITLE" \
+           --assigned-to "$AZ_USER_EMAIL" \
+           --project "$AZ_PROJECT" \
+           --area "$AZ_AREA" \
+           --iteration "$AZ_ITERATION" \
+           --fields \
+            "Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS" \
+            "Microsoft.VSTS.Common.Priority=$PRIORITY" \
+            "Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA"  \
+            --type "user story"  \
+            --description "$DESCRIPTION" \
+            --open
+
+}
+
+az-open-work-item() {
+    echo What is the ID of the work item? \(--id\)
+    read WORK_ITEM_ID
+    echo az boards work-item show --id $WORK_ITEM_ID --open
+    az boards work-item show --id 12205 --open
+    12205,
+}
+
+az-get-work-item() {
+    echo What is the ID of the work item? \(--id\)
+    read WORK_ITEM_ID
+    echo az boards work-item show --id $WORK_ITEM_ID 
+    az boards work-item show --id $WORK_ITEM_ID 
+}
+
+az-quick-wi-get() {
+    echo az boards work-item show --id $1
+    az boards work-item show --id $1
+}
+
+az-quick-open() {
+    echo az boards work-item show --id $1 --open
+    az boards work-item show --id $1 --open
+}
+
+az-open-board() {
+    start $AZ_BOARD_VIEW
+}
+
+az-open-hierarchy() {
+    start $AZ_HIERARCHY_VIEW
+}
+
+az-open-current-sprint-stories-view() {
+    start $AZ_CURRENT_SPRINT_STORIES_VIEW
+}

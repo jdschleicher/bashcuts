@@ -1,0 +1,51 @@
+
+#timestamp on terminal
+export PROMPT_COMMAND="echo -n \[\$(date +%H:%M:%S)\]\ "
+
+# GREP
+alias hg="history|grep "
+
+# NEW TERMINAL FROM TERMINAL WINDOWS
+alias new-bash='start "" "C:\Program Files\Git\git-bash.exe"' #UNLINKED TO CURRENT TERMINAL PROCESS
+alias git-bash='/git-bash.exe & > /dev/null 2&>1'   
+
+# NEW POWERSHELL WINDOW FROM BASH TERMINAL
+alias pow="start pwsh"
+
+#RE-INITIALIZE CURRENTLY OPEN TERMINAL
+alias reinit="source ~/.bashrc"
+
+#list directory items with file size
+alias lt='ls --human-readable --size -1 -S --classify'
+
+#get the current directory’s listing, in long format, including hidden directories:
+alias ll="ls -lhA"
+
+# Make ls display in columns and with a file type indicator (end directories with “/”, etc) by default:
+alias lcf="ls -CF"
+
+#create a directory and then immediately move into that directory
+mcd () {
+    mkdir -p $1;
+    cd $1;
+}
+
+alias back="cd -"
+
+alias copy="clip.exe"
+
+open-url() {
+   start $1
+}
+
+open-profile() {
+  code ~/.bashrc   
+}
+
+show-all-variables() {
+  compgen -v | while read line; do declare -p $line; done
+}
+
+show-all-environment-variables() {
+  compgen -v | while read line; do declare -xp $line; done
+}

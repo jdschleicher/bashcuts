@@ -1,0 +1,27 @@
+
+#GITHUB CLI ALIASES
+alias ghview="gh repo view --web"
+
+gh-docs() {
+    start https://cli.github.com/manual/index
+}
+
+gh-create-secret() {
+    echo What is the secret name?
+    read SECRET_NAME
+    echo What is the secret value?\(-b, --body\)
+    read SECRET_VALUE
+    echo gh secret set $SECRET_NAME --body "###"
+    gh secret set $SECRET_NAME --body "$SECRET_VALUE"
+}
+
+gh-create-secret-environment() {
+    echo What is the secret name?
+    read SECRET_NAME
+    echo What is the name of the existing environment the secret will be applied to?\(-e, --env\)
+    read ENVIRONMENT
+    echo What is the secret value?\(-b, --body\)
+    read SECRET_VALUE
+    echo gh secret set $SECRET_NAME --env "$ENVIRONMENT" --body "###"   
+    gh secret set $SECRET_NAME --env "$ENVIRONMENT" --body "$SECRET_VALUE"   
+}

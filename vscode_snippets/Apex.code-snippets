@@ -1,0 +1,193 @@
+{
+	// Place your Apex snippets here. Each snippet is defined under a snippet name and has a scope, prefix, body and 
+	// description. Add comma separated ids of the languages where the snippet is applicable in the scope field. If scope 
+	// is left empty or omitted, the snippet gets applied to all languages. The prefix is what is 
+	// used to trigger the snippet and the body will be expanded and inserted. Possible variables are: 
+	// $1, $2 for tab stops, $0 for the final cursor position, and ${1:label}, ${2:another} for placeholders. 
+	// Placeholders with the same ids are connected.
+
+	/* 2do */
+	// cron job scheduled for variable amount of seconds from now
+		//String hour = String.valueOf(Datetime.now().hour());
+		// String min = String.valueOf(Datetime.now().minute()); 
+		// String ss = String.valueOf(Datetime.now().second() + 5);
+
+		// //parse to cron expression - run job in next 5 seconds
+		// String nextFireTime = ss + ' ' + min + ' ' + hour + ' * * ?';
+
+		// ORGTestConfigServiceSchedulable s = new ORGTestConfigServiceSchedulable(); 
+		// System.schedule('Job Started At ' + String.valueOf(Datetime.now()), nextFireTime, s);
+
+
+
+	/****************  APEX GENERAL SNIPPETS *******************/
+
+	"Apex get Record Type Id by DeveloperName": {
+		"prefix": "apx-get-recordtypeid",
+		"body": [
+			"Id ${1:RECORDTYPEID_VARIABLENAME} = Schema.SObjectType.${1:SOBJECT_TYPE}.getRecordTypeInfosByDeveloperName().get('${3:RECORDTYPE_DEVELOPERNAME}.getRecordTypeId();"
+		],
+		"description": "Gets Record Type Id by DeveloperName"
+	},
+
+// 	Id recordTypeId =
+//   Schema.SObjectType.Account.getRecordTypeInfosByDeveloperName()
+//     .get('Wholesale_Partner').getRecordTypeId();
+	"Apex Property Getter/Setter Structure": {
+		"prefix": "apx-prop",
+		"body": [
+			"public ${1:PROP_TYPETYPE} ${2:PROP_NAME} { get; set; }"
+		],
+		"description": "Creates public getter/setter"
+	},
+	
+	"Apex Public Function Structure": {
+		"prefix": "apx-pfunc",
+		"body": [
+			"public ${1:RETURN_TYPE} ${2:FUNCTION_NAME}(${3:ARGUMENTS}) {",
+			"",
+			"}"  
+		],
+		"description": "Creates public method structure"
+	},
+
+	// List<ConnectedORGDetail__mdt> connectedORGDetails = (List<ConnectedORGDetail__mdt>)JSON.deserialize(originalValues, List<ConnectedORGDetail__mdt>.class);
+	"Apex Deserialize and Cast JSON String to Apex Class": {
+		"prefix": "apx-jsoncast",
+		"body": [
+			"${1:CLASS_TO_BE_CASTED_INTO} ${2:CLASS_VARIABLE_NAME} = (${1:CLASS_TO_BE_CASTED_INTO})JSON.deserialze(${3:JSON_STRING_VARIABLE}, ${1:CLASS_TO_BE_CASTED_INTO}.class);"
+		],
+		"description": "Takes JSON string representation of apex class and associated properties (could be received from endpoint callout) and deseriales and casts the JSON string to variable"
+	},
+
+	"Apex New Method": {
+		"prefix": "apx-method-public-static",
+		"body": [
+			"public static ${1:RETURN_TYPE} ${2:METHOD_NAME}(${3:ARGUMENTS}) {",
+			"",
+			"}"
+		],
+		"description": "Boilerplate setup for new static apex method"
+	},
+
+	/****************  APEX TEST CLASS SNIPPETS *******************/
+
+	"Apex Test Class Structure": {
+		"prefix": "apx-t-c",
+		"body": [
+			"@IsTest",
+			"private class ${1:APEX_CLASS_NAME}Test {",
+			"",
+			"}"
+		
+		],
+		"description": "Creates base strucutre for Apex Test Class"
+	},
+	
+	"New Apex Test Method Structure": {
+		"prefix": "apx-t-m",
+		"body": [
+			"@IsTest",
+			"static void ${1:ApexMethodName}_${2:GivenContext}_${3:ExpectedResult}() {",
+			"",
+			"	Test.startTest();",
+				"",
+			"	Test.stopTest();",
+			"",
+			"}"
+		
+		],
+		"description": "Creates structure for new Apex Test Method"
+	},
+
+	"Define Mock Implementation Structure": {
+		"prefix": "apx-t-setmock",
+		"body": [
+			"Test.setMock(${1|HttpCalloutMock,WebServiceMock|}.class, new ${2:CustomMockImplementationClass());",			
+		],
+		"description": "Set Mock implementation HttpCallout"
+	},
+
+	
+	"New CalloutMock Structure": {
+		"prefix": "apx-t-calloutmock",
+		"body": [
+			"@IsTest",
+			"public class ${1:CustomMockImplementationClass} implements ${2|HttpCalloutMock,WebServiceMock|} {",
+			"    private final HttpResponse response;",
+			"    private HttpRequest request;",
+			"",
+			"    public ${1:CustomMockImplementationClass}(HttpResponse response) {",
+			"        this.response = response;",
+			"    }",
+			"",
+			"    public HttpResponse respond(HttpRequest request) {",
+			"        this.request = request;",
+			"        return response;",
+			"    }",
+			"",
+			"    public HttpRequest getRequest() {",
+			"        return request;",
+			"    }",
+			"}"
+		],
+		"description": "Creates Mock Callout Class Structure"
+	},
+
+
+
+
+	// global with sharing class ORGTestConfigServiceSchedulable implements Schedulable {
+
+	// 	global void execute(SchedulableContext SC) {
+	// 		calloutORGTestConfigServiceExecution();
+	// 	}
+		
+	// 	@future (callout=true)
+	// 	public static void calloutORGTestConfigServiceExecution(){
+	// 		ORGTestConfigService.runAllTestsAgainstConfiguredORGs();
+	// 	}
+		
+	// 	public static void createDailyScheduledJob(String sCron){
+	// 		AutomatedTestJobQueuer atj = new AutomatedTestJobQueuer();  
+	// 		string sch = sCron;//'0 0 11 * * ?';  
+	// 		system.schedule('Enqueue Unit Tests '+ sCron, sch, atj);
+	// 	}
+	
+	// }
+	/*************** APEX SCHEDULABLE *******************/
+	"New Apex Schedulable Class Structure": {
+		"prefix": "apx-s-c",
+		"body": [
+			"global with sharing class ${1:ApexSchedulableClassName} implements Schedulable {",
+			"",
+			"	global void execute(SchedulableContext SC) {",
+			"",
+			"	}",
+					"",
+			"}",
+		],
+		"description": "Creates structure for new Apex Schedulable Class"
+	},
+
+
+	/***************** APEX INTERFACE *********************/
+	// private ORGTestConfigDataAccessorInterface orgTestDataAccessor;
+    // public ORGTestConfigService(ORGTestConfigDataAccessor orgTestConfigDAImplementation) {
+    //     orgTestDataAccessor = orgTestConfigDAImplementation;
+	// }
+	
+	"Apex Interface Constructor Injection": {
+		"prefix": "apx-i-ci",
+		"body": [
+			"private ${1:ApexInterfaceName} ${2:apexInterfaceVariableName};",
+			"public ${3:ClassName}(${4:ClassImplementation} ${5:apexImplementationVariableName}) {",
+			"	${2:apexInterfaceVariableName} = ${5:apexImplementationVariableName};",
+			"}",
+		],
+		"description": "Creates structure for Apex Interface Constructor Injection"
+	}
+
+
+
+}

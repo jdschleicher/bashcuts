@@ -1,0 +1,226 @@
+
+# Git Aliases
+alias gs="git status"
+alias ga="git add"
+alias gaa="git add ."
+alias gd="git diff"
+alias gp="git pull"
+
+alias gl-graph="git log --graph --full-history --all --color --decorate=short"
+alias gl="git log --graph --name-status --pretty=format:\"%h - %an, %ar : %s\"" 
+alias gl-one-line="git log --pretty=oneline --graph --name-status"
+
+alias o-gcl="git config --local -e" #open up local config file for editing
+alias o-gcg="git config --global -e"
+
+
+alias g-stash-apply="git stash apply stash@{0}"
+
+alias g-reset-commitandfiles="git reset --hard HEAD~1"  
+alias g-reset-commit="git reset --soft HEAD^1"
+alias g-reset-head="git reset --hard HEAD"
+
+
+
+#git functions
+gc() {
+    git commit -m "${1}"
+}
+
+gbp() {
+    current_branch=$(git branch --show-current)
+    git push origin $current_branch
+}
+
+gca() {
+    git add -A;
+    git commit -am "${1}"
+}
+
+g-rename-current-branch() {
+    echo "What is the new name of the branch?"
+    read NEW_BRANCH_NAME
+    git branch -m $NEW_BRANCH_NAME
+}
+
+g-search-string() {
+    git log -S $1
+}
+
+g-search-file-updates() {
+    echo "What is the file with filepath to search?"
+    read -e FILENAME
+    echo "Searching Updates"
+    git log --all --source -- $FILENAME | grep -o "refs/heads/.*" | sort -u | xargs -I "{}" git log --pretty=oneline --graph -1 --format=%aI%x20%S "{}" -- $FILENAME | sort -r
+}
+
+g-file-history() {
+    echo "What is the file with filepath to search?"
+    read -e FILENAME
+    echo "Searching Updates"
+    git log --all --source -- $FILENAME | grep -o "refs/heads/.*" | sort -u | xargs -I "{}" git log -1 --format=%aI%x20%S "{}" -- $FILENAME | sort -r
+}
+
+g-set-tracking-upstream-remote() {
+    echo "What is the branch to set tracking remote?"
+    read BRANCH_NAME
+    echo "git branch --set-upstream-to=origin/$BRANCH_NAME $BRANCH_NAME"
+    git branch --set-upstream-to=origin/$BRANCH_NAME $BRANCH_NAME
+}
+
+alias gl-graph="git log --graph --full-history --all --color --decorate=short"
+alias gl="git log --graph --name-status --pretty=format:\"%h - %an, %ar : %s\"" 
+alias gl-one-line="git log --pretty=oneline --graph --name-status"
+
+g-ignore-filereset() {
+    git rm --cached -r $1
+}
+
+g-reset-staged() {
+    git reset HEAD $1
+}
+
+g-discard-by-file() {
+    echo What file would you like to discard the updates for?
+    read -e FILE_PATH_TO_DISCARD
+    echo git checkout -- $FILE_PATH_TO_DISCARD
+    git checkout -- $FILE_PATH_TO_DISCARD
+}
+
+g-restore-by-file() {
+    echo What file would you like to restore from staged?
+    read -e FILE_PATH_TO_RESTORE
+    echo git restore --staged $FILE_PATH_TO_RESTORE
+    git restore --staged $FILE_PATH_TO_RESTORE
+}
+
+
+g-reset-last-commit-to-staged() {
+    echo "git reset --soft HEAD~1"
+    git reset --soft HEAD~1
+}
+
+g-search-all-by-commit() {
+    echo What commit ID would you like to search for?
+    read -e COMMIT_ID
+    echo "git branch -a --contains '$COMMIT_ID'"
+    git branch -a --contains "$COMMIT_ID"
+}
+
+g-search-all-commits-by-file() {
+    echo What file would you like to search for?
+    read -e FILE_TO_SEARCH
+    echo "git log --all '$FILE_TO_SEARCH'"
+    git log --all "$FILE_TO_SEARCH"
+}
+
+#git checkout main and delete current branch 
+g-delete-current() {
+    echo What branch would you like to checkout?
+    read BRANCH_TO_CHECKOUT
+    echo $BRANCH_TO_CHECKOUT
+    currentBranchToDelete=$(git branch --show-current)
+    echo "current branch: $currentBranchToDelete"
+    echo "git checkout $BRANCH_TO_CHECKOUT"
+    git checkout $BRANCH_TO_CHECKOUT
+    echo "Locally deleting: $currentBranchToDelete"
+    git branch -D $currentBranchToDelete
+}
+
+g-delete-current-from-remote-and-local() {
+    echo What branch would you like to checkout?
+    read BRANCH_TO_CHECKOUT
+    echo $BRANCH_TO_CHECKOUT
+    currentBranchToDelete=$(git branch --show-current)
+    echo "current branch: $currentBranchToDelete"
+    echo "git checkout $BRANCH_TO_CHECKOUT"
+    git checkout $BRANCH_TO_CHECKOUT
+    echo "Locally deleting: $currentBranchToDelete"
+    git branch -D $currentBranchToDelete
+    echo "deleting branch from origin"
+    echo "git push -d origin '$currentBranchToDelete'"
+    git push -d origin "$currentBranchToDelete"
+}
+
+g-update-remote() {
+    echo What is the new remote?
+    read newRemote
+    git remote rm origin
+    git remote add origin $newRemote
+    git config master.remote origin
+    git config master.merge refs/heads/master
+}
+
+g-quick-commit-push() {
+    git add .;
+    git commit -am "$1";
+    gbp;
+}
+
+g-show-branches-local() {
+    git branch 
+}
+
+g-show-branches-all() {
+    git branch -a
+}
+
+g-delete-all-local-branches-but-master() {
+    git branch | grep -v "master" | xargs git branch -D 
+}
+
+g-delete-all-remote-branches-but-master-main-develop() {
+    git branch -r | grep 'origin' | grep -v 'master$' | grep -v 'main$' | grep -v 'develop$' | grep -v HEAD | cut -d/ -f2- | while read line; do git push origin :heads/$line; done;    
+}
+
+g-delete-remoteandlocal-by-branch() {
+    echo "What is the branch name?"
+    read branchName
+    echo "deleting branch locally"
+    echo "git branch -D '$branchName'"
+    git branch -D "$branchName"
+    echo "deleting branch from origin"
+    echo "git push -d origin '$branchName'"
+    git push -d origin "$branchName"
+
+}
+
+
+g-delete-local-by-branch() {
+    echo "What is the branch name?"
+    read branchName
+    echo "deleting branch locally"
+    echo "git branch -D '$branchName'"
+    git branch -D "$branchName"
+
+}
+
+g-action-init() {
+    # replace $1 with a unique feature branch identifier
+    git checkout -b "feature-$1";
+    touch "feature-$1";
+    git add -A;
+    git commit -m "changes-$1";
+    git push -u origin feature-$1;
+}
+
+g-checkout-last() {
+    git checkout -
+}
+
+g-contains-commithash-remote() {
+    echo "What is the commit id"
+    read COMMIT_ID 
+    echo git branch --contains $COMMIT_ID -r
+    git branch --contains $COMMIT_ID -r
+}
+
+g-show-latest-commits-local-and-remote() {
+    git for-each-ref --sort=-committerdate refs/heads refs/remotes --format='%(authordate:short) %(color:red)%(objectname:short) %(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)'
+}
+
+
+
+
+
+
