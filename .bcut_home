@@ -1,3 +1,8 @@
+if [[ $OSTYPE == 'darwin'* ]]; then
+  echo 'macOS'
+  alias start="open"
+fi
+
 
 if [ -f $PATH_TO_BASHCUTS/bashcuts/bashcuts_by_cli/.bash_commons ]; 
 then 
