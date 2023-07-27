@@ -3,7 +3,7 @@
 export PROMPT_COMMAND="echo -n \[\$(date +%H:%M:%S)\]\ "
 
 # GREP
-alias hg="history|grep "
+alias hg="history|grep"
 
 # NEW TERMINAL FROM TERMINAL WINDOWS
 alias new-bash='start "" "C:\Program Files\Git\git-bash.exe"' #UNLINKED TO CURRENT TERMINAL PROCESS
