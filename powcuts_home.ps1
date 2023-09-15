@@ -14,8 +14,6 @@ if ($pow_azcli -ne $NULL) {
     Write-Host "no az cli"
 }
 
-
-
 $pow_common = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_common.ps1"
 if ($pow_common -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\pow_common.ps1"
