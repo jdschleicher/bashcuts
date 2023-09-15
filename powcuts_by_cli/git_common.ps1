@@ -1,13 +1,13 @@
 
-function gl-graph {
+function g-log-graph {
     git log --graph --full-history --all --color --decorate=short
 }
 
-function gl {
+function g-log {
     git log --graph --name-status --pretty=format:'%h - %an, %ar : %s'
 }
 
-function gl-one-line {
+function g-log-one-line {
     git log --pretty=oneline --graph --name-status
 }
 
@@ -51,6 +51,7 @@ function gc {
 }
 
 function gbp {
+    Write-Host "inheres"
     $current_branch = git branch --show-current
     Write-Host $current_branch
     git push origin $current_branch
@@ -99,15 +100,9 @@ function g-set-tracking-upstream-remote {
     Write-Host "git branch --set-upstream-to=origin/$BRANCH_NAME $BRANCH_NAME"
     git branch --set-upstream-to=origin/$BRANCH_NAME $BRANCH_NAME
 }
-
-Set-Alias -Name gl-graph -Value "git log --graph --full-history --all --color --decorate=short"
-Set-Alias -Name g-log -Value "git log --graph --name-status --pretty=format:'%h - %an, %ar : %s'"
-Set-Alias -Name gl-one-line -Value "git log --pretty=oneline --graph --name-status"
-
 function g-ignore-filereset {
     git rm --cached -r $args[0]
 }
-
 function g-reset-staged {
     git reset HEAD $args[0]
 }
