@@ -45,8 +45,8 @@ dx-save-plugin-metadata() {
 }
 
 dx-show-orgs() {
-    echo sfdx force:org:list
-    time sfdx force:org:list
+    echo sfdx force:org:list --json
+    time sfdx force:org:list --json
 }
 
 alias dx-show-devhub-packagelist="time sfdx force:package:list"
@@ -178,10 +178,10 @@ dx-promote-package() {
 
 dx-retrieve-manifest() {
 
-    echo What is the alias/username of the org deploying to \(-u \| --targetusername\)?
+    echo What is the alias/username of the org retrieving from \(-u \| --targetusername\)?
     read ALIAS
     echo What is the package.xml directory path \( -x \| --manifest\)?
-    read MANIFEST_PATH
+    read -e MANIFEST_PATH
     echo sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS
     time sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS
 
@@ -337,6 +337,17 @@ dx-create-scratch() {
     read alias
     echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
     time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
+}
+
+dx-create-scratch-sf() {
+    echo What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?
+    read DEVHUB
+    echo How many days\(--duration-days\) will this scratch org Exist \(1-30\)?
+    read durationDays
+    echo What will the scratch org\'s alias\(--alias\) be?
+    read alias
+    echo sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
 }
 
 dx-create-scratch-by-path() {
@@ -1211,6 +1222,15 @@ dx-query-tooling-csv() {
     echo "$results" > "$fileName"
 }
 
+dx-query-tooling-api() {
+    echo What is the username/alias \(--username \| -u\) where this soql will be run against?
+    read alias
+    echo What is the query?
+    read query
+    echo "sf data query --use-tooling-api --query "$query" --target-org $alias --json"
+    time sf data query --use-tooling-api --query "$query" --target-org $alias --json
+}
+
 dx-getfields-by-object() {
     echo What is the API Name of the object to get fields for?
     read API_OBJECT_NAME
@@ -1228,6 +1248,18 @@ dx-create-org-shape() {
 dx-show-org-shapes() {
     echo "sfdx force:org:shape:list"
     time sfdx force:org:shape:list
+}
+
+dx-show-org-shapes-sf() {
+    echo "sf org list shape --json"
+    time sf org list shape --json
+}
+
+dx-create-org-shape-sf() {
+    echo What is the alias of the org shape source org? \(--target-org \| -o\)
+    read ORG_SHAPE_ALIAS
+    echo "sf org create shape --target-org $ORG_SHAPE_ALIAS --json"
+    time sf org create shape --target-org $ORG_SHAPE_ALIAS --json
 }
 
 dx-plugin-development-test-run() {
@@ -1253,7 +1285,7 @@ dx-create-sandbox-async-sf() {
     echo What is the NAME of the sandbox to be created? \( -a \| --alias \)
     read SANDBOX_NAME
     echo "sf org create sandbox --name $SANDBOX_NAME --license-type Developer --alias $SANDBOX_ALIAS --target-org $PROD_ALIAS --async"
-    sf org create sandbox --name $SANDBOX_NAME --license-type Developer --alias $SANDBOX_ALIAS --target-org $PROD_ALIAS --async
+    echo "Y" | sf org create sandbox --name $SANDBOX_NAME --license-type Developer --alias $SANDBOX_ALIAS --target-org $PROD_ALIAS --async
 }
 
 dx-dry-run-deploy-dry-run-by-path-and-target-org-sf() {
