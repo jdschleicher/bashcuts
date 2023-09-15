@@ -52,6 +52,7 @@ function gc {
 
 function gbp {
     $current_branch = git branch --show-current
+    Write-Host $current_branch
     git push origin $current_branch
 }
 
@@ -59,7 +60,7 @@ function gca {
     param (
         [string]$message
     )
-    
+
     git commit -am $message
 }
 
