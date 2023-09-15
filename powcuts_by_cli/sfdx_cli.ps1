@@ -7,8 +7,6 @@ function SetupLocalGitHubActionsEnvironment {
 
 Set-Alias -Name np -Value c:\windows\notepad.exe
 
-Set-Alias -Name jonwh -Value  "Write-Host"
-
 function dx_get_salesforce_field_type_by_salesforce_field_file {
     param(
         [Parameter(Mandatory=$true)]

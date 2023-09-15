@@ -29,3 +29,7 @@ function o-pow-open {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\pow_open.ps1"
 } 	
 
+function o-pow-git {
+	Start-Process "$path_to_bashcuts\powcuts_by_cli\git_common.ps1"
+}
+

@@ -29,8 +29,15 @@ if ($pow_open -ne $NULL) {
 }
 
 $pester = Get-Content "$path_to_bashcuts\powcuts_by_cli\pester.ps1"
-if ($pow_open -ne $NULL) {
+if ($pester -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\pester.ps1"
+} else {
+    Write-Host "no pester"
+}
+
+$git_common = Get-Content "$path_to_bashcuts\bashcuts_by_cli\.gitcli_bashcuts"
+if ($git_common -ne $NULL) {
+    . "$path_to_bashcuts\powcuts_by_cli\git_common.ps1"
 } else {
     Write-Host "no pester"
 }
