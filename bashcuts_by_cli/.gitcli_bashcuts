@@ -21,6 +21,14 @@ alias g-reset-commit="git reset --soft HEAD^1"
 alias g-reset-head="git reset --hard HEAD"
 
 
+g-reset-file-by-commit() {
+    echo What file would you like to reset?
+    read -e FILE_TO_RESET
+    echo What commit hash would you like to reset the file to?
+    read COMMIT_HASH
+    git checkout $COMMIT_HASH -- $FILE_TO_RESET
+    echo git checkout $COMMIT_HASH -- $FILE_TO_RESET
+}
 
 #git functions
 gc() {
