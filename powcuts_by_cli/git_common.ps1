@@ -50,10 +50,8 @@ function gc {
     git commit -m $message
 }
 
-function gbp {
-    Write-Host "inheres"
+function gbpush {
     $current_branch = git branch --show-current
-    Write-Host $current_branch
     git push origin $current_branch
 }
 
@@ -172,7 +170,7 @@ function g-update-remote {
 function g-quick-commit-push {
     git add .
     git commit -am $args[0]
-    gbp
+    gbpush
 }
 
 function g-show-branches-local {
