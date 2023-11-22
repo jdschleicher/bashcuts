@@ -580,12 +580,25 @@ dx-create-package() {
     read packageName
     echo What is the package Type?\(--packagetype Managed\|Unlocked\)?
     read packageType
+    echo Is this an 'Org-Dependent' package\(--org-dependent\)? Answer with YES or NO
+    read IS_ORG_DEPENDENT
+    ### ENSURE IS ORG DEPENDENT ENTERED IS READ AS UPPERCASE FOR IF CONDITION
+    UPPERCASE_IS_ORG_DEPENDENT=${IS_ORG_DEPENDENT^^}
     echo What is the package path?\(--path\)?
     read -e path
     echo What is the package description?\(--description\)?
     read description
-    echo sfdx force:package:create --targetdevhubusername=$targetdevhubusername --name $packageName --packagetype $packageType --path $path --description "$description" --nonamespace
-    time sfdx force:package:create --targetdevhubusername=$targetdevhubusername --name $packageName --packagetype $packageType --path $path --description "$description" --nonamespace
+
+    if [[ "$UPPERCASE_IS_ORG_DEPENDENT" == "YES" ]]
+    then
+        echo sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace --org-dependent
+        time sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace --org-dependent
+    else 
+        echo sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace
+        time sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace
+    fi
+
+
 }
  
 dx-create-package-version-skipvalidation() {
