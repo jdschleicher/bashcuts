@@ -217,7 +217,7 @@ g-checkout-last() {
 }
 
 g-contains-commithash-remote() {
-    echo "What is the commit id"
+    echo "What is the commit id?"
     read COMMIT_ID 
     echo git branch --contains $COMMIT_ID -r
     git branch --contains $COMMIT_ID -r
@@ -227,7 +227,12 @@ g-show-latest-commits-local-and-remote() {
     git for-each-ref --sort=-committerdate refs/heads refs/remotes --format='%(authordate:short) %(color:red)%(objectname:short) %(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)'
 }
 
-
+g-show-files-changes-by-commit() {
+    echo "What is the commit id?"
+    read COMMIT_ID 
+    echo git show --name-only $COMMIT_ID
+    git show --name-only $COMMIT_ID
+}
 
 
 
