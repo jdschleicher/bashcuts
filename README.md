@@ -16,16 +16,18 @@
   - sfdx texei: https://github.com/texei/texei-sfdx-plugin
   - sfdx shane-plugins: https://github.com/mshanemc/shane-sfdx-plugins
   - sfdx data move utility sfdmu: https://github.com/forcedotcom/SFDX-Data-Move-Utility
+ 
+<br>
 
 ***
 
 <br>
 
-## <a name="system-setup"></a>bashcuts system setup
+# <a name="system-setup"></a> System Setup for bash and PowerShell Profiles
 
 **IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
 
-#### SETUP FOR BASH TERMINAL:
+## SETUP FOR BASH TERMINAL:
 
 Shortcuts using bashrc or bash_profile files. Many of the shortcuts provide prompts to support populated necessary arguments/flags to make the functions work
 
@@ -53,7 +55,7 @@ fi
 	
 ```
 
-#### SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
+## SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
 
 Once PowerShell Core has been installed on your machine you can open up a new PowerShell terminal in VS Code or a standalone PowerShell Terminal.
 
