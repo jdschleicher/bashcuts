@@ -139,3 +139,14 @@ Here's a side-by-side view of a regular PowerShell core terminal and the PowerSh
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/87f2fefe-f81f-42a8-b6fc-100e2292703b)
 
+## Opening VS Code Snipppets
+
+When using VS Code it is HIGHLY recommend to setup VSCode settings sync: https://code.visualstudio.com/docs/editor/settings-sync
+
+This will sync settings, keyboard shortcuts, much more, AND SNIPPETS. 
+
+For windows machines, the snippets are stored in an expected directory, so we can created custom snippet files or use VSCode made snippet files and quickly open them to add new snippets as needed. VS-Code saves those snippets via sync and bashcuts allows us to easily open, edit, and add to them without leaving our VS Code editor.
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/00f97b96-60a3-488a-9eca-71202fd922d2)
+
+
