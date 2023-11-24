@@ -25,7 +25,11 @@
 
 # <a name="system-setup"></a> System Setup for bash and PowerShell Profiles
 
+<br>
+
 **IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+
+<br>
 
 ## SETUP FOR BASH TERMINAL:
 
@@ -54,6 +58,7 @@ else
 fi
 	
 ```
+<br>
 
 ## SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
 
