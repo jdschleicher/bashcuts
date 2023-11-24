@@ -17,7 +17,14 @@
   - sfdx shane-plugins: https://github.com/mshanemc/shane-sfdx-plugins
   - sfdx data move utility sfdmu: https://github.com/forcedotcom/SFDX-Data-Move-Utility
 
+***
+<br>
 ## <a name="system-setup"></a>bashcuts system setup
+
+**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+
+#### SETUP FOR BASH TERMINAL:
+
 Shortcuts using bashrc or bash_profile files. Many of the shortcuts provide prompts to support populated necessary arguments/flags to make the functions work
 
 You may not already have a .bashrc file on your system. To create one, open a bash terminal and copy and paste the below command in the terminal or create a new file in your user directory with the name **.bashrc**
@@ -30,7 +37,7 @@ To get started, add the below content and associated logic to the your .bashrc f
 
 To open the .bashrc file that was created above type in the terminal: start ~/.bashrc
 
-**IMPORTANT** -- clone the bashcuts directory into a folder directory structure without spaces or the source command won't be able to evaluate the path correctly (still working on setting it up correctly to not care about spaces)
+**IMPORTANT** -- clone the bashcuts directory into a folder directory structure without spaces or the source command won't be able to evaluate the path correctly (still working on setting it up correctly to not care about spaces). Also note you will have to provide that path to the variable below:
 
 ```
 	PATH_TO_BASHCUTS="/c/path/to/your-parent-directory-where-bashcuts-will-be-cloned-into/"  
@@ -44,8 +51,39 @@ To open the .bashrc file that was created above type in the terminal: start ~/.b
 	
 ```
 
-**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+#### SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
 
+Once PowerShell Core has been installed on your machine you can open up a new PowerShell terminal in VS Code or a standalone PowerShell Terminal.
+
+With the terminal open enter "$profile" into the terminal to see where the terminal's expecting a profile file to exist. This file may not exist so we may need to create it. 
+
+To create the file enter the below powershell command to create an empty file at the expected profile path:
+
+```
+New-Item -ItemType File -Path $profile
+
+```
+
+To edit the profile select, enter the below command:
+
+```
+start $profile
+```
+
+This will open up the PowerShell profile and may prompt for which application to open the file in. Choose VSCode and select the checkbox to use VSCode for all ps1 files. This gives us syntax highlighting and other features that can be leveraged within the VS Code IDE.
+
+With the PowerShell Profile open add the following code snippet AND **IMPORTANT** replace the path directories to point to where the bashcuts directory was cloned to.
+
+We will know if its working as expected if the terminal prompts out "powershell starting" on initialization/opening:
+
+For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update.
+
+Here's a screen shot of the commands to the empty profile being opened in VS Code:
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/c76f2eb0-6091-496a-bfe5-d1dafe557b27)
+
+***
+<br>
 ## <a name="how-to"></a>How to use bashcuts
 
 ### The bashcuts commands (for the majority of commands) have a convention of 'verb-noun' and meant to be auto-filled with tab-tab to avoid any typos or copy/paste mistakes
