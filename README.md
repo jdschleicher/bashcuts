@@ -4,6 +4,10 @@
 * [bashcuts system setup](#system-setup)
 * [How to use bashcuts](#how-to)
 
+***
+
+<br>
+
 ## <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
 
 - node - https://nodejs.org/en/download
