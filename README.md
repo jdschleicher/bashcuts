@@ -1,7 +1,7 @@
 ## Table of Contents
 
 * [Tools used within these alias shortcuts and require installation ahead of time](#tools-used)
-* [bashcuts system setup](#system-setup)
+* [System Setup for bash and PowerShell Profiles](#system-setup)
 * [How to use bashcuts](#how-to)
 
 ***
