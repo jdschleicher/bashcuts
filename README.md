@@ -1,4 +1,4 @@
-## Table of Contents
+# Table of Contents
 
 * [Tools used within these alias shortcuts and require installation ahead of time](#tools-used)
 * [System Setup for bash and PowerShell Profiles](#system-setup)
@@ -6,9 +6,8 @@
 
 ***
 
-<br>
 
-## <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
+# <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
 
 - node - https://nodejs.org/en/download
 - in order to use powershell shortcuts -> Powershell 7 (and higher) - Installation instructions by operating system: https://github.com/powershell/powershell#get-powershell
