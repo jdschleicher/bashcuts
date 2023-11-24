@@ -19,6 +19,7 @@
 
 ***
 <br>
+
 ## <a name="system-setup"></a>bashcuts system setup
 
 **IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
@@ -40,14 +41,14 @@ To open the .bashrc file that was created above type in the terminal: start ~/.b
 **IMPORTANT** -- clone the bashcuts directory into a folder directory structure without spaces or the source command won't be able to evaluate the path correctly (still working on setting it up correctly to not care about spaces). Also note you will have to provide that path to the variable below:
 
 ```
-	PATH_TO_BASHCUTS="/c/path/to/your-parent-directory-where-bashcuts-will-be-cloned-into/"  
-	if [ -f $PATH_TO_BASHCUTS/bashcuts/.bcut_home ]; 
-	then 
-	    echo "bashrc loaded"
-	    source $PATH_TO_BASHCUTS/bashcuts/.bcut_home
-	else
-	    echo "missing bashrc"
-	fi
+PATH_TO_BASHCUTS="/c/path/to/your-parent-directory-where-bashcuts-will-be-cloned-into/"  
+if [ -f $PATH_TO_BASHCUTS/bashcuts/.bcut_home ]; 
+then 
+    echo "bashrc loaded"
+    source $PATH_TO_BASHCUTS/bashcuts/.bcut_home
+else
+    echo "missing bashrc"
+fi
 	
 ```
 
@@ -76,11 +77,30 @@ With the PowerShell Profile open add the following code snippet AND **IMPORTANT*
 
 We will know if its working as expected if the terminal prompts out "powershell starting" on initialization/opening:
 
+```
+
+$path_to_bashcuts_parent_directory = 'C:\git'
+$bashcuts_git_directory = "bashcuts"
+if ("$path_to_bashcuts_parent_directory\$bashcuts_git_directory" -ne $NULL) {
+    $path_to_bashcuts = "$path_to_bashcuts_parent_directory\$bashcuts_git_directory"
+    Write-Host "PowerShell bashcuts exists"
+	. "$path_to_bashcuts\powcuts_home.ps1"
+} else {
+	Write-Host "Cannot find bashcuts"
+    Write-Host "pow_home not setup"
+}
+
+```
+
 For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update.
 
 Here's a screen shot of the commands to the empty profile being opened in VS Code:
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/c76f2eb0-6091-496a-bfe5-d1dafe557b27)
+
+Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal:
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/f52313f0-a877-4971-828a-954fead5c25d)
 
 ***
 <br>
