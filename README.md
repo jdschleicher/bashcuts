@@ -70,7 +70,6 @@ To create the file enter the below powershell command to create an empty file at
 
 ```
 New-Item -ItemType File -Path $profile
-
 ```
 
 To edit the profile select, enter the below command:
