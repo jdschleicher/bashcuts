@@ -110,8 +110,12 @@ Here's a side-by-side view of a regular PowerShell core terminal and the PowerSh
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/f52313f0-a877-4971-828a-954fead5c25d)
 
 ***
+
 <br>
-## <a name="how-to"></a>How to use bashcuts
+
+# <a name="how-to"></a>How to use bashcuts
+
+<br>
 
 ### The bashcuts commands (for the majority of commands) have a convention of 'verb-noun' and meant to be auto-filled with tab-tab to avoid any typos or copy/paste mistakes
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/6eeb578a-e6f1-4e3e-89f2-efd4e09872dc)
