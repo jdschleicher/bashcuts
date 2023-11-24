@@ -6,6 +6,7 @@
 
 ***
 
+<br>
 
 # <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
 
@@ -61,6 +62,7 @@ else
 fi
 	
 ```
+
 <br>
 
 ## SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
