@@ -230,9 +230,21 @@ g-show-latest-commits-local-and-remote() {
 g-show-all-commits-for-file() {
     echo "What is the path of the file to see all changes for?"
     read FILE_PATH 
-    echo git log --follow --oneline --all $FILE_PATH
-    git log --follow --oneline --all $FILE_PATH
+    echo git log --follow --all $FILE_PATH
+    git log --follow --all $FILE_PATH
 }
+
+g-open-browser-to-commit-id() {
+    echo What is the commit ID to view?
+    read COMMIT_ID
+    remote_url=$(git config --get remote.origin.url)
+    git_extension_pattern=".git"
+    commit_path="/commit/$COMMIT_ID"
+    replaced_git_extension_with_commit_path_url="${remote_url/$git_extension_pattern/$commit_path}"    
+    echo "$replaced_git_extension_with_commit_path_url"
+    start $replaced_git_extension_with_commit_path_url
+}
+
 
 
 
