@@ -1,10 +1,16 @@
-## Table of Contents
+# Table of Contents
 
 * [Tools used within these alias shortcuts and require installation ahead of time](#tools-used)
-* [bashcuts system setup](#system-setup)
+* [System Setup for bash and PowerShell Profiles](#system-setup)
 * [How to use bashcuts](#how-to)
 
-## <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
+<br>
+
+***
+
+<br>
+
+# <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
 
 - node - https://nodejs.org/en/download
 - in order to use powershell shortcuts -> Powershell 7 (and higher) - Installation instructions by operating system: https://github.com/powershell/powershell#get-powershell
@@ -16,8 +22,23 @@
   - sfdx texei: https://github.com/texei/texei-sfdx-plugin
   - sfdx shane-plugins: https://github.com/mshanemc/shane-sfdx-plugins
   - sfdx data move utility sfdmu: https://github.com/forcedotcom/SFDX-Data-Move-Utility
+ 
+<br>
 
-## <a name="system-setup"></a>bashcuts system setup
+***
+
+<br>
+
+# <a name="system-setup"></a> System Setup for bash and PowerShell Profiles
+
+<br>
+
+**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+
+<br>
+
+## SETUP FOR BASH TERMINAL:
+
 Shortcuts using bashrc or bash_profile files. Many of the shortcuts provide prompts to support populated necessary arguments/flags to make the functions work
 
 You may not already have a .bashrc file on your system. To create one, open a bash terminal and copy and paste the below command in the terminal or create a new file in your user directory with the name **.bashrc**
@@ -30,23 +51,78 @@ To get started, add the below content and associated logic to the your .bashrc f
 
 To open the .bashrc file that was created above type in the terminal: start ~/.bashrc
 
-**IMPORTANT** -- clone the bashcuts directory into a folder directory structure without spaces or the source command won't be able to evaluate the path correctly (still working on setting it up correctly to not care about spaces)
+**IMPORTANT** -- clone the bashcuts directory into a folder directory structure without spaces or the source command won't be able to evaluate the path correctly (still working on setting it up correctly to not care about spaces). Also note you will have to provide that path to the variable below:
 
 ```
-	PATH_TO_BASHCUTS="/c/path/to/your-parent-directory-where-bashcuts-will-be-cloned-into/"  
-	if [ -f $PATH_TO_BASHCUTS/bashcuts/.bcut_home ]; 
-	then 
-	    echo "bashrc loaded"
-	    source $PATH_TO_BASHCUTS/bashcuts/.bcut_home
-	else
-	    echo "missing bashrc"
-	fi
+PATH_TO_BASHCUTS="/c/path/to/your-parent-directory-where-bashcuts-will-be-cloned-into/"  
+if [ -f $PATH_TO_BASHCUTS/bashcuts/.bcut_home ]; 
+then 
+    echo "bashrc loaded"
+    source $PATH_TO_BASHCUTS/bashcuts/.bcut_home
+else
+    echo "missing bashrc"
+fi
 	
 ```
 
-**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+<br>
 
-## <a name="how-to"></a>How to use bashcuts
+## SETUP FOR PowerShell Terminal AND PowerShell Debugger Terminal in VS Code:
+
+Once PowerShell Core has been installed on your machine you can open up a new PowerShell terminal in VS Code or a standalone PowerShell Terminal.
+
+With the terminal open enter "$profile" into the terminal to see where the terminal's expecting a profile file to exist. This file may not exist so we may need to create it. 
+
+To create the file enter the below powershell command to create an empty file at the expected profile path:
+
+```
+New-Item -ItemType File -Path $profile
+```
+
+To edit the profile select, enter the below command:
+
+```
+start $profile
+```
+
+This will open up the PowerShell profile and may prompt for which application to open the file in. Choose VSCode and select the checkbox to use VSCode for all ps1 files. This gives us syntax highlighting and other features that can be leveraged within the VS Code IDE.
+
+With the PowerShell Profile open add the following code snippet AND **IMPORTANT** replace the path directories to point to where the bashcuts directory was cloned to.
+
+We will know if its working as expected if the terminal prompts out "powershell starting" on initialization/opening:
+
+```
+
+$path_to_bashcuts_parent_directory = 'C:\git'
+$bashcuts_git_directory = "bashcuts"
+if ("$path_to_bashcuts_parent_directory\$bashcuts_git_directory" -ne $NULL) {
+    $path_to_bashcuts = "$path_to_bashcuts_parent_directory\$bashcuts_git_directory"
+    Write-Host "PowerShell bashcuts exists"
+	. "$path_to_bashcuts\powcuts_home.ps1"
+} else {
+	Write-Host "Cannot find bashcuts"
+    Write-Host "pow_home not setup"
+}
+
+```
+
+For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update.
+
+Here's a screen shot of the commands to the empty profile being opened in VS Code:
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/c76f2eb0-6091-496a-bfe5-d1dafe557b27)
+
+Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal:
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/f52313f0-a877-4971-828a-954fead5c25d)
+
+***
+
+<br>
+
+# <a name="how-to"></a>How to use bashcuts
+
+<br>
 
 ### The bashcuts commands (for the majority of commands) have a convention of 'verb-noun' and meant to be auto-filled with tab-tab to avoid any typos or copy/paste mistakes
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/6eeb578a-e6f1-4e3e-89f2-efd4e09872dc)
@@ -62,4 +138,15 @@ To open the .bashrc file that was created above type in the terminal: start ~/.b
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/cc4af98b-2e74-4d30-b64e-1637c7fd0823)
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/87f2fefe-f81f-42a8-b6fc-100e2292703b)
+
+## Opening VS Code Snipppets
+
+When using VS Code it is HIGHLY recommend to setup VSCode settings sync: https://code.visualstudio.com/docs/editor/settings-sync
+
+This will sync settings, keyboard shortcuts, much more, AND SNIPPETS. 
+
+For windows machines, the snippets are stored in an expected directory, so we can created custom snippet files or use VSCode made snippet files and quickly open them to add new snippets as needed. VS-Code saves those snippets via sync and bashcuts allows us to easily open, edit, and add to them without leaving our VS Code editor.
+
+![image](https://github.com/jdschleicher/bashcuts/assets/3968818/00f97b96-60a3-488a-9eca-71202fd922d2)
+
 

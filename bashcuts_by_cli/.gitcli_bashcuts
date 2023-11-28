@@ -217,7 +217,7 @@ g-checkout-last() {
 }
 
 g-contains-commithash-remote() {
-    echo "What is the commit id"
+    echo "What is the commit id?"
     read COMMIT_ID 
     echo git branch --contains $COMMIT_ID -r
     git branch --contains $COMMIT_ID -r
