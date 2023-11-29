@@ -33,7 +33,7 @@
 
 <br>
 
-**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. An "if check conditional" has been introduced to create an alias for the mac command "open" to run whenever "start" is entered. From my initial setup on a mac this has been working for me but if any erros around "start is not a command" we can also replace all instances of "start" with "open" locally in your bashcuts clone to your machine.
 
 <br>
 
