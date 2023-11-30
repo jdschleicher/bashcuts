@@ -132,7 +132,7 @@ Here's a side-by-side view of a regular PowerShell core terminal and the PowerSh
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/3e4b7f16-831e-4134-a5a5-3998f5e6032e)
 
 
-### To See Where Shortcuts our Loaded and may be available
+### To See Where Shortcuts are Loaded and may be available
 - "o-" for "Open" --> "o-sfdx" will open the file containing all aliases and supporting logic for sfdx cli shortcuts. With the sfdx-bashcuts (or any bashcuts commands file) can be easily searched, modified, or new commands added and can be committed. When modifying files enter the command "reinit" when done to reload the current terminal instead of closing and repopening.
 - To see all possible aliases and associated functions, in bash terminal, type "o-" and then press tab twice to see options of each file of shortcuts
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/cc4af98b-2e74-4d30-b64e-1637c7fd0823)
