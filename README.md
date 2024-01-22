@@ -1,6 +1,6 @@
 # Table of Contents
 
-* [Tools used within these alias shortcuts and require installation ahead of time](#tools-used)
+* [Choose which Prerequisite CLI's and Other Tools to Install](#tools-used)
 * [System Setup for bash and PowerShell Profiles](#system-setup)
 * [How to use bashcuts](#how-to)
 
@@ -10,7 +10,7 @@
 
 <br>
 
-# <a name="tools-used"></a>Tools used within these alias shortcuts and require installation ahead of time
+# <a name="tools-used"></a>Choose which Prerequisite CLI's and Other Tools to Install
 
 - node - https://nodejs.org/en/download
 - in order to use powershell shortcuts -> Powershell 7 (and higher) - Installation instructions by operating system: https://github.com/powershell/powershell#get-powershell
@@ -33,7 +33,7 @@
 
 <br>
 
-**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. This command needs to be replace with "open". This can be done by opening up bashcuts repository in VS Code and doing a global find and replace all for "start" and replace with "open"
+**IMPORTANT FOR MAC USERS** There are several use cases of the command "start" that allows files and websites to be opened from the terminal. An "if check conditional" has been introduced to create an alias for the mac command "open" to run whenever "start" is entered. From my initial setup on a mac this has been working for me but if any erros around "start is not a command" we can also replace all instances of "start" with "open" locally in your bashcuts clone to your machine.
 
 <br>
 
@@ -132,7 +132,7 @@ Here's a side-by-side view of a regular PowerShell core terminal and the PowerSh
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/3e4b7f16-831e-4134-a5a5-3998f5e6032e)
 
 
-### To See Where Shortcuts our Loaded and may be available
+### To See Where Shortcuts are Loaded and may be available
 - "o-" for "Open" --> "o-sfdx" will open the file containing all aliases and supporting logic for sfdx cli shortcuts. With the sfdx-bashcuts (or any bashcuts commands file) can be easily searched, modified, or new commands added and can be committed. When modifying files enter the command "reinit" when done to reload the current terminal instead of closing and repopening.
 - To see all possible aliases and associated functions, in bash terminal, type "o-" and then press tab twice to see options of each file of shortcuts
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/cc4af98b-2e74-4d30-b64e-1637c7fd0823)
