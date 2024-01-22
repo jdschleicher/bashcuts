@@ -119,6 +119,20 @@ dx-install-package-version-noprompt() {
     time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10
 }
 
+dx-uninstall-package-version-noprompt() {
+    echo What is the alias/username of the org to delete this package version from \(--target-org, -u\)?
+    read TARGET_ALIAS
+    echo What is the Subscriber Package Version Id to Uninstall? \( --package, -p \)?
+    read PACKAGE_VERSION_ID
+    echo sf package uninstall --target-org $TARGET_ALIAS --package $PACKAGE_VERSION_ID --wait 20 --json
+    time sf package uninstall --target-org $TARGET_ALIAS --package $PACKAGE_VERSION_ID --wait 20 --json
+}
+
+
+dx-test-ooo() {
+    echo "heyoooo"
+}
+
 dx-install-package-version-noprompt-delete() {
     echo What is the alias/username of the org deploying to \(--targetusername, -u\)?
     read TARGET_ALIAS
@@ -523,6 +537,7 @@ dx-create-scratch-install-any-package-dependencies-and-create-package-version-an
             time sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
             install_package_version_command_result=$(sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json)
             PACKAGE_SUBSCRIBER_VERSION_ID=$(echo $install_package_version_command_result  | jq -r '.result.SubscriberPackageVersionId')
+            echo "Here is the created package version id: $PACKAGE_SUBSCRIBER_VERSION_ID"
             echo sfdx force:package:install --targetusername $alias --package $PACKAGE_SUBSCRIBER_VERSION_ID --noprompt --wait 10
             time sfdx force:package:install --targetusername $alias --package $PACKAGE_SUBSCRIBER_VERSION_ID --noprompt --wait 10
         else    
