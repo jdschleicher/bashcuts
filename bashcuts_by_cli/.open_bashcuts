@@ -4,6 +4,8 @@ alias o-snip-lwc="start ~/AppData/Roaming/Code/User/snippets/lwc.code-snippets"
 alias o-snip-powershell="start ~/AppData/Roaming/Code/User/snippets/powershell.code-snippets"
 alias o-snip-az="start ~/AppData/Roaming/Code/User/snippets/azure-cli.code-snippets"
 alias o-snip-html="start ~/AppData/Roaming/Code/User/snippets/html.code-snippets"
+alias o-snip-html="start ~/AppData/Roaming/Code/User/snippets/markdown.json"
+
 
 #OPEN ALIAS FILE
 alias o-bashrc="start ~/.bashrc"
