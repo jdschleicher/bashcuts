@@ -5,6 +5,10 @@ function o-profile-pshome {
 	Start-Process $PSHOME\Microsoft.PowerShell_profile.ps1
 } 	
 
+function o-profile-userprofile {
+	Start-Process $env:USERPROFILE\Documents\PowerShell\Microsoft.PowerShell_profile.ps1
+} 	
+
 function o-profile {
 	Start-Process $PROFILE
 }
@@ -33,3 +37,11 @@ function o-pow-git {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\git_common.ps1"
 }
 
+
+function o-pow-jir {
+	Start-Process "$path_to_bashcuts\powcuts_by_cli\jira_automations.ps1"
+}
+
+function o-bashcuts {
+	code "$path_to_bashcuts/bashcuts"
+}
