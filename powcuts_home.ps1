@@ -41,3 +41,10 @@ if ($git_common -ne $NULL) {
 } else {
     Write-Host "no pester"
 }
+
+$jira_setup = Get-Content "$path_to_bashcuts\powcuts_by_cli\jira_setup.ps1"
+if ($jira_setup -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\jira_setup.ps1"
+} else {
+    Write-Host "no jira_setup.ps1"
+}
