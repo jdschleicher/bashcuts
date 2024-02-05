@@ -36,11 +36,11 @@ function choose_from_list {
     
             }
 
-            Write-Host -ForegroundColor White -Backgroundcolor Green "$($option_index+1).) $($final_result_to_display)"
+            Write-Host -ForegroundColor Green -Backgroundcolor White "$($option_index+1).) $($final_result_to_display)"
 
         } else {
 
-            Write-Host -ForegroundColor White -Backgroundcolor Green "$($option_index+1).) $($field_to_show)"
+            Write-Host -ForegroundColor Green -Backgroundcolor White "$($option_index+1).) $($field_to_show)"
 
         }
 
@@ -73,6 +73,7 @@ function jira_new_story_with_epic {
     # Jira API URL for creating an issue
     $apiUrl = "$base_url/rest/api/2/issue/"
 
+    Write-Host -ForegroundColor Green -BackgroundColor White "CHOOSE EPIC"
     $parent_epic = choose_from_list -options_to_choose $bashcuts_jira_config.epics -field_to_show "fields.summary"
 
 
@@ -122,10 +123,6 @@ $additional_details
 
     # Output the formatted acceptance criteria
     Write-Output $formattedCriteria
-
-    Write-Host -ForegroundColor Green "CHOOSE EPIC"
-
-    # $parent_epic = choose_from_list -options_to_choose $bashcuts_jira_config.epics -field_to_show "fields.summary"
 
     # User story data
     $customer_story_data = @{
