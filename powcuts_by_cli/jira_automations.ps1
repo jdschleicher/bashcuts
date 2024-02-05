@@ -9,16 +9,17 @@
 function choose_from_list {
     param (
         $options_to_choose,
-        $field_to_show
+        [Parameter(Mandatory=$true)]
+        $dot_notation_field_to_show
     )
     
     for ($option_index = 0; $option_index -lt $options_to_choose.Length; $option_index++) {
 
         $current_option = $options_to_choose[$option_index]
 
-        if ( $null -ne $field_to_show) {
+        if ( $null -ne $dot_notation_field_to_show) {
 
-            $dot_notation_steps = $field_to_show -split "\."
+            $dot_notation_steps = $dot_notation_field_to_show -split "\."
             $final_result_to_display = $null
             for ($dot_notation_index = 0; $dot_notation_index -lt $dot_notation_steps.Length; $dot_notation_index++) {
     
@@ -40,7 +41,7 @@ function choose_from_list {
 
         } else {
 
-            Write-Host -ForegroundColor Green -Backgroundcolor White "$($option_index+1).) $($field_to_show)"
+            Write-Host -ForegroundColor Green -Backgroundcolor White "$($option_index+1).) $($dot_notation_field_to_show)"
 
         }
 
@@ -57,7 +58,7 @@ function choose_from_list {
 
     } else {
         Write-Host "Invalid choice. Please enter a valid number."
-        choose_from_list -options_to_choose $options_to_choose -field_to_show $field_to_show
+        choose_from_list -options_to_choose $options_to_choose -dot_notation_field_to_show $dot_notation_field_to_show
     }
 
 }
@@ -74,7 +75,7 @@ function jira_new_story_with_epic {
     $apiUrl = "$base_url/rest/api/2/issue/"
 
     Write-Host -ForegroundColor Green -BackgroundColor White "CHOOSE EPIC"
-    $parent_epic = choose_from_list -options_to_choose $bashcuts_jira_config.epics -field_to_show "fields.summary"
+    $parent_epic = choose_from_list -options_to_choose $bashcuts_jira_config.epics -dot_notation_field_to_show "fields.summary"
 
 
     Write-Host "Enter Customer Story details:"
@@ -163,5 +164,145 @@ $additional_details
     Write-Output $jira_creation_response
     Write-Host "Opening Customer Story in browser..."
     start "$base_url/browse/$($jira_creation_response.key)"
+
+}
+
+function jira_add_time_by_story_key_from_past_date {
+
+    $base_url = $bashcuts_jira_config.instance_url
+    Write-Host "base url : $base_url"
+
+    $time_spent = Read-Host "How much time was spent? ( e.g. '2d' , '.25h' )"
+    $comment = Read-Host "What comments or notes for the work log (press enter if blank)?"
+
+    $story_issue_key = $null
+    $enter_issue_key_manually = Read-Host "Press 'y' or 'yes' for manual issue entry. Press 'enter' for Current Sprint selection"
+
+    if ( $enter_issue_key_manually.toLower() -eq "yes" -or $enter_issue_key_manually.toLower() -eq "y" ) {
+
+        $story_issue_key = Read-Host "What is the Story Key to log time against? ( e.g. 'VPRD-1148')"
+
+    } else {
+
+        $project_key = $bashcuts_jira_config.project_key
+        $active_sprint_issues_jql = "project = $project_key AND issuetype = Story AND Sprint IN openSprints() AND resolution = Unresolved ORDER BY status DESC, priority DESC, updated DESC"
+        $csv_fields_to_return = "key,summary"
+
+        $story_issues = jira_run_jql_query -jql_query $active_sprint_issues_jql -csv_fields_to_return $csv_fields_to_return
+        $chosen_story_issue = choose_from_list -options_to_choose $story_issues -dot_notation_field_to_show "fields.summary"
+        $story_issue_key = $chosen_story_issue.key
+    }
+
+    $previous_date = Read-Host "What is previous date to log time? ( Must be in dd/mm or dd-mm format)"
+    $split_previous_date = $previous_date -split '[/-]'
+    $day_split = $split_previous_date[1]
+    $month_split = $split_previous_date[0]
+
+    $current_year = Get-Date -Format "yyyy"
+    $current_get_date = Get-Date -Year $current_year -Month $month_split -Day $day_split
+    $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
+    Write-Output $current_date_time_jira_format
+
+    $body = [PSCustomObject]@{
+        timeSpent = $time_spent
+        comment = $comment
+        started = $current_date_time_jira_format
+    }
+
+    $body_json = $body | ConvertTo-Json -Depth 12
+
+    $jira_token = $bashcuts_jira_config.token
+    $headers = @{
+        Authorization = "Bearer $jira_token"
+        ContentType = "application/json"
+    }
+
+    $api_url = "$base_url/rest/api/2/issue/$story_issue_key/worklog"
+    Write-Host "endpoint url : $api_url"
+    
+    $response = Invoke-RestMethod -Uri $api_url -Method Post -Headers $headers -Body $body_json -ContentType "application/json"
+    Write-Output $response
+
+}
+
+function jira_add_time_by_story_key {
+
+    $base_url = $bashcuts_jira_config.instance_url
+    Write-Host "base url : $base_url"
+
+    $time_spent = Read-Host "How much time was spent? ( e.g. '2d' , '.25h' )"
+    $comment = Read-Host "What comments or notes for the work log (press enter if blank)?"
+
+    $story_issue_key = $null
+    $enter_issue_key_manually = Read-Host "Press 'y' or 'yes' for manual issue entry. Press 'enter' for Current Sprint selection"
+
+    if ( $enter_issue_key_manually.toLower() -eq "yes" -or $enter_issue_key_manually.toLower() -eq "y" ) {
+
+        $story_issue_key = Read-Host "What is the Story Key to log time against? ( e.g. 'VPRD-1148')"
+
+    } else {
+
+        $project_key = $bashcuts_jira_config.project_key
+        $active_sprint_issues_jql = "project = $project_key AND issuetype = Story AND Sprint IN openSprints() AND resolution = Unresolved ORDER BY status DESC, priority DESC, updated DESC"
+        $csv_fields_to_return = "key,summary"
+
+        $story_issues = jira_run_jql_query -jql_query $active_sprint_issues_jql -csv_fields_to_return $csv_fields_to_return
+        $chosen_story_issue = choose_from_list -options_to_choose $story_issues -dot_notation_field_to_show "fields.summary"
+        $story_issue_key = $chosen_story_issue.key
+    }
+
+    $api_url = "$base_url/rest/api/2/issue/$story_issue_key/worklog"
+    Write-Host "endpoint url : $api_url"
+
+    $current_get_date = Get-Date 
+    $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
+    Write-Output $current_date_time_jira_format
+
+    $body = [PSCustomObject]@{
+        timeSpent = $time_spent
+        comment = $comment
+        started = $current_date_time_jira_format
+    }
+    $body_json = $body | ConvertTo-Json -Depth 12
+
+    $jira_token = $bashcuts_jira_config.token
+        $headers = @{
+        Authorization = "Bearer $jira_token"
+        ContentType = "application/json"
+    }
+
+    $response = Invoke-RestMethod -Uri $api_url -Method Post -Headers $headers -Body $body_json -ContentType "application/json"
+    Write-Output $response
+
+}
+
+function jira_run_jql_query {
+	param(
+        [Parameter(Mandatory=$true)]
+		$jql_query,
+        [Parameter(Mandatory=$true)]
+        $csv_fields_to_return
+	)
+
+    $base_url = $bashcuts_jira_config.instance_url
+    Write-Host "base url : $base_url"
+
+	$jql_search_endpoint = "$base_url/rest/api/2/search"
+
+	# $ojql_query = "project = VPRD AND issuetype = Epic AND status in (Done, 'In Progress', New) AND resolution = Unresolved ORDER BY status ASC, summary ASC, updated DESC"
+	$jql_query_uri = "$($jql_search_endpoint)?jql=$jql_query&fields=$csv_fields_to_return"
+
+	Write-Host "jql_query_uri : $jql_query_uri"
+
+    $jira_token = $bashcuts_jira_config.token
+    $jira_username = $bashcuts_jira_config.username
+	$base64Credentials = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${jira_username}:${jira_token}"))
+
+	$response = Invoke-RestMethod -Uri $jql_query_uri -Method Get -Headers @{ 
+		"Content-Type" = "application/json"
+		Authorization = "Basic $base64Credentials"
+	}
+
+	$response.issues 
 
 }
