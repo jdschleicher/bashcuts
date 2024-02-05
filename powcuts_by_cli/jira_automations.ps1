@@ -1,12 +1,6 @@
 <#
 - NEXT
  
-- MAKE SURE CUSTOMER STORY DESCRIPTOIN SHOWING UP CORRECTLHY
-
-- PROVIDE LIST OF EPICS TO CHOOSE NUMBER FROM
-- USE LATEST SPRINT options?
-
-- open story
 - add time to story
 - jira views
 
