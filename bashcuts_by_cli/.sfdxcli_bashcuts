@@ -82,10 +82,6 @@ dx-docs-force-source() {
     start https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference_force_source.htm#cli_reference_force_source
 }
 
-dx-docs-config() {
-    start https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference_config.htm
-}
-
 dx-docs-scratch-org-features() {
     start https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_scratch_orgs_def_file_config_values.htm
 }
@@ -96,6 +92,18 @@ dx-docs-scratch-org-settings() {
 
 dx-docs-test() {
     start https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference_force_apex.htm#cli_reference_force_apex_test_run
+}
+
+dx-docs-config-sfdx-project-json() {
+    start https://developer.salesforce.com/docs/atlas.en-us.pkg2_dev.meta/pkg2_dev/sfdx_dev2gp_config_file.htm
+}
+
+dx-docs-unlocked-package-hard-delete-components() {
+    start https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_unlocked_hard_deleted_components.htm
+}
+
+dx-docs-unlocked-packages() {
+    start https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_unlocked_pkg_intro.htm
 }
 
 dx-open-default() {
@@ -711,6 +719,8 @@ dx-create-package-version-validate() {
 
 dx-create-data-user() {
     # Required fields are missing: [Alias, TimeZoneSidKey, LocaleSidKey, EmailEncodingKey, ProfileId, LanguageLocaleKey
+    echo What org alias to create User in?
+    read ORG_ALIAS
     echo First Name?
     read firstName
     echo Last Name?
@@ -724,7 +734,8 @@ dx-create-data-user() {
          Email='$email' \
          Username='$username' \
          Nickname='$alias' "
-    time sfdx force:data:record:create --sobjecttype User --perflog --json --values="FirstName='$firstName' LastName='$lastName' Email='$email' Username='$username'"
+
+    time sf force data record create --target-org $ORG_ALIAS --sobjecttype User --perflog --json --values="FirstName='$firstName' LastName='$lastName' Email='$email' Username='$username'"
 }
 
 dx-assign-permset() {
@@ -1203,6 +1214,7 @@ dx-logstart () {
 }
 
 dx-query() {
+    echo sfdx force:data:soql:query -q "$1"
     time sfdx force:data:soql:query -q "$1"
 }
 
@@ -1216,6 +1228,7 @@ dx-query-csv() {
     queryResultsDirectory=queryResults
     mkdir -p "$queryResultsDirectory"
     fileName="$queryResultsDirectory"/"$dateAndTime".csv
+    echo time sfdx force:data:soql:query -q "$query" -r csv -u $alias
     results=$(time sfdx force:data:soql:query -q "$query" -r csv -u $alias) 
     echo "$results" > "$fileName"
     start $fileName
@@ -1231,6 +1244,7 @@ dx-query-json() {
     queryResultsDirectory=queryResults
     mkdir -p "$queryResultsDirectory"
     fileName="$queryResultsDirectory"/"$dateAndTime".json
+    echo "time sfdx force:data:soql:query -q "$query" -r json -u $alias"
     results=$(time sfdx force:data:soql:query -q "$query" -r json -u $alias) 
     echo "$results" > "$fileName"
     code $fileName
@@ -1246,6 +1260,7 @@ dx-query-tooling-csv() {
     queryResultsDirectory=queryResults
     mkdir -p "$queryResultsDirectory"
     fileName="$queryResultsDirectory"/"$dateAndTime".csv
+    echo time sfdx force:data:soql:query --usetoolingapi -q "$query" -r csv -u $alias
     results=$(time sfdx force:data:soql:query --usetoolingapi -q "$query" -r csv -u $alias) 
     echo "$results" > "$fileName"
 }

@@ -5,6 +5,7 @@ alias ga="git add"
 alias gaa="git add ."
 alias gd="git diff"
 alias gp="git pull"
+alias g-sync="git pull;git push"
 
 alias gl-graph="git log --graph --full-history --all --color --decorate=short"
 alias gl="git log --graph --name-status --pretty=format:\"%h - %an, %ar : %s\"" 

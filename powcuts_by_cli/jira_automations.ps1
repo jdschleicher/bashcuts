@@ -167,64 +167,6 @@ $additional_details
 
 }
 
-function jira_add_time_by_story_key_from_past_date {
-
-    $base_url = $bashcuts_jira_config.instance_url
-    Write-Host "base url : $base_url"
-
-    $time_spent = Read-Host "How much time was spent? ( e.g. '2d' , '.25h' )"
-    $comment = Read-Host "What comments or notes for the work log (press enter if blank)?"
-
-    $story_issue_key = $null
-    $enter_issue_key_manually = Read-Host "Press 'y' or 'yes' for manual issue entry. Press 'enter' for Current Sprint selection"
-
-    if ( $enter_issue_key_manually.toLower() -eq "yes" -or $enter_issue_key_manually.toLower() -eq "y" ) {
-
-        $story_issue_key = Read-Host "What is the Story Key to log time against? ( e.g. 'VPRD-1148')"
-
-    } else {
-
-        $project_key = $bashcuts_jira_config.project_key
-        $active_sprint_issues_jql = "project = $project_key AND issuetype = Story AND Sprint IN openSprints() AND resolution = Unresolved ORDER BY status DESC, priority DESC, updated DESC"
-        $csv_fields_to_return = "key,summary"
-
-        $story_issues = jira_run_jql_query -jql_query $active_sprint_issues_jql -csv_fields_to_return $csv_fields_to_return
-        $chosen_story_issue = choose_from_list -options_to_choose $story_issues -dot_notation_field_to_show "fields.summary"
-        $story_issue_key = $chosen_story_issue.key
-    }
-
-    $previous_date = Read-Host "What is previous date to log time? ( Must be in dd/mm or dd-mm format)"
-    $split_previous_date = $previous_date -split '[/-]'
-    $day_split = $split_previous_date[1]
-    $month_split = $split_previous_date[0]
-
-    $current_year = Get-Date -Format "yyyy"
-    $current_get_date = Get-Date -Year $current_year -Month $month_split -Day $day_split
-    $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
-    Write-Output $current_date_time_jira_format
-
-    $body = [PSCustomObject]@{
-        timeSpent = $time_spent
-        comment = $comment
-        started = $current_date_time_jira_format
-    }
-
-    $body_json = $body | ConvertTo-Json -Depth 12
-
-    $jira_token = $bashcuts_jira_config.token
-    $headers = @{
-        Authorization = "Bearer $jira_token"
-        ContentType = "application/json"
-    }
-
-    $api_url = "$base_url/rest/api/2/issue/$story_issue_key/worklog"
-    Write-Host "endpoint url : $api_url"
-    
-    $response = Invoke-RestMethod -Uri $api_url -Method Post -Headers $headers -Body $body_json -ContentType "application/json"
-    Write-Output $response
-
-}
-
 function jira_add_time_by_story_key {
 
     $base_url = $bashcuts_jira_config.instance_url
@@ -243,7 +185,7 @@ function jira_add_time_by_story_key {
     } else {
 
         $project_key = $bashcuts_jira_config.project_key
-        $active_sprint_issues_jql = "project = $project_key AND issuetype = Story AND Sprint IN openSprints() AND resolution = Unresolved ORDER BY status DESC, priority DESC, updated DESC"
+        $active_sprint_issues_jql = "project = $project_key AND issuetype = Story AND Sprint IN openSprints() ORDER BY status DESC, priority DESC, updated DESC"
         $csv_fields_to_return = "key,summary"
 
         $story_issues = jira_run_jql_query -jql_query $active_sprint_issues_jql -csv_fields_to_return $csv_fields_to_return
@@ -251,26 +193,45 @@ function jira_add_time_by_story_key {
         $story_issue_key = $chosen_story_issue.key
     }
 
-    $api_url = "$base_url/rest/api/2/issue/$story_issue_key/worklog"
-    Write-Host "endpoint url : $api_url"
+    $is_previous_date = Read-Host "Is this time log for a Previous date? (yes or y)"
+    $current_date_time_jira_format = $null
+    if ( $is_previous_date.toLower() -eq "yes" -or $is_previous_date.toLower() -eq "y" ) {
 
-    $current_get_date = Get-Date 
-    $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
-    Write-Output $current_date_time_jira_format
+        $previous_date = Read-Host "What is previous date to log time? ( Must be in dd/mm or dd-mm format)"
+        $split_previous_date = $previous_date -split '[/-]'
+        $day_split = $split_previous_date[1]
+        $month_split = $split_previous_date[0]
+    
+        $current_year = Get-Date -Format "yyyy"
+        $current_get_date = Get-Date -Year $current_year -Month $month_split -Day $day_split
+        $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
+        Write-Output $current_date_time_jira_format
+
+    } else {
+
+        $current_get_date = Get-Date 
+        $current_date_time_jira_format = $current_get_date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffzz00")
+        Write-Output $current_date_time_jira_format
+    
+    }
 
     $body = [PSCustomObject]@{
         timeSpent = $time_spent
         comment = $comment
         started = $current_date_time_jira_format
     }
+
     $body_json = $body | ConvertTo-Json -Depth 12
 
     $jira_token = $bashcuts_jira_config.token
-        $headers = @{
+    $headers = @{
         Authorization = "Bearer $jira_token"
         ContentType = "application/json"
     }
 
+    $api_url = "$base_url/rest/api/2/issue/$story_issue_key/worklog"
+    Write-Host "endpoint url : $api_url"
+    
     $response = Invoke-RestMethod -Uri $api_url -Method Post -Headers $headers -Body $body_json -ContentType "application/json"
     Write-Output $response
 
@@ -304,5 +265,102 @@ function jira_run_jql_query {
 	}
 
 	$response.issues 
+
+}
+
+function jira_new_epic_with_intiative {
+
+    $base_url = $bashcuts_jira_config.instance_url
+    Write-Host "base url : $base_url"
+
+    $project_key = $bashcuts_jira_config.project_key
+    Write-Host "project_key: $project_key"
+
+    # Jira API URL for creating an issue
+    $apiUrl = "$base_url/rest/api/2/issue/"
+
+    Write-Host -ForegroundColor Green -BackgroundColor White "CHOOSE INITIATIVE"
+    $parent_initiative = choose_from_list -options_to_choose $bashcuts_jira_config.initiatives -dot_notation_field_to_show "fields.summary"
+
+    $customer_story_title = Read-Host "Epic Title?"
+
+    $details = Read-Host "Enter Epic Details"
+
+    # Generate the formatted acceptance criteria for Jira
+    $formattedCriteria = @"
+
+h3. Epic Details:
+
+$details
+
+"@
+
+    # Output the formatted acceptance criteria
+    Write-Output $formattedCriteria
+
+    # User story data
+    $customer_story_data = @{
+        fields = @{
+            project = @{
+                key = $project_key
+            }
+            summary = "$customer_story_title"
+            description = "$formattedCriteria"
+            issuetype = @{
+                name = "Epic"
+            }
+            components = @(
+                [PSCustomObject]@{
+                    id = $bashcuts_jira_config.pie_component.id
+                }
+            )
+            
+            customfield_10003 = $parent_initiative.key
+
+            customfield_11703 = $parent_initiative.key
+            
+        }
+    }
+
+    # Convert data to JSON
+    $customer_story_data_json = $customer_story_data | ConvertTo-Json -Depth 12
+
+    # Base64 encode credentials
+    $jira_username = $bashcuts_jira_config.username
+    $jira_token = $bashcuts_jira_config.token
+    $base64Credentials = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${jira_username}:${jira_token}"))
+
+    # Make the API request
+    $jira_creation_response = Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
+        Authorization = "Basic $base64Credentials"
+    } -Body $customer_story_data_json -ContentType "application/json"
+
+    # Print the response
+    Write-Output $jira_creation_response
+    Write-Host "Opening Customer Story in browser..."
+    start "$base_url/browse/$($jira_creation_response.key)"
+
+}
+
+function jira_get_issue_by_key {
+
+    $jira_username = $bashcuts_jira_config.username
+    $jira_token = $bashcuts_jira_config.token
+    $base64Credentials = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${jira_username}:${jira_token}"))
+
+    $issue_key = Read-Host "What is the issue key to retrieve? (e.g. 'VPRD-1164')"
+
+    
+    $base_url = $bashcuts_jira_config.instance_url
+    Write-Host "base url : $base_url"
+
+    $apiUrl = "$($base_url)/rest/api/2/issue/$issue_key"
+    Write-Host "api url : $apiUrl"
+
+    $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{
+        Authorization = "Basic $base64Credentials"
+    } -ContentType "application/json"
+
+    Write-Output $response
 
 }
