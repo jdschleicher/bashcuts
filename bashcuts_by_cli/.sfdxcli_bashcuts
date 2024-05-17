@@ -2,27 +2,27 @@
 alias dxaliaslist="time sfdx force:alias:list"
 
 dx-open() {
-    echo sfdx force:org:open 
-    time sfdx force:org:open
+    echo sf org open 
+    time sf org open
 }
 
 dx-open-devconsole() {
-    echo sfdx force:org:open --path "_ui/common/apex/debug/ApexCSIPage"
-    time sfdx force:org:open --path "_ui/common/apex/debug/ApexCSIPage"
+    echo sf org open --path "_ui/common/apex/debug/ApexCSIPage"
+    time sf org open --path "_ui/common/apex/debug/ApexCSIPage"
 }
 
 dx-open-by-alias() {
     echo What is the username or alias of the org to open? \( --targetusername \| -u \)
     read TARGET_USERNAME
-    echo sfdx force:org:open --targetusername $TARGET_USERNAME
-    time sfdx force:org:open --targetusername $TARGET_USERNAME
+    echo sf org open --target-org $TARGET_USERNAME
+    time sf org open --target-org $TARGET_USERNAME
 }
 
 dx-open-devconsole-by-alias() {
     echo What is the username or alias of the org to open? \( --targetusername \| -u \)
     read TARGET_USERNAME
-    echo sfdx force:org:open --path "_ui/common/apex/debug/ApexCSIPage"
-    time sfdx force:org:open --path "_ui/common/apex/debug/ApexCSIPage"
+    echo sf org open --path "_ui/common/apex/debug/ApexCSIPage"
+    time sf org open --path "_ui/common/apex/debug/ApexCSIPage"
 }
 
 dx-open-local-user-sfdx() {
@@ -107,8 +107,8 @@ dx-docs-unlocked-packages() {
 }
 
 dx-open-default() {
-    echo sfdx force:org:open
-    time sfdx force:org:open
+    echo sf org open
+    time sf org open
 }
 
 dx-show-packages() {
