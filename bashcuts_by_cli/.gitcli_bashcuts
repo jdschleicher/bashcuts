@@ -232,7 +232,7 @@ g-show-latest-commits-local-and-remote() {
 
 g-show-all-commits-for-file() {
     echo "What is the path of the file to see all changes for?"
-    read FILE_PATH 
+    read -e FILE_PATH 
     echo git log --follow --all $FILE_PATH
     git log --follow --all $FILE_PATH
 }
