@@ -123,8 +123,18 @@ dx-install-package-version-noprompt() {
     read TARGET_ALIAS
     echo What is the Subscriber Package Version Id \( --package, -p \)?
     read PACKAGE_VERSION_ID
-    echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10
-    time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10
+    echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
+    time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
+}
+
+dx-toolkit-install-package-dependencies() {
+    echo What is the alias/username of the DevHub \(--targetdevhubusername, -v\)?
+    read DEVHUB_ALIAS
+    echo What is the alias/username of the target org \(--targetusername, -u \)?
+    read ORG_ALIAS
+    echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $DEVHUB_ALIAS --targetusername $ORG_ALIAS --json 
+    time sf toolbox package dependencies install --wait 100 --targetdevhubusername $DEVHUB_ALIAS --targetusername $ORG_ALIAS --json 
+
 }
 
 dx-uninstall-package-version-noprompt() {
@@ -466,9 +476,8 @@ dx-create-scratch-install-any-package-dependencies-and-push() {
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120
-        dependencies_command_result=$(sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120)
-        echo $dependencies_command_result
+        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
 
         if [[ $command_result =~ "Successfully" ]]
         then
@@ -495,9 +504,9 @@ dx-create-scratch-install-any-package-dependencies-and-push-and-run-tests() {
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120
-        dependencies_command_result=$(sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120)
-        echo $dependencies_command_result
+        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+
 
         if [[ $command_result =~ "Successfully" ]]
         then
@@ -535,9 +544,9 @@ dx-create-scratch-install-any-package-dependencies-and-create-package-version-an
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120
-        dependencies_command_result=$(sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120)
-        echo $dependencies_command_result
+        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+
 
         if [[ $command_result =~ "Successfully" ]]
         then
@@ -649,8 +658,8 @@ dx-create-package-version-skipvalidation-and-install-to-org() {
     then
         echo "INSTALLING PACKAGE TO $TARGET_ALIAS"
         PACKAGE_VERSION_ID=$(echo $command_result | jq -r '.result.SubscriberPackageVersionId')
-        echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10
-        time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10
+        echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package 
+        time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
     else 
         echo "The package version creation failed"
     fi
