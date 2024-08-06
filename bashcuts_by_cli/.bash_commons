@@ -12,8 +12,29 @@ alias git-bash='/git-bash.exe & > /dev/null 2&>1'
 # NEW POWERSHELL WINDOW FROM BASH TERMINAL
 alias pow="start pwsh"
 
-#RE-INITIALIZE CURRENTLY OPEN TERMINAL
-alias reinit="source ~/.bashrc"
+#RE-INITIALIZE CURRENTLY OPEN TERMINAL. WILL RESTART BOTH .bashrc AND .bash_profile
+reinit() {
+  echo "REINIT"
+  BASHRC_FILE_EXISTS=false
+  if [ -f ~/.bashrc ]; 
+  then 
+      source ~/.bashrc; 
+      BASHRC_FILE_EXISTS=true
+  fi
+
+  BASH_PROFILE_FILE_EXISTS=false
+  if [ -f ~/.bash_profile ]; 
+  then 
+      source ~/.bash_profile; 
+      BASH_PROFILE_FILE_EXISTS=true
+  fi
+
+  if [ "$BASH_PROFILE_FILE_EXISTS" = false ] && [ "$BASHRC_FILE_EXISTS" = false ]
+  then
+    echo "NO BASHRC OR BASH_PROFILE EXISTS"
+  fi
+
+}
 
 #list directory items with file size
 alias lt='ls --human-readable --size -1 -S --classify'
