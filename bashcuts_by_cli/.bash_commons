@@ -18,20 +18,29 @@ reinit() {
   BASHRC_FILE_EXISTS=false
   if [ -f ~/.bashrc ]; 
   then 
-      source ~/.bashrc; 
       BASHRC_FILE_EXISTS=true
   fi
 
   BASH_PROFILE_FILE_EXISTS=false
   if [ -f ~/.bash_profile ]; 
   then 
-      source ~/.bash_profile; 
       BASH_PROFILE_FILE_EXISTS=true
   fi
 
   if [ "$BASH_PROFILE_FILE_EXISTS" = false ] && [ "$BASHRC_FILE_EXISTS" = false ]
   then
     echo "NO BASHRC OR BASH_PROFILE EXISTS"
+  fi
+
+  if [ "$BASH_PROFILE_FILE_EXISTS" = true ] && [ "$BASHRC_FILE_EXISTS" = true ]
+  then
+    source ~/.bash_profile; 
+  elif [ "$BASH_PROFILE_FILE_EXISTS" = false ] && [ "$BASHRC_FILE_EXISTS" = true ]
+  then
+    source ~/.bashrc; 
+  elif [ "$BASH_PROFILE_FILE_EXISTS" = true ] && [ "$BASHRC_FILE_EXISTS" = false ]
+  then
+    source ~/.bash_profile; 
   fi
 
 }
