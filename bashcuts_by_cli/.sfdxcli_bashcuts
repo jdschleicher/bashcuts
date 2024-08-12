@@ -576,12 +576,13 @@ dx-convert-mdapi-to-source-directory() {
 }
 
 dx-convert-mdapi-to-source-file() {
+    echo "test"
     echo What filepath to convert? \( --metadatapath \| -p \)?
-    read -e PATH
+    read -e FILE_PATH
     echo What directory will the converted source format be stored \( --outputdir \| -d \)?
     read -e OUTPUT_DIR
-    echo sfdx force:mdapi:convert --metadatapath $PATH --outputdir $OUTPUT_DIR
-    time sfdx force:mdapi:convert --metadatapath $PATH --outputdir $OUTPUT_DIR
+    echo sfdx force:mdapi:convert --metadatapath $FILE_PATH --outputdir $OUTPUT_DIR
+    time sfdx force:mdapi:convert --metadatapath $FILE_PATH --outputdir $OUTPUT_DIR
 }
 
 dx-convert-source-to-mdapi() {
@@ -1345,9 +1346,9 @@ dx-dry-run-deploy-dry-run-by-path-and-target-org-sf() {
     echo What is the target alias/username to validate \(--dry-run\) a directory against? \(--target-org \| -o\)
 	read TARGET_ORG
 	echo What is the path of the directory to validate-only test deploy? \(--source-dir \| -d\)?
-	read -e PATH
-    echo sf project deploy start --source-dir \"$PATH\" --target-org $TARGET_ORG --dry-run --wait 20 --json
-    time sf project deploy start --source-dir $PATH --target-org $TARGET_ORG --dry-run --wait 20 --json
+	read -e SOURCE_DIR
+    echo sf project deploy start --source-dir \"$SOURCE_DIR\" --target-org $TARGET_ORG --dry-run --wait 20 --json
+    time sf project deploy start --source-dir $SOURCE_DIR --target-org $TARGET_ORG --dry-run --wait 20 --json
 
 }
 
