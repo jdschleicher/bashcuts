@@ -576,7 +576,6 @@ dx-convert-mdapi-to-source-directory() {
 }
 
 dx-convert-mdapi-to-source-file() {
-    echo "test"
     echo What filepath to convert? \( --metadatapath \| -p \)?
     read -e FILE_PATH
     echo What directory will the converted source format be stored \( --outputdir \| -d \)?
