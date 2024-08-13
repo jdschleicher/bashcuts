@@ -232,6 +232,15 @@ dx-retrieve-one() {
 
 }
 
+dx-retrieve-package() {
+     echo What is the alias/username of the org retrieving from \(-o \| --target-org\)?
+    read ALIAS
+    echo What is the name of the package to retrieve\( -n \| --package-name\)? - Note - spaces allowed
+    read PACKAGE_NAME
+    echo sf project retrieve start --package-name \"$PACKAGE_NAME\"  --target-org $ALIAS
+    sf project retrieve start --package-name \"$PACKAGE_NAME\"  --target-org $ALIAS
+}
+
 dx-show-package-versions-for-specific-package() {
     echo What is the alias/username of the DevHub \(--targetdevhubusername\)?
     read devhub
@@ -580,8 +589,8 @@ dx-convert-mdapi-to-source-file() {
     read -e FILE_PATH
     echo What directory will the converted source format be stored \( --outputdir \| -d \)?
     read -e OUTPUT_DIR
-    echo sfdx force:mdapi:convert --metadatapath $FILE_PATH --outputdir $OUTPUT_DIR
-    time sfdx force:mdapi:convert --metadatapath $FILE_PATH --outputdir $OUTPUT_DIR
+    echo sfdx force:mdapi:convert --root-dir $FILE_PATH --outputdir $OUTPUT_DIR
+    time sfdx force:mdapi:convert --root-dir $FILE_PATH --outputdir $OUTPUT_DIR
 }
 
 dx-convert-source-to-mdapi() {
@@ -1350,4 +1359,6 @@ dx-dry-run-deploy-dry-run-by-path-and-target-org-sf() {
     time sf project deploy start --source-dir $SOURCE_DIR --target-org $TARGET_ORG --dry-run --wait 20 --json
 
 }
+
+
 
