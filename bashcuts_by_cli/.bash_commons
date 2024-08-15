@@ -79,3 +79,10 @@ show-all-variables() {
 show-all-environment-variables() {
   compgen -v | while read line; do declare -xp $line; done
 }
+
+jwt-get-unix-timestamp-by-minutes-from-now() {
+  echo How many minutes ahead would you like the timestamp to represent?
+  read MINUTES_AHEAD
+  NEW_TIMESTAMP=$(date -d "+$MINUTES_AHEAD minutes" +%s)
+  echo $NEW_TIMESTAMP
+}
