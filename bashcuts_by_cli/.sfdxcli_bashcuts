@@ -2,31 +2,31 @@
 alias dxaliaslist="time sfdx force:alias:list"
 
 dx-open() {
-    echo sf org open 
+    echo "sf org open "
     time sf org open
 }
 
 dx-open-devconsole() {
-    echo sf org open --path "_ui/common/apex/debug/ApexCSIPage"
+    echo "sf org open --path ""_ui/common/apex/debug/ApexCSIPage"
     time sf org open --path "_ui/common/apex/debug/ApexCSIPage"
 }
 
 dx-open-by-alias() {
-    echo What is the username or alias of the org to open? \( --targetusername \| -u \)
+    echo "What is the username or alias of the org to open? \( --targetusername \| -u z\)"
     read TARGET_USERNAME
-    echo sf org open --target-org $TARGET_USERNAME
+    echo "sf org open --target-org $TARGET_USERNAME"
     time sf org open --target-org $TARGET_USERNAME
 }
 
 dx-open-devconsole-by-alias() {
-    echo What is the username or alias of the org to open? \( --targetusername \| -u \)
+    echo "What is the username or alias of the org to open? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo sf org open --path "_ui/common/apex/debug/ApexCSIPage"
+    echo "sf org open --path ""_ui/common/apex/debug/ApexCSIPage"
     time sf org open --path "_ui/common/apex/debug/ApexCSIPage"
 }
 
 dx-open-local-user-sfdx() {
-    echo start ~/.sfdx
+    echo "start ~/.sfdx"
     start ~/.sfdx
 }
 
@@ -35,17 +35,17 @@ dx-open-local-appdata-sfdx() {
 }
 
 dx-open-local-sfdx-log () {
-    echo code ~/.sfdx/sfdx.log
+    echo "code ~/.sfdx/sfdx.log"
     code ~/.sfdx/sfdx.log
 }
 
 dx-save-plugin-metadata() {
-    echo SFDX_MDAPI_TEMP_DIR=/users/myName/myDXProject/metadata
+    echo "SFDX_MDAPI_TEMP_DIR=/users/myName/myDXProject/metadata"
     SFDX_MDAPI_TEMP_DIR=/users/myName/myDXProject/metadata
 }
 
 dx-show-orgs() {
-    echo sfdx force:org:list --json
+    echo "sfdx force:org:list --json"
     time sfdx force:org:list --json
 }
 
@@ -54,7 +54,7 @@ alias dx-show-local-packagelist="time sfdx force:package:installed:list"
 alias dx-show-plugins="sfdx plugins --core"
 
 dx-clean-inactive-scratch-orgs() {
-    echo sfdx force:org:list --clean
+    echo "sfdx force:org:list --clean"
     time sfdx force:org:list --clean
 }
 
@@ -107,63 +107,58 @@ dx-docs-unlocked-packages() {
 }
 
 dx-open-default() {
-    echo sf org open
+    echo "sf org open"
     time sf org open
 }
 
 dx-show-packages() {
-    echo What is the alias/username of the DevHub \(--targetdevhubusername\)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername\)?"
     read devhub
-    echo sfdx force:package:list --targetdevhubusername $devhub
+    echo "sfdx force:package:list --targetdevhubusername $devhub"
     time sfdx force:package:list --targetdevhubusername $devhub
 }
 
 dx-install-package-version-noprompt() {
-    echo What is the alias/username of the org deploying to \(--targetusername, -u\)?
+    echo "What is the alias/username of the org deploying to \(--targetusername, -u\)?"
     read TARGET_ALIAS
-    echo What is the Subscriber Package Version Id \( --package, -p \)?
+    echo "What is the Subscriber Package Version Id \( --package, -p \)?"
     read PACKAGE_VERSION_ID
-    echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
+    echo "sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package"
     time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
 }
 
 dx-toolkit-install-package-dependencies() {
-    echo What is the alias/username of the DevHub \(--targetdevhubusername, -v\)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername, -v\)?"
     read DEVHUB_ALIAS
-    echo What is the alias/username of the target org \(--targetusername, -u \)?
+    echo "What is the alias/username of the target org \(--targetusername, -u \)?"
     read ORG_ALIAS
-    echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $DEVHUB_ALIAS --targetusername $ORG_ALIAS --json 
+    echo "sf toolbox package dependencies install --wait 100 --targetdevhubusername $DEVHUB_ALIAS --targetusername $ORG_ALIAS --json "
     time sf toolbox package dependencies install --wait 100 --targetdevhubusername $DEVHUB_ALIAS --targetusername $ORG_ALIAS --json 
 
 }
 
 dx-uninstall-package-version-noprompt() {
-    echo What is the alias/username of the org to delete this package version from \(--target-org, -u\)?
+    echo "What is the alias/username of the org to delete this package version from \(--target-org, -u\)?"
     read TARGET_ALIAS
-    echo What is the Subscriber Package Version Id to Uninstall? \( --package, -p \)?
+    echo "What is the Subscriber Package Version Id to Uninstall? \( --package, -p \)?"
     read PACKAGE_VERSION_ID
-    echo sf package uninstall --target-org $TARGET_ALIAS --package $PACKAGE_VERSION_ID --wait 20 --json
+    echo "sf package uninstall --target-org $TARGET_ALIAS --package $PACKAGE_VERSION_ID --wait 20 --json"
     time sf package uninstall --target-org $TARGET_ALIAS --package $PACKAGE_VERSION_ID --wait 20 --json
 }
 
-
-dx-test-ooo() {
-    echo "heyoooo"
-}
-
 dx-install-package-version-noprompt-delete() {
-    echo What is the alias/username of the org deploying to \(--targetusername, -u\)?
+    echo "What is the alias/username of the org deploying to \(--targetusername, -u\)?"
     read TARGET_ALIAS
-    echo What is the Subscriber Package Version Id \( --package, -p \)?
+    echo "What is the Subscriber Package Version Id \( --package, -p \)?"
     read PACKAGE_VERSION_ID
-    echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --upgradetype Delete --noprompt --wait 10
+    echo "sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --upgradetype Delete --noprompt --wait 10"
     time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --upgradetype Delete --noprompt --wait 10
 }
 
 dx-install-package-version-web() {
-    echo What is the custom url of the install destination org?
+    echo "What is the custom url of the install destination org?"
     read customUrl
-    echo What is the Subscriber Package Id?
+    echo "What is the Subscriber Package Id?"
     read packageId
     packageUrlSegments="/packaging/installPackage.apexp?p0="
     echo "${customUrl}${packageUrlSegments}${packageId}"
@@ -171,99 +166,99 @@ dx-install-package-version-web() {
 }
 
 dx-install-package-version-production() {
-    echo What is the alias/username of the org deploying to \(--targetusername, -u\)?
+    echo "What is the alias/username of the org deploying to \(--targetusername, -u\)?"
     read TARGET_ALIAS
-    echo What is the Subscriber Package Version Id \( --package, -p \)?
+    echo "What is the Subscriber Package Version Id \( --package, -p \)?"
     read PACKAGE_VERSION_ID
-    echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --apexcompile --wait 45
+    echo "sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --apexcompile --wait 45"
     time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --apexcompile --wait 45
 
 }
 
 dx-apex-by-alias-and-file() {
-    echo What is the alias/username of the org running apex against \(--targetusername, -u\)?
+    echo "What is the alias/username of the org running apex against \(--targetusername, -u\)?"
     read TARGET_ALIAS
-    echo What is the file containing apex to run \(--apexcodefile , -f\)?
+    echo "What is the file containing apex to run \(--apexcodefile , -f\)?"
     read -e FILE
-    echo Would you like this command saved to history for quick reuse?\( y or n \)
+    echo "Would you like this command saved to history for quick reuse?\( y or n \)"
     read SAVE_COMMAND
     apex_command="sfdx force:apex:execute --targetusername $TARGET_ALIAS --apexcodefile $FILE"
-    echo $apex_command
+    echo "$apex_command"
     time $apex_command
     if [ "$SAVE_COMMAND" != "${SAVE_COMMAND#[Yy]}" ] ;then 
-        echo command saved
+        echo "command saved"
         history -s $apex_command
     else
-        echo command not saved
+        echo "command not saved"
     fi
 }
 
 dx-promote-package() {
     # time sfdx force:package:version:promote
-    echo What is the alias/username of the DevHub \(--targetdevhubusername, -v \)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername, -v \)?"
     read DEVHUB_ALIAS
-    echo What is the 04t package Id to promote \( --package, -p \)
+    echo "What is the 04t package Id to promote \( --package, -p \)"
     read PACKAGE_04T_ID
-    echo sfdx force:package:version:promote --targetdevhubusername $DEVHUB_ALIAS --package $PACKAGE_04T_ID --noprompt
+    echo "sfdx force:package:version:promote --targetdevhubusername $DEVHUB_ALIAS --package $PACKAGE_04T_ID --noprompt"
     time sfdx force:package:version:promote --targetdevhubusername $DEVHUB_ALIAS --package $PACKAGE_04T_ID --noprompt
 }
 
 dx-retrieve-manifest() {
 
-    echo What is the alias/username of the org retrieving from \(-u \| --targetusername\)?
+    echo "What is the alias/username of the org retrieving from \(-u \| --targetusername\)?"
     read ALIAS
-    echo What is the package.xml directory path \( -x \| --manifest\)?
+    echo "What is the package.xml directory path \( -x \| --manifest\)?"
     read -e MANIFEST_PATH
-    echo sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS
+    echo "sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS"
     time sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS
 
 }
 
 dx-retrieve-one() {
 
-    echo What is the alias/username of the org retrieving from \(-u \| --targetusername\)?
+    echo "What is the alias/username of the org retrieving from \(-u \| --targetusername\)?"
     read ALIAS
-    echo What is the metadata type you are retrieving? \( -x \| --manifest\)?
+    echo "What is the metadata type you are retrieving? \( -x \| --manifest\)?"
     read METADATA_TYPE
-    echo What is the API name of the metadata you are retrieving? \( -m \| --metadata\)?
+    echo "What is the API name of the metadata you are retrieving? \( -m \| --metadata\)?"
     read METADATA_API_NAME
-    echo sfdx force:source:retrieve --metadata=\"$METADATA_TYPE:$METADATA_API_NAME\" --targetusername $ALIAS
+    echo "sfdx force:source:retrieve --metadata=\""$METADATA_TYPE:$METADATA_API_NAME\" --targetusername $ALIAS
     time sfdx force:source:retrieve --metadata "$METADATA_TYPE:$METADATA_API_NAME" --targetusername $ALIAS
 
 }
 
 dx-retrieve-package() {
-     echo What is the alias/username of the org retrieving from \(-o \| --target-org\)?
+     echo "What is the alias/username of the org retrieving from \(-o \| --target-org\)?"
     read ALIAS
-    echo What is the name of the package to retrieve\( -n \| --package-name\)? - Note - spaces allowed
+    echo "What is the name of the package to retrieve\( -n \| --package-name\)? - Note - spaces allowed"
     read PACKAGE_NAME
-    echo sf project retrieve start --package-name \"$PACKAGE_NAME\"  --target-org $ALIAS
+    echo "sf project retrieve start --package-name \""$PACKAGE_NAME\"  --target-org $ALIAS
     sf project retrieve start --package-name \"$PACKAGE_NAME\"  --target-org $ALIAS
 }
 
 dx-show-package-versions-for-specific-package() {
-    echo What is the alias/username of the DevHub \(--targetdevhubusername\)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername\)?"
     read devhub
-    echo What is the package alias\/id? \( --packages, p \)
+    echo "What is the package alias\/id? \( --packages, p \)"
     read PACKAGE_ALIAS
-    echo sfdx force:package:version:list --targetdevhubusername $devhub --packages $PACKAGE_ALIAS --json
+    echo "sfdx force:package:version:list --targetdevhubusername $devhub --packages $PACKAGE_ALIAS --json"
     time sfdx force:package:version:list --targetdevhubusername $devhub --packages $PACKAGE_ALIAS --json
 }
 
 dx-show-package-version-component-viewer() {
-    echo What is the custom domain url of the devhub? \(https://mydomain.my.salesforce.com\)?
+    echo "What is the custom domain url of the devhub? \(https://mydomain.my.salesforce.com\)?"
     read DOMAIN
-    echo What is the package version to review? 
+    echo "What is the package version to review? "
     read PACKAGE_VERSION_ID
     webpage="https://${DOMAIN}/packagingSetupUI/ipLanding.app?apvId=${PACKAGE_VERSION_ID}"
-    echo start $webpage
+    echo "start $webpage"
     start $webpage
 }
 
 dx-show-all-package-versions() {
-    echo What is the alias/username of the DevHub \(--targetdevhubusername\)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername\)?"
     read devhub
-    echo sfdx force:package:version:list --targetdevhubusername $devhub 
+    echo "sfdx force:package:version:list --targetdevhubusername $devhub "
     time sfdx force:package:version:list --targetdevhubusername $devhub 
 }
 
@@ -272,20 +267,20 @@ dx-open-local-plugins-packagejson() {
 }
 
 dx-texei-install-dependencies() {
-    echo What is the alias/username of the DevHub \(--targetdevhubusername, -v\)?
+    echo "What is the alias/username of the DevHub \(--targetdevhubusername, -v\)?"
     read DEVHUB_ALIAS
-    echo What is the alias/username of the scratch org \(--targetusername, -u \)?
+    echo "What is the alias/username of the scratch org \(--targetusername, -u \)?"
     read SCRATCH_ORG_ALIAS
-    echo sfdx texei:package:dependencies:install --targetusername $SCRATCH_ORG_ALIAS --targetdevhubusername $DEVHUB_ALIAS --noprompt -w 120
+    echo "sfdx texei:package:dependencies:install --targetusername $SCRATCH_ORG_ALIAS --targetdevhubusername $DEVHUB_ALIAS --noprompt -w 120"
     time sfdx texei:package:dependencies:install --targetusername $SCRATCH_ORG_ALIAS --targetdevhubusername $DEVHUB_ALIAS --noprompt -w 120
 }
 
 dx-texei-data-import() {
-    echo What is the alias/username of the org to import data into \(--targetusername, -u \)?
+    echo "What is the alias/username of the org to import data into \(--targetusername, -u \)?"
     read TARGET_ORG
-    echo What is the directory where the data to import is located \(--inputdir, -d\)?
+    echo "What is the directory where the data to import is located \(--inputdir, -d\)?"
     read -e DATA_PATH
-    echo sfdx texei:data:import --inputdir $DATA_PATH --targetusername $TARGET_ORG
+    echo "sfdx texei:data:import --inputdir $DATA_PATH --targetusername $TARGET_ORG"
     time sfdx texei:data:import --inputdir $DATA_PATH --targetusername $TARGET_ORG
 }
 
@@ -308,37 +303,37 @@ dx-set-devhub-alias() {
 
 dx-alias-replace-by-name() {
 
-    echo What is the **OLD** alias name you would like to replace?
+    echo "What is the **OLD** alias name you would like to replace?"
     read OLD_ALIAS
-    echo What is the **NEW** alias name you would like to set?
+    echo "What is the **NEW** alias name you would like to set?"
     read NEW_ALIAS
     org_list=$(sfdx force:org:list --json)
     ORIGINAL_USERNAME=$(echo $org_list | jq --arg alias $OLD_ALIAS -r '.result.nonScratchOrgs[] | select(.alias == $alias )' | jq -r '.username')
-    echo sfdx alias:set $NEW_ALIAS=$ORIGINAL_USERNAME --json
+    echo "sfdx alias:set $NEW_ALIAS=$ORIGINAL_USERNAME --json"
     time sfdx alias:set $NEW_ALIAS=$ORIGINAL_USERNAME --json
 
 }
 
 dx-org-verbose() {
-    echo What is the target alias name to display org details? \(-u \| --targetusername \)
+    echo "What is the target alias name to display org details? \(-u \| --targetusername \)"
     read TARGET_ALIAS
-    echo sfdx force:org:display --targetusername $TARGET_ALIAS --verbose --json
+    echo "sfdx force:org:display --targetusername $TARGET_ALIAS --verbose --json"
     time sfdx force:org:display --targetusername $TARGET_ALIAS --verbose --json
 }
 
 dx-create-install-link() {
-    echo What is the custom domain name to install too? 
+    echo "What is the custom domain name to install too? "
     read CUSTOM_DOMAIN
-    echo What is the subscriber package version id?
+    echo "What is the subscriber package version id?"
     read SUBSCRIBER_PACKAGE_VERSION_ID
     install_link="$CUSTOM_DOMAIN/packaging/installPackage.apexp?p0=$SUBSCRIBER_PACKAGE_VERSION_ID"
-    echo $install_link
+    echo "$install_link"
 }
 
 dx-show-limits-sf() {
-    echo What is the target alias name to display org limits \( This is primarily your DevHub org \)? \(-o \| --target-org \)
+    echo "What is the target alias name to display org limits \( This is primarily your DevHub org \)? \(-o \| --target-org \)"
     read TARGET_ALIAS
-    echo sf limits api display --target-org $TARGET_ALIAS
+    echo "sf limits api display --target-org $TARGET_ALIAS"
     time sf limits api display --target-org $TARGET_ALIAS
 }
 
@@ -347,102 +342,102 @@ dx-show-config() {
 }
 
 dx-data-bulk-upsert-sf() {
-  echo List the path to the csv file: \(-f \| --file  \)
+  echo "List the path to the csv file: \(-f \| --file  \)"
   read -e csvFile
-  echo What is the SObjectType? \(-s \| --sobjecttype\)
+  echo "What is the SObjectType? \(-s \| --sobjecttype\)"
   read sobjectType
-  echo What alias/username \(--targetusername \| -u \) will this data be uploaded to?
+  echo "What alias/username \(--targetusername \| -u \) will this data be uploaded to?"
   read alias
-  echo What is the external Id? \( -i \| --externalid \)
+  echo "What is the external Id? \( -i \| --externalid \)"
   read externalId
-  echo sf data upsert bulk --sobject $sobjectType --file "$csvFile" --external-id $externalId --target-org $alias --wait 10
+  echo "sf data upsert bulk --sobject $sobjectType --file ""$csvFile" --external-id $externalId --target-org $alias --wait 10
   time sf data upsert bulk --sobject $sobjectType --file "$csvFile" --external-id $externalId --target-org $alias --wait 10
 
 }
 
 dx-data-tree-import() {
-  echo What path/plan \(-p \| --plan \)?
+  echo "What path/plan \(-p \| --plan \)?"
   read -e path
-  echo What alias/username \(--targetusername \| -u \) will this data be uploaded to?
+  echo "What alias/username \(--targetusername \| -u \) will this data be uploaded to?"
   read alias
-  echo sfdx force:data:tree:import -plan \"$path\" --targetusername $alias
+  echo "sfdx force:data:tree:import -plan \""$path\" --targetusername $alias
   time sfdx force:data:tree:import --plan "$path" --targetusername $alias
 }
 
 dx-create-scratch() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
     time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
 }
 
 dx-create-scratch-sf() {
-    echo What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
     read DEVHUB
-    echo How many days\(--duration-days\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--alias\) be?
+    echo "What will the scratch org\'s alias\(--alias\) be?"
     read alias
-    echo sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json"
     time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
 }
 
 dx-create-scratch-by-path() {
-    echo What path will scratch org be created from?
+    echo "What path will scratch org be created from?"
     read -e SFDX_PROJECT_PATH
     cd $SFDX_PROJECT_PATH
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
     time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
     cd -
 }
 
 dx-create-scratch-non-default() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --loglevel trace
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --loglevel trace"
     time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --loglevel trace
 }
 
 dx-create-scratch-and-open() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
     time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
     dx-open
 }
 
 dx-create-scratch-and-push() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
     command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "PUSHING CODEBASE TO $alias"
-        echo sfdx force:source:push --targetusername $alias --wait 10
+        echo "sfdx force:source:push --targetusername $alias --wait 10"
         time sfdx force:source:push --targetusername $alias --wait 10 
     else 
         echo "The scratch org creation failed"
@@ -451,21 +446,21 @@ dx-create-scratch-and-push() {
 }
 
 dx-create-scratch-install-any-package-dependencies-no-push() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
     command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120
+        echo "sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120"
         dependencies_command_result=$(sfdx texei:package:dependencies:install --targetusername $alias --targetdevhubusername $devHub --noprompt -w 120)
-        echo $dependencies_command_result
+        echo "$dependencies_command_result"
     else 
         echo "The scratch org creation failed"
     fi
@@ -473,19 +468,19 @@ dx-create-scratch-install-any-package-dependencies-no-push() {
 }
 
 dx-create-scratch-install-any-package-dependencies-and-push() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
     command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        echo "sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json "
         time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
 
         if [[ $command_result =~ "Successfully" ]]
@@ -501,31 +496,31 @@ dx-create-scratch-install-any-package-dependencies-and-push() {
 }
 
 dx-create-scratch-install-any-package-dependencies-and-push-and-run-tests() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
     command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        echo "sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json "
         time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
 
 
         if [[ $command_result =~ "Successfully" ]]
         then
             dx_push_result=$(dx-push)
-            echo $dx_push_result
+            echo "$dx_push_result"
 
             if [[ $dx_push_result =~ "Successfully" ]]
             then
                 test_result = $(sfdx force:apex:test:run -u $alias --resultformat human --wait 10 --testlevel RunLocalTests --json )
-                echo $dx_push_result
+                echo "$dx_push_result"
             else
                 echo "the sfdx push failed"
             fi
@@ -539,32 +534,32 @@ dx-create-scratch-install-any-package-dependencies-and-push-and-run-tests() {
 }
 
 dx-create-scratch-install-any-package-dependencies-and-create-package-version-and-install() {
-    echo What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?
+    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
     read devHub
-    echo How many days\(--durationdays\) will this scratch org Exist \(1-30\)?
+    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo What will the scratch org\'s alias\(--setalias\) be?
+    echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo What is the package name\'s alias\(--package\) be?
+    echo "What is the package name\'s alias\(--package\) be?"
     read packageNameAlias
-    echo sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR
+    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
     command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "INSTALLING  DEPENDENCIES FROM sfdx-project.json TO $alias"
-        echo sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
+        echo "sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json "
         time sf toolbox package dependencies install --wait 100 --targetdevhubusername $devHub --targetusername $alias --json 
 
 
         if [[ $command_result =~ "Successfully" ]]
         then
-            echo sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
+            echo "sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json"
             time sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
             install_package_version_command_result=$(sfdx force:package:version:create --targetdevhubusername $devHub --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json)
             PACKAGE_SUBSCRIBER_VERSION_ID=$(echo $install_package_version_command_result  | jq -r '.result.SubscriberPackageVersionId')
             echo "Here is the created package version id: $PACKAGE_SUBSCRIBER_VERSION_ID"
-            echo sfdx force:package:install --targetusername $alias --package $PACKAGE_SUBSCRIBER_VERSION_ID --noprompt --wait 10
+            echo "sfdx force:package:install --targetusername $alias --package $PACKAGE_SUBSCRIBER_VERSION_ID --noprompt --wait 10"
             time sfdx force:package:install --targetusername $alias --package $PACKAGE_SUBSCRIBER_VERSION_ID --noprompt --wait 10
         else    
             echo "the dependencies install failed"
@@ -576,66 +571,66 @@ dx-create-scratch-install-any-package-dependencies-and-create-package-version-an
 }
 
 dx-convert-mdapi-to-source-directory() {
-    echo What directory contains the mdapi format metadata to convert? \( --rootdir \| -r \)?
+    echo "What directory contains the mdapi format metadata to convert? \( --rootdir \| -r \)?"
     read -e SOURCE_DIR
-    echo What directory will the converted source format be stored \( --outputdir \| -d \)?
+    echo "What directory will the converted source format be stored \( --outputdir \| -d \)?"
     read -e OUTPUT_DIR
-    echo sfdx force:mdapi:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR
+    echo "sfdx force:mdapi:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR"
     time sfdx force:mdapi:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR
 }
 
 dx-convert-mdapi-to-source-file() {
-    echo What filepath to convert? \( --metadatapath \| -p \)?
+    echo "What filepath to convert? \( --metadatapath \| -p \)?"
     read -e FILE_PATH
-    echo What directory will the converted source format be stored \( --outputdir \| -d \)?
+    echo "What directory will the converted source format be stored \( --outputdir \| -d \)?"
     read -e OUTPUT_DIR
-    echo sfdx force:mdapi:convert --root-dir $FILE_PATH --outputdir $OUTPUT_DIR
+    echo "sfdx force:mdapi:convert --root-dir $FILE_PATH --outputdir $OUTPUT_DIR"
     time sfdx force:mdapi:convert --root-dir $FILE_PATH --outputdir $OUTPUT_DIR
 }
 
 dx-convert-source-to-mdapi() {
-    echo What directory will the converted mdapi format be stored \( --outputdir \| -d \)?
+    echo "What directory will the converted mdapi format be stored \( --outputdir \| -d \)?"
     read OUTPUT_DIR
-    echo What directory contains the source format metadata to convert? \( --rootdir \| -r \)?
+    echo "What directory contains the source format metadata to convert? \( --rootdir \| -r \)?"
     read SOURCE_DIR
-    echo sfdx force:source:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR
+    echo "sfdx force:source:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR"
     time sfdx force:source:convert --rootdir $SOURCE_DIR --outputdir $OUTPUT_DIR
     #   $ time sfdx force:source:convert -r path/to/source
     #   $ time sfdx force:source:convert -r path/to/source -d path/to/outputdir -n 'My Package
 }
 
 dx-create-project() {
-    echo What is the name \(--projectname \|-n \) of the project? 
+    echo "What is the name \(--projectname \|-n \) of the project? "
     read projectName
-    echo What is the template \(-t \| --template \) of the project? \( can be standard, empty, analytics \)
+    echo "What is the template \(-t \| --template \) of the project? \( can be standard, empty, analytics \)"
     read template
-    echo sfdx force:project:create --projectname $projectName --template $template
+    echo "sfdx force:project:create --projectname $projectName --template $template"
     time sfdx force:project:create --projectname $projectName --template $template
     
 }
 
 dx-create-package() {
-    echo What is the DevHub alias/username\(--targetdevhubusername\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername\) for the ORG?"
     read targetdevhubusername
-    echo What is the package Name?\(--name\)?
+    echo "What is the package Name?\(--name\)?"
     read packageName
-    echo What is the package Type?\(--packagetype Managed\|Unlocked\)?
+    echo "What is the package Type?\(--packagetype Managed\|Unlocked\)?"
     read packageType
-    echo Is this an 'Org-Dependent' package\(--org-dependent\)? Answer with YES or NO
+    echo "Is this an 'Org-Dependent' package\(--org-dependent\)? Answer with YES or NO"
     read IS_ORG_DEPENDENT
     ### ENSURE IS ORG DEPENDENT ENTERED IS READ AS UPPERCASE FOR IF CONDITION
     UPPERCASE_IS_ORG_DEPENDENT=${IS_ORG_DEPENDENT^^}
-    echo What is the package path?\(--path\)?
+    echo "What is the package path?\(--path\)?"
     read -e path
-    echo What is the package description?\(--description\)?
+    echo "What is the package description?\(--description\)?"
     read description
 
     if [[ "$UPPERCASE_IS_ORG_DEPENDENT" == "YES" ]]
     then
-        echo sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace --org-dependent
+        echo "sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description ""$description" --no-namespace --org-dependent
         time sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace --org-dependent
     else 
-        echo sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace
+        echo "sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description ""$description" --no-namespace
         time sf package create --target-dev-hub=$targetdevhubusername --name $packageName --package-type $packageType --path $path --description "$description" --no-namespace
     fi
 
@@ -643,31 +638,31 @@ dx-create-package() {
 }
  
 dx-create-package-version-skipvalidation() {
-    echo What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json"
     time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
 }
 
 dx-create-package-version-skipvalidation-and-install-to-org() {
-    echo What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo What is the alias/username of the org deploying to \(--targetusername, -u\)?
+    echo "What is the alias/username of the org deploying to \(--targetusername, -u\)?"
     read TARGET_ALIAS
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json"
     command_result=$(time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --skipvalidation --wait 120 --json)
-    echo $command_result
+    echo "$command_result"
     STATUS_RESULT=$(echo $command_result | jq -r '.status')
-    echo $STATUS_RESULT
+    echo "$STATUS_RESULT"
     if [[ $STATUS_RESULT = 0 ]]
     then
         echo "INSTALLING PACKAGE TO $TARGET_ALIAS"
         PACKAGE_VERSION_ID=$(echo $command_result | jq -r '.result.SubscriberPackageVersionId')
-        echo sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package 
+        echo "sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package "
         time sfdx force:package:install --targetusername $TARGET_ALIAS --package $PACKAGE_VERSION_ID --noprompt --wait 10 --apex-compile package
     else 
         echo "The package version creation failed"
@@ -675,78 +670,78 @@ dx-create-package-version-skipvalidation-and-install-to-org() {
 }
 
 dx-create-package-version-with-path-skipvalidation() {
-    echo What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo What is the path of the package being versioned? \(--path \| -d\)?
+    echo "What is the path of the package being versioned? \(--path \| -d\)?"
     read -e path
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path $path --installationkeybypass --skipvalidation --wait 120 --json
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path $path --installationkeybypass --skipvalidation --wait 120 --json"
     time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path $path --installationkeybypass --skipvalidation --wait 120 --json
 }
 
 dx-create-package-version-with-path-full-validation() {
-    echo What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo What is the path of the package being versioned? \(--path \| -d\)?
+    echo "What is the path of the package being versioned? \(--path \| -d\)?"
     read -e path
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path "$path" --installationkeybypass --wait 120 --json --codecoverage
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path ""$path" --installationkeybypass --wait 120 --json --codecoverage
     time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --path "$path" --installationkeybypass --wait 120 --json --codecoverage
 }
 
 dx-create-package-version-with-version-number() {
-    echo What is the alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo What is the specific major.minor.patch.build version number to represent this package version?\( --versionnumber \| -n\)
+    echo "What is the specific major.minor.patch.build version number to represent this package version?\( --versionnumber \| -n\)"
     read versionNumber
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --versionnumber $versionNumber --installationkeybypass --wait 120 --json --codecoverage
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --versionnumber $versionNumber --installationkeybypass --wait 120 --json --codecoverage"
     time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --versionnumber $versionNumber --installationkeybypass --wait 120 --json --codecoverage
 }
 
 dx-report-create-package-version() {
-    echo What is the package version creation report Id? \( -i, --packagecreaterequestid \)
+    echo "What is the package version creation report Id? \( -i, --packagecreaterequestid \)"
     read PACKAGE_VERSION_ID
-    echo What is the DevHub username/alias? \( -v, --targetdevhubusername \)
+    echo "What is the DevHub username/alias? \( -v, --targetdevhubusername \)"
     read DEVHUB_ALIAS
-    echo sfdx force:package:version:create:report -i $PACKAGE_VERSION_ID -v $DEVHUB_ALIAS
+    echo "sfdx force:package:version:create:report -i $PACKAGE_VERSION_ID -v $DEVHUB_ALIAS"
     time sfdx force:package:version:create:report -i $PACKAGE_VERSION_ID -v $DEVHUB_ALIAS
 }
 
 dx-report-package-version() {
-    echo What is the subscriber package version? \( -p, --package \)
+    echo "What is the subscriber package version? \( -p, --package \)"
     read SUBSCRIBER_PACKAGE_VERSION_ID
-    echo What is the DevHub username/alias? \( -v, --targetdevhubusername \)
+    echo "What is the DevHub username/alias? \( -v, --targetdevhubusername \)"
     read DEVHUB_ALIAS
-    echo sfdx force:package:version:report -p $SUBSCRIBER_PACKAGE_VERSION_ID -v $DEVHUB_ALIAS
+    echo "sfdx force:package:version:report -p $SUBSCRIBER_PACKAGE_VERSION_ID -v $DEVHUB_ALIAS"
     time sfdx force:package:version:report -p $SUBSCRIBER_PACKAGE_VERSION_ID -v $DEVHUB_ALIAS
 }
 
 dx-create-package-version-validate() {
-    echo What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?
+    echo "What is the DevHub alias/username\(--targetdevhubusername \| -v\) for the ORG?"
     read targetdevhubusername
-    echo What is the package alias being versioned?\(--package \| -p\)?
+    echo "What is the package alias being versioned?\(--package \| -p\)?"
     read packageNameAlias
-    echo sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --codecoverage --wait 100 --json 
+    echo "sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --codecoverage --wait 100 --json "
     time sfdx force:package:version:create --targetdevhubusername $targetdevhubusername --package $packageNameAlias --installationkeybypass --codecoverage --wait 100 --json 
 }
 
 
 dx-create-data-user() {
     # Required fields are missing: [Alias, TimeZoneSidKey, LocaleSidKey, EmailEncodingKey, ProfileId, LanguageLocaleKey
-    echo What org alias to create User in?
+    echo "What org alias to create User in?"
     read ORG_ALIAS
-    echo First Name?
+    echo "First Name?"
     read firstName
-    echo Last Name?
+    echo "Last Name?"
     read lastName
-    echo Email?
+    echo "Email?"
     read email
     username="${email}un"
-    echo sfdx force:data:record:create --sobjecttype User --perflog --json --values=="FirstName='$firstName' \
+    echo "sfdx force:data:record:create --sobjecttype User --perflog --json --values==""FirstName='$firstName' \
          LastName='$lastName' \
          Alias='$alias' \
          Email='$email' \
@@ -757,196 +752,196 @@ dx-create-data-user() {
 }
 
 dx-assign-permset() {
-    echo What is the alias/username\(-u, targetusername \) for the ORG?
+    echo "What is the alias/username\(-u, targetusername \) for the ORG?"
     read TARGET_USERNAME
-    echo What is the name of the Permission Set\(s\) -- use comma to separate -- to assign for this user? \( -n, --permsetname \)
+    echo "What is the name of the Permission Set\(s\) -- use comma to separate -- to assign for this user? \( -n, --permsetname \)"
     read PERMISSIONSET_NAME
-    echo sfdx force:user:permset:assign --permsetname $PERMISSIONSET_NAME --targetusername $TARGET_USERNAME
+    echo "sfdx force:user:permset:assign --permsetname $PERMISSIONSET_NAME --targetusername $TARGET_USERNAME"
     time sfdx force:user:permset:assign --permsetname $PERMISSIONSET_NAME --targetusername $TARGET_USERNAME
 }
 
 dx-quickdeploy-permsets-dx() {
-    echo ORG username or alias to deploy to?
+    echo "ORG username or alias to deploy to?"
     read targetusername
-    echo sfdx force:source:deploy --sourcepath "/c/git/QUICKMETADATA/permissionsets/dx" --targetusername $targetusername
+    echo "sfdx force:source:deploy --sourcepath ""/c/git/QUICKMETADATA/permissionsets/dx" --targetusername $targetusername
     time sfdx force:source:deploy --sourcepath "/c/git/QUICKMETADATA/permissionsets/dx" --targetusername $targetusername
 }
 
 dx-deploy-manifest() {
-    echo What is the ORG username or alias to deploy to?
+    echo "What is the ORG username or alias to deploy to?"
     read targetusername
     time sfdx force:source:deploy -x path/to/package.xml
 }
 
 dx-deploy-checkonly() {
-    echo What is the ORG username or alias to deploy to? \( --targetusername \| -u \)
+    echo "What is the ORG username or alias to deploy to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo Where is the Source Directory located? \( --sourcepath \| -p \)
+    echo "Where is the Source Directory located? \( --sourcepath \| -p \)"
     read -e SOURCE_DIRECTORY
-    echo sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME --checkonly
+    echo "sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME --checkonly"
     time sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME --checkonly
 }
 
 dx-deploy() {
-    echo What is the ORG username or alias to deploy to? \( --targetusername \| -u \)
+    echo "What is the ORG username or alias to deploy to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo Where is the Source Directory located? \( --sourcepath \| -p \)
+    echo "Where is the Source Directory located? \( --sourcepath \| -p \)"
     read SOURCE_DIRECTORY
-    echo sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME
+    echo "sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME"
     time sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME 
 }
 
 dx-deploy-path() {
-    echo What is the ORG username or alias to deploy to? \( --targetusername, -u \)
+    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo What path contains the source metadata to deploy? \(--sourcepath, -p \)
+    echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
     read -e SOURCEPATH
-    echo sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath \"$SOURCEPATH\"
+    echo "sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath \""$SOURCEPATH\"
     time sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath "$SOURCEPATH"
 }
 
 dx-validate-only-source-by-environment() {
-    echo What is the ORG username or alias to deploy to? \( --targetusername, -u \)
+    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo What path contains the source metadata to deploy? \(--sourcepath, -p \)
+    echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
     read -e SOURCEPATH
-    echo sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath $SOURCEPATH --checkonly
+    echo "sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath $SOURCEPATH --checkonly"
     time sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath $SOURCEPATH --checkonly
 }
 
 dx-validate-only-mdapi-by-environment() {
-	echo What is the target alias/username to validate \(--checkonly\) the mdapi conversion against? \(--targetusername \| -u\)
+	echo "What is the target alias/username to validate \(--checkonly\) the mdapi conversion against? \(--targetusername \| -u\)"
 	read targetusername
-	echo What is the path of the package to convert? \(--rootdir \| -r\)?
+	echo "What is the path of the package to convert? \(--rootdir \| -r\)?"
 	read -e path
-	echo sfdx force:source:convert --rootdir \"$path\" --outputdir \"do-not-commit-for-testing-only\"
+	echo "sfdx force:source:convert --rootdir \""$path\" --outputdir \"do-not-commit-for-testing-only\"
 	sfdx force:source:convert --rootdir "$path" --outputdir "do-not-commit-for-testing-only"
-	echo sfdx force:mdapi:deploy --deploydir \"do-not-commit-for-testing-only\" --checkonly --wait 100 --json
+	echo "sfdx force:mdapi:deploy --deploydir \""do-not-commit-for-testing-only\" --checkonly --wait 100 --json
 	sfdx force:mdapi:deploy --deploydir "do-not-commit-for-testing-only" --checkonly --wait 100 --json
 }
 
 dx-pull() {
-    echo sfdx force:source:pull 
+    echo "sfdx force:source:pull "
     time sfdx force:source:pull
 }
 
 dx-pull-force() {
-    echo sfdx force:source:pull -f 
+    echo "sfdx force:source:pull -f "
     time sfdx force:source:pull -f
 }
 
 dx-pull-by-alias() {
-    echo What is the username or alias to source pull from? \( --targetusername \| -u \)
+    echo "What is the username or alias to source pull from? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo sfdx force:source:pull --targetusername $TARGET_USERNAME
+    echo "sfdx force:source:pull --targetusername $TARGET_USERNAME"
     time sfdx force:source:pull --targetusername $TARGET_USERNAME
 }
 
 dx-pull-default() {
-    echo sfdx force:source:pull
+    echo "sfdx force:source:pull"
     time sfdx force:source:pull
 }
 
 dx-push-by-alias() {
-    echo What is the username or alias to source push to? \( --targetusername \| -u \)
+    echo "What is the username or alias to source push to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo sfdx force:source:push --targetusername $TARGET_USERNAME
+    echo "sfdx force:source:push --targetusername $TARGET_USERNAME"
     time sfdx force:source:push --targetusername $TARGET_USERNAME
 }
 
 dx-push() {
-    echo sfdx force:source:push 
+    echo "sfdx force:source:push "
     time sfdx force:source:push
 }
 
 dx-push-force() {
-    echo sfdx force:source:push -f 
+    echo "sfdx force:source:push -f "
     time sfdx force:source:push -f
 }
 
 dx-show-revisions() {
-    echo sfdx force:data:soql:query -q "SELECT MemberName, MemberType, RevisionCounter FROM SourceMember" -t
+    echo "sfdx force:data:soql:query -q ""SELECT MemberName, MemberType, RevisionCounter FROM SourceMember" -t
     time sfdx force:data:soql:query -q "SELECT MemberName, MemberType, RevisionCounter FROM SourceMember" -t
 }
 
 dx-reset-to-revision() {
-    echo What is the alias of the scratch org to reset? \( --targetusername \| -u \)
+    echo "What is the alias of the scratch org to reset? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo sfdx force:source:tracking:reset --targetusername  $TARGET_USERNAME
+    echo "sfdx force:source:tracking:reset --targetusername  $TARGET_USERNAME"
     time sfdx force:source:tracking:reset --targetusername  $TARGET_USERNAME
 }
 
 dx-reset-full-by-alias() {
-    echo What revision would you like to reset to? \( --revision \| -r \)
+    echo "What revision would you like to reset to? \( --revision \| -r \)"
     read REVISION
-    echo sfdx force:source:tracking:reset --revision $REVISION
+    echo "sfdx force:source:tracking:reset --revision $REVISION"
     time sfdx force:source:tracking:reset --revision $REVISION
 }
 
 
 dx-sfdmu-org2org() {
-    echo What is the username or alias to get data from? \( -s, --sourceusername \)
+    echo "What is the username or alias to get data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo What is the username or alias to move the exported data to? \( -u, --targetusername \)
+    echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt
+    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt"
     sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt
 }
 
 dx-sfdmu-csvfile2org() {
-    echo What is the username or alias to move the exported data to? \( -u, --targetusername \)
+    echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt
+    echo "sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt"
     sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt
 }
 
 dx-sfdmu-csvfile2Org-path() {
-    echo What path are the csvfile files in? \(-p, --path \)
+    echo "What path are the csvfile files in? \(-p, --path \)"
     read -e SOURCEPATH
-    echo What is the username or alias to move the exported data to? \( -u, --targetusername \)
+    echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
+    echo "sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
     sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
 }
 
 dx-sfdmu-csvfileFromOrg-path() {
-    echo What path is the export json instructions file in? \(-p, --path \)
+    echo "What path is the export json instructions file in? \(-p, --path \)"
     read -e SOURCEPATH
-    echo What is the username or alias to get csv data from? \( -s, --sourceusername \)
+    echo "What is the username or alias to get csv data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path "$SOURCEPATH" --noprompt 
+    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path ""$SOURCEPATH" --noprompt 
     sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path "$SOURCEPATH" --noprompt
 }
 
 dx-sfdmu-csvfileFromOrg() {
-    echo What path is the export json instructions file in? \(-p, --path \)
+    echo "What path is the export json instructions file in? \(-p, --path \)"
     read -e SOURCEPATH
-    echo What is the username or alias to get csv data from? \( -s, --sourceusername \)
+    echo "What is the username or alias to get csv data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt 
+    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt "
     sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt
 }
 
 
 dx-sfdmu-org2org-path() {
-    echo What path is the export json instructions file in? \(-p, --path \)
+    echo "What path is the export json instructions file in? \(-p, --path \)"
     read -e SOURCEPATH
-    echo What is the username or alias to get data from? \( -s, --sourceusername \)
+    echo "What is the username or alias to get data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo What is the username or alias to move the exported data to? \( -u, --targetusername \)
+    echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
+    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
     sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
 }
 
 dx-generate-scratchorg-user-password-by-alias() {
 
-    echo What is the alias/username\(-u, targetusername \) for the ORG?
+    echo "What is the alias/username\(-u, targetusername \) for the ORG?"
     read ALIAS
-    echo sfdx force:user:password:generate --targetusername $ALIAS
+    echo "sfdx force:user:password:generate --targetusername $ALIAS"
     #show user details immediate after
     command_result=$(time sfdx force:user:password:generate --targetusername $ALIAS)
-    echo $command_result
+    echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "SHOWING USER DETAILS"
@@ -959,7 +954,7 @@ dx-generate-scratchorg-user-password-by-alias() {
 
 dx-show-scratchorg-user-info-by-alias() {
 
-    echo What is the alias/username\(-u, targetusername \) for the ORG?
+    echo "What is the alias/username\(-u, targetusername \) for the ORG?"
     read ALIAS
     dx-function-show-scratchorg-user-info-by-provided-alias $ALIAS
 
@@ -968,23 +963,23 @@ dx-show-scratchorg-user-info-by-alias() {
 dx-function-show-scratchorg-user-info-by-provided-alias() {
 
     ALIAS=$1
-    echo $ALIAS 
-    echo sfdx force:user:display --targetusername $ALIAS
+    echo "$ALIAS "
+    echo "sfdx force:user:display --targetusername $ALIAS"
     time sfdx force:user:display --targetusername $ALIAS
 
 }
 
 dx-delete-auth() {
-    echo What alias/username for an authentication do you want to delete? \( --targetusername, -u \)
+    echo "What alias/username for an authentication do you want to delete? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo sfdx force:auth:logout -u $TARGET_USERNAME
+    echo "sfdx force:auth:logout -u $TARGET_USERNAME"
     time sfdx force:auth:logout -u $TARGET_USERNAME
 }
 
 dx-delete-scratch() {
-    echo What scratch org do you want to delete by alias/username? \( --targetusername, -u \)
+    echo "What scratch org do you want to delete by alias/username? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo sfdx force:org:delete -u $TARGET_USERNAME
+    echo "sfdx force:org:delete -u $TARGET_USERNAME"
     time sfdx force:org:delete -u $TARGET_USERNAME
 }
 
@@ -993,60 +988,60 @@ dx-lwc-debug() {
 }
 
 dx-auth-web() {
-    echo What is the custom url\(--instanceurl\)?
+    echo "What is the custom url\(--instanceurl\)?"
     read customUrl
-    echo What is the alias\(--setalias\) for this custom url authorization?
+    echo "What is the alias\(--setalias\) for this custom url authorization?"
     read alias
-    echo sfdx auth:web:login --setalias $alias --instanceurl "$customUrl"
+    echo "sfdx auth:web:login --setalias $alias --instanceurl ""$customUrl"
     sfdx auth:web:login --setalias $alias --instanceurl "$customUrl"
 }
 
 dx-auth-web-setdefault() {
-    echo What is the custom url\(--instanceurl\)?
+    echo "What is the custom url\(--instanceurl\)?"
     read customUrl
-    echo What is the alias\(--setalias\) for this custom url authorization?
+    echo "What is the alias\(--setalias\) for this custom url authorization?"
     read alias
-    echo sfdx auth:web:login --setalias $alias --instanceurl "$customUrl" --setdefaultusername
+    echo "sfdx auth:web:login --setalias $alias --instanceurl ""$customUrl" --setdefaultusername
     sfdx auth:web:login --setalias $alias --instanceurl "$customUrl" --setdefaultusername
 }
 
 dx-auth-device() {
-    echo What is the custom url\(--instanceurl\)?
+    echo "What is the custom url\(--instanceurl\)?"
     read customUrl
-    echo What is the alias\(--setalias\) for this custom url authorization?
+    echo "What is the alias\(--setalias\) for this custom url authorization?"
     read alias
-    echo sfdx auth:device:login -r "$customUrl" -a $alias
+    echo "sfdx auth:device:login -r ""$customUrl" -a $alias
     sfdx auth:device:login -r "$customUrl" -a $alias
 }
 
 dx-auth-device-set-devhub-default() {
-    echo What is the DevHub custom url\(--instanceurl\)?
+    echo "What is the DevHub custom url\(--instanceurl\)?"
     read customUrl
-    echo What is the DevHub alias\(--setalias\) for this custom url authorization?
+    echo "What is the DevHub alias\(--setalias\) for this custom url authorization?"
     read alias
-    echo sfdx auth:device:login -r "$customUrl" -a $alias --setdefaultdevhubusername
+    echo "sfdx auth:device:login -r ""$customUrl" -a $alias --setdefaultdevhubusername
     sfdx auth:device:login -r "$customUrl" -a $alias --setdefaultdevhubusername
 }
 
 dx-auth-jwt() {
-    echo What is the instance url\(--instanceurl\)?
+    echo "What is the instance url\(--instanceurl\)?"
     read instanceUrl 
-    echo What is the client Id\(--clientid\)?
-    echo \(This is the Consumer Key of the Connected App\)
+    echo "What is the client Id\(--clientid\)?"
+    echo "\(This is the Consumer Key of the Connected App\)"
     read clientId 
-    echo What is the key path\(--jwtkeyfile\)?
-    echo \(The local jwt file that aligns with the digital signature in the Connected App\)
+    echo "What is the key path\(--jwtkeyfile\)?"
+    echo "\(The local jwt file that aligns with the digital signature in the Connected App\)"
     read -e jwtkeyFilePath
-    echo What is the username\(--username\)?
+    echo "What is the username\(--username\)?"
     read username
-    echo What is the alias\(--setalias\)?
+    echo "What is the alias\(--setalias\)?"
     read alias
-    echo sfdx auth:jwt:grant --clientid $clientId --username $username --setalias $alias --setdefaultdevhubusername --jwtkeyfile $jwtkeyFilePath --instanceurl $instanceUrl
+    echo "sfdx auth:jwt:grant --clientid $clientId --username $username --setalias $alias --setdefaultdevhubusername --jwtkeyfile $jwtkeyFilePath --instanceurl $instanceUrl"
     sfdx auth:jwt:grant --clientid $clientId --username $username --setalias $alias --setdefaultdevhubusername --jwtkeyfile $jwtkeyFilePath --instanceurl $instanceUrl
 }
 
 dx-codescan() {
-    echo What is directory path to perform the code scan against? \( -t, --target \)
+    echo "What is directory path to perform the code scan against? \( -t, --target \)"
     read -e CODESCAN_DIRECTORY_PATH
     dateAndTime=$(date --date="today" +"%Y%m%d_%H%M%SZ")
     echo "$dateAndTime"
@@ -1061,7 +1056,7 @@ dx-test-method () {
     read ORG_ALIAS_OR_USERNAME
     echo "Enter test parameter.. in format: ClassName.MethodName"
     read TEST_PARAM
-    echo sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --targetusername $ORG_ALIAS_OR_USERNAME
+    echo "sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --targetusername $ORG_ALIAS_OR_USERNAME"
     time sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --targetusername $ORG_ALIAS_OR_USERNAME
 }
 
@@ -1070,7 +1065,7 @@ dx-test-method-codecoverage () {
     read ORG_ALIAS_OR_USERNAME
     echo "Enter test parameter.. in format: ClassName.MethodName"
     read TEST_PARAM
-    echo sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --codecoverage --resultformat human --targetusername $ORG_ALIAS_OR_USERNAME
+    echo "sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --codecoverage --resultformat human --targetusername $ORG_ALIAS_OR_USERNAME"
     time sfdx force:apex:test:run --resultformat human --loglevel error --tests $TEST_PARAM --codecoverage --resultformat human --targetusername $ORG_ALIAS_OR_USERNAME
 }
 
@@ -1079,7 +1074,7 @@ dx-test-suite () {
     read ORG_ALIAS_OR_USERNAME
     echo "What is the suitename to test? If there are multiple test suites, provide a comma separated list like 'TestSuiteOne,TestSuiteTwo' \( --suitenames, -s \)"
     read SUITE_NAMES
-    echo sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME
+    echo "sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME"
     time sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME
 }
 
@@ -1088,7 +1083,7 @@ dx-test-suite-codecoverage () {
     read ORG_ALIAS_OR_USERNAME
     echo "What is the suitename to test? If there are multiple test suites, provide a comma separated list like 'TestSuiteOne,TestSuiteTwo' \( --suitenames, -s \)"
     read SUITE_NAMES
-    echo sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human
+    echo "sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human"
     time sfdx force:apex:test:run --resultformat human --loglevel error --suitenames $SUITE_NAMES --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human
 }
 
@@ -1097,7 +1092,7 @@ dx-test-classes () {
     read ORG_ALIAS_OR_USERNAME
     echo "What is the class name to test? If there are multiple test classes, provide a comma separated list like 'TestClassOne,TestClassTwo' \( --classnames, -n \)"
     read CLASS_NAMES
-    echo sfdx force:apex:test:run --classnames \"$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME 
+    echo "sfdx force:apex:test:run --classnames \""$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME 
     time sfdx force:apex:test:run --classnames \"$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME 
 }
 
@@ -1106,120 +1101,120 @@ dx-test-classes-codecoverage () {
     read ORG_ALIAS_OR_USERNAME
     echo "What is the class name to test? If there are multiple test classes, provide a comma separated list like 'TestClassOne,TestClassTwo' \( --classnames, -n \)"
     read CLASS_NAMES
-    echo sfdx force:apex:test:run --classnames \"$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human
+    echo "sfdx force:apex:test:run --classnames \""$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human
     time sfdx force:apex:test:run --classnames \"$CLASS_NAMES\" --loglevel error --targetusername $ORG_ALIAS_OR_USERNAME --codecoverage --resultformat human
 }
 
 
 dx-test-all() {
-    echo What is the alias/username for the org to run all tests? \( --targetusername, -u \)
+    echo "What is the alias/username for the org to run all tests? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo sfdx force:apex:test:run -u $TARGET_USERNAME --json --resultformat human --wait 3 --testlevel RunLocalTests
+    echo "sfdx force:apex:test:run -u $TARGET_USERNAME --json --resultformat human --wait 3 --testlevel RunLocalTests"
     test_result = $(time sfdx force:apex:test:run -u $TARGET_USERNAME --json --resultformat human --wait 3 --testlevel RunLocalTests)
-    echo test_result
+    echo "test_result"
 }
 
 dx-report-test () {
-    echo What is the test run Id \( -i \)?
+    echo "What is the test run Id \( -i \)?"
     read TEST_RUN_ID
     time sfdx force:apex:test:report -i $TEST_RUN_ID
 }
 
 dx-code-coverage-by-apexclass () {
-    echo What is the apex class to get code coverage?
+    echo "What is the apex class to get code coverage?"
     read APEX_CLASS
-    echo sfdx force:data:soql:query --query  "SELECT NumLinesCovered, NumLinesUncovered, ApexClassOrTrigger.Name FROM ApexCodeCoverage WHERE ApexClassOrTrigger.Name in ('$APEX_CLASS')" --usetoolingapi
+    echo "sfdx force:data:soql:query --query  ""SELECT NumLinesCovered, NumLinesUncovered, ApexClassOrTrigger.Name FROM ApexCodeCoverage WHERE ApexClassOrTrigger.Name in ('$APEX_CLASS')" --usetoolingapi
     time sfdx force:data:soql:query --query  "SELECT NumLinesCovered, NumLinesUncovered, ApexClassOrTrigger.Name FROM ApexCodeCoverage WHERE ApexClassOrTrigger.Name in ('$APEX_CLASS')" --usetoolingapi
 }
 
 dx-debug-start() {
-    echo What is the alias/username for the org to run all tests? \( --targetusername, -u \)
+    echo "What is the alias/username for the org to run all tests? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo sfdx force:apex:log:tail --targetusername $TARGET_USERNAME
+    echo "sfdx force:apex:log:tail --targetusername $TARGET_USERNAME"
     time sfdx force:apex:log:tail --targetusername $TARGET_USERNAME
 }
 
 dx-debug-get-last-log() {
-    echo What is the alias/username for the org to run all tests? \( --targetusername, -u \)
+    echo "What is the alias/username for the org to run all tests? \( --targetusername, -u \)"
     read TARGET_USERNAME
-    echo What is the directory output for the log? \( --outputdir, -d \)
+    echo "What is the directory output for the log? \( --outputdir, -d \)"
     read -e OUTPUT_DIR
-    echo sfdx force:apex:log:get --number 1 --targetusername $TARGET_USERNAME --outputdir $OUTPUT_DIR
+    echo "sfdx force:apex:log:get --number 1 --targetusername $TARGET_USERNAME --outputdir $OUTPUT_DIR"
     time sfdx force:apex:log:get --number 1 --targetusername $TARGET_USERNAME --outputdir $OUTPUT_DIR
 }
 
 dx-create-debuglevel-finest-by-alias() {
-    echo What alias/username for target org? \( --targetusername, -u \)
+    echo "What alias/username for target org? \( --targetusername, -u \)"
     read TARGET_ALIAS
-    echo sfdx force:data:record:create --sobjecttype DebugLevel --values "MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json -u $TARGET_ALIAS --loglevel fatal
+    echo "sfdx force:data:record:create --sobjecttype DebugLevel --values ""MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json -u $TARGET_ALIAS --loglevel fatal
     time sfdx force:data:record:create --sobjecttype DebugLevel --values "MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json -u $TARGET_ALIAS --loglevel fatal
 }
 
 dx-create-debuglevel-finest() {
-    echo sfdx force:data:record:create --sobjecttype DebugLevel --values "MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json --loglevel fatal
+    echo "sfdx force:data:record:create --sobjecttype DebugLevel --values ""MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json --loglevel fatal
     time sfdx force:data:record:create --sobjecttype DebugLevel --values "MasterLabel='FINEST ALL' DeveloperName='FINEST_ALL' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'"  --usetoolingapi --json --loglevel fatal
 }
 
 dx-debug-create-and-trace-debug-level(){
     debug_results=$(time sfdx force:data:soql:query -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json)
-    echo $debug_results
+    echo "$debug_results"
     debug_level_id=$(echo $debug_results | jq -r '.result.records[0].Id')
     user_alias_results=$(time sfdx force:data:soql:query -q "Select Id ,Alias from User WHERE Alias='UUser'" --loglevel trace --resultformat=json)
     user_id=$(echo $user_alias_results | jq -r '.result.records[0].Id')
-    echo $user_alias_results
+    echo "$user_alias_results"
     notQuite24Hours=$(date --date="today + 23 hours" +"%Y-%m-%dT%H:%M:%SZ")
     echo "$notQuite24Hours"
-    echo sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
+    echo "sfdx force:data:record:create --sobjecttype TraceFlag --values ""StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
     time sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' TracedEntityId='$user_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
 }
 
 dx-debug-create-trace-by-default-scratch() {
     dx-debug-create-debuglevel-finest
-    echo sfdx force:data:soql:query -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
+    echo "sfdx force:data:soql:query -q ""select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
     debug_results=$(time sfdx force:data:soql:query -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json)
-    echo $debug_results
+    echo "$debug_results"
     debug_level_id=$(echo $debug_results | jq -r '.result.records[0].Id')
     user_alias_results=$(time sfdx force:data:soql:query -q "Select Id ,Alias from User WHERE Alias='UUser'" --loglevel trace --resultformat=json)
     user_id=$(echo $user_alias_results | jq -r '.result.records[0].Id')
-    echo $user_alias_results
+    echo "$user_alias_results"
     notQuite24Hours=$(date --date="today + 23 hours" +"%Y-%m-%dT%H:%M:%SZ")
     echo "$notQuite24Hours"
-    echo sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
+    echo "sfdx force:data:record:create --sobjecttype TraceFlag --values ""StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
     time sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' TracedEntityId='$user_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
 }
 
 dx-debug-create-trace-by-username() {
-    echo What is the Username to begin tracing debug logs for? 
+    echo "What is the Username to begin tracing debug logs for? "
     read USERNAME
-    echo sfdx force:data:soql:query -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
+    echo "sfdx force:data:soql:query -q ""select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
     debug_results=$(time sfdx force:data:soql:query -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json)
-    echo $debug_results
+    echo "$debug_results"
     debug_level_id=$(echo $debug_results | jq -r '.result.records[0].Id')
     user_alias_results=$(time sfdx force:data:soql:query -q "Select Id ,Alias from User WHERE Username='$USERNAME'" --loglevel trace --resultformat=json)
     user_id=$(echo $user_alias_results | jq -r '.result.records[0].Id')
-    echo $user_alias_results
+    echo "$user_alias_results"
     notQuite24Hours=$(date --date="today + 23 hours" +"%Y-%m-%dT%H:%M:%SZ")
     echo "$notQuite24Hours"
-    echo sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
+    echo "sfdx force:data:record:create --sobjecttype TraceFlag --values ""StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
     time sfdx force:data:record:create --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' TracedEntityId='$user_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
 }
 
 dx-debug-create-trace-by-username-and-org-alias(){
-    echo What is the alias of the org to begin debugging against? \( --targetusername \| -u \)
+    echo "What is the alias of the org to begin debugging against? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo What is the Username to begin tracing debug logs for? 
+    echo "What is the Username to begin tracing debug logs for? "
     read USERNAME
-    echo sfdx force:data:soql:query -u $TARGET_USERNAME -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
+    echo "sfdx force:data:soql:query -u $TARGET_USERNAME -q ""select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json
     debug_results=$(time sfdx force:data:soql:query -u $TARGET_USERNAME -q "select Id, DeveloperName From DebugLevel Where DeveloperName = 'FINEST_ALL'" --usetoolingapi --loglevel trace --resultformat=json)
-    echo $debug_results
+    echo "$debug_results"
     debug_level_id=$(echo $debug_results | jq -r '.result.records[0].Id')
-    echo sfdx force:data:soql:query -u $TARGET_USERNAME -q "Select Id ,Alias from User WHERE Alias='$USERNAME'" --loglevel trace --resultformat=json 
+    echo "sfdx force:data:soql:query -u $TARGET_USERNAME -q ""Select Id ,Alias from User WHERE Alias='$USERNAME'" --loglevel trace --resultformat=json 
     user_alias_results=$(time sfdx force:data:soql:query -u $TARGET_USERNAME -q "Select Id ,Alias from User WHERE Alias='$USERNAME'" --loglevel trace --resultformat=json)
     user_id=$(echo $user_alias_results | jq -r '.result.records[0].Id')
-    echo $user_alias_results
+    echo "$user_alias_results"
     notQuite24Hours=$(date --date="today + 23 hours" +"%Y-%m-%dT%H:%M:%SZ")
     echo "$notQuite24Hours"
-    echo sfdx force:data:record:create -u $TARGET_USERNAME --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
+    echo "sfdx force:data:record:create -u $TARGET_USERNAME --sobjecttype TraceFlag --values ""StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
     time sfdx force:data:record:create -u $TARGET_USERNAME --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' DebugLevelId='$debug_level_id' TracedEntityId='$user_id' LogType='DEVELOPER_LOG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
 }
 
@@ -1227,35 +1222,35 @@ dx-logstart () {
     notQuite24Hours=$(date --date="today + 23 hours" +"%Y-%m-%dT%H:%M:%SZ")
     echo "$notQuite24Hours"
     funcYest="$(dxqtflag)"
-    echo $funcYest
+    echo "$funcYest"
     time sfdx force:data:record:create -u funq-test-2 --sobjecttype TraceFlag --values "StartDate='' ExpirationDate='$notQuite24Hours' LogType='USER_DEBUG' System='Fine' Nba='Fine' Wave='Finest' ApexCode='Finest' Database='Finest' Workflow='Finer' Validation='Info' Callout='Finest' ApexProfiling='Finest'" --usetoolingapi --json --loglevel fatal
 }
 
 dx-query() {
-    echo sfdx force:data:soql:query -q "$1"
+    echo "sfdx force:data:soql:query -q ""$1"
     time sfdx force:data:soql:query -q "$1"
 }
 
 dx-query-csv() {
-    echo What is the username/alias \(--username \| -u\) where this soql will be run against?
+    echo "What is the username/alias \(--username \| -u\) where this soql will be run against?"
     read alias
-    echo What is the query?
+    echo "What is the query?"
     read query
     dateAndTime=$(date --date="today" +"%Y%m%d_%H%M%SZ")
     echo "$dateAndTime"
     queryResultsDirectory=queryResults
     mkdir -p "$queryResultsDirectory"
     fileName="$queryResultsDirectory"/"$dateAndTime".csv
-    echo time sfdx force:data:soql:query -q "$query" -r csv -u $alias
+    echo "time sfdx force:data:soql:query -q ""$query" -r csv -u $alias
     results=$(time sfdx force:data:soql:query -q "$query" -r csv -u $alias) 
     echo "$results" > "$fileName"
     start $fileName
 }
 
 dx-query-json() {
-    echo What is the username/alias \(--username \| -u\) where this soql will be run against?
+    echo "What is the username/alias \(--username \| -u\) where this soql will be run against?"
     read alias
-    echo What is the query?
+    echo "What is the query?"
     read query
     dateAndTime=$(date --date="today" +"%Y%m%d_%H%M%SZ")
     echo "$dateAndTime"
@@ -1269,38 +1264,38 @@ dx-query-json() {
 }
 
 dx-query-tooling-csv() {
-    echo What is the username/alias \(--username \| -u\) where this soql will be run against?
+    echo "What is the username/alias \(--username \| -u\) where this soql will be run against?"
     read alias
-    echo What is the query?
+    echo "What is the query?"
     read query
     dateAndTime=$(date --date="today" +"%Y%m%d_%H%M%SZ")
     echo "$dateAndTime"
     queryResultsDirectory=queryResults
     mkdir -p "$queryResultsDirectory"
     fileName="$queryResultsDirectory"/"$dateAndTime".csv
-    echo time sfdx force:data:soql:query --usetoolingapi -q "$query" -r csv -u $alias
+    echo "time sfdx force:data:soql:query --usetoolingapi -q ""$query" -r csv -u $alias
     results=$(time sfdx force:data:soql:query --usetoolingapi -q "$query" -r csv -u $alias) 
     echo "$results" > "$fileName"
 }
 
 dx-query-tooling-api() {
-    echo What is the username/alias \(--username \| -u\) where this soql will be run against?
+    echo "What is the username/alias \(--username \| -u\) where this soql will be run against?"
     read alias
-    echo What is the query?
+    echo "What is the query?"
     read query
     echo "sf data query --use-tooling-api --query "$query" --target-org $alias --json"
     time sf data query --use-tooling-api --query "$query" --target-org $alias --json
 }
 
 dx-getfields-by-object() {
-    echo What is the API Name of the object to get fields for?
+    echo "What is the API Name of the object to get fields for?"
     read API_OBJECT_NAME
-    echo sfdx shane:object:fields:describe -o $API_OBJECT_NAME
+    echo "sfdx shane:object:fields:describe -o $API_OBJECT_NAME"
     sfdx shane:object:fields:describe -o $API_OBJECT_NAME
 }
 
 dx-create-org-shape() {
-    echo What is the alias of the org shape source org? \(--targetusername \| -u\)
+    echo "What is the alias of the org shape source org? \(--targetusername \| -u\)"
     read ORG_SHAPE_ALIAS
     echo "sfdx force:org:shape:create --targetusername $ORG_SHAPE_ALIAS"
     time sfdx force:org:shape:create --targetusername $ORG_SHAPE_ALIAS
@@ -1317,7 +1312,7 @@ dx-show-org-shapes-sf() {
 }
 
 dx-create-org-shape-sf() {
-    echo What is the alias of the org shape source org? \(--target-org \| -o\)
+    echo "What is the alias of the org shape source org? \(--target-org \| -o\)"
     read ORG_SHAPE_ALIAS
     echo "sf org create shape --target-org $ORG_SHAPE_ALIAS --json"
     time sf org create shape --target-org $ORG_SHAPE_ALIAS --json
@@ -1339,11 +1334,11 @@ dx-plugin-development-debug-unset-node-options() {
 }
 
 dx-create-sandbox-async-sf() {
-    echo What is the alias of the production org to create sandbox from? \(--target-org \| -o\)
+    echo "What is the alias of the production org to create sandbox from? \(--target-org \| -o\)"
     read PROD_ALIAS
-    echo What is the alias of the sandbox to be created? \( -n \| --name \)
+    echo "What is the alias of the sandbox to be created? \( -n \| --name \)"
     read SANDBOX_ALIAS
-    echo What is the NAME of the sandbox to be created? \( -a \| --alias \)
+    echo "What is the NAME of the sandbox to be created? \( -a \| --alias \)"
     read SANDBOX_NAME
     echo "sf org create sandbox --name $SANDBOX_NAME --license-type Developer --alias $SANDBOX_ALIAS --target-org $PROD_ALIAS --async"
     echo "Y" | sf org create sandbox --name $SANDBOX_NAME --license-type Developer --alias $SANDBOX_ALIAS --target-org $PROD_ALIAS --async
@@ -1351,11 +1346,11 @@ dx-create-sandbox-async-sf() {
 
 dx-dry-run-deploy-dry-run-by-path-and-target-org-sf() {
 
-    echo What is the target alias/username to validate \(--dry-run\) a directory against? \(--target-org \| -o\)
+    echo "What is the target alias/username to validate \(--dry-run\) a directory against? \(--target-org \| -o\)"
 	read TARGET_ORG
-	echo What is the path of the directory to validate-only test deploy? \(--source-dir \| -d\)?
+	echo "What is the path of the directory to validate-only test deploy? \(--source-dir \| -d\)?"
 	read -e SOURCE_DIR
-    echo sf project deploy start --source-dir \"$SOURCE_DIR\" --target-org $TARGET_ORG --dry-run --wait 20 --json
+    echo "sf project deploy start --source-dir \""$SOURCE_DIR\" --target-org $TARGET_ORG --dry-run --wait 20 --json
     time sf project deploy start --source-dir $SOURCE_DIR --target-org $TARGET_ORG --dry-run --wait 20 --json
 
 }
