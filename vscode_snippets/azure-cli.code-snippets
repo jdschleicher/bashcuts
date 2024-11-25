@@ -27,19 +27,19 @@
 	},
 
 
-az boards work-item create --title "$TITLE" \
---type "user story" \  
---assigned-to "$AZ_ASSIGNED_TO" \
---project "$AZ_PROJECT"
---description "$DESCRIPTION" \   
---area "$AZ_AREA" \ 
---iteration "$AZ_ITERATION" \      
---fields \
-"Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS 
-Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA" 
+// az boards work-item create --title "$TITLE" \
+// --type "user story" \  
+// --assigned-to "$AZ_ASSIGNED_TO" \
+// --project "$AZ_PROJECT"
+// --description "$DESCRIPTION" \   
+// --area "$AZ_AREA" \ 
+// --iteration "$AZ_ITERATION" \      
+// --fields \
+// "Microsoft.VSTS.Scheduling.StoryPoints=$STORY_POINTS 
+// Microsoft.VSTS.Common.AcceptanceCriteria=$ACCEPTANCE_CRITERIA" 
 
 // az boards work-item create --title "multie line" --type "user story" --area "DTC Release\PIE"  \
-//     --assigned-to jonathon.schleicher@b3groupinc.com \
+//     --assigned-to jonathon.s@gmail.com \
 //     --description "test" \
 //     --project "DTC Release" \
 //     --iteration "DTC Release" 
