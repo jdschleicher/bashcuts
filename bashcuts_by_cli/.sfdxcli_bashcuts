@@ -222,8 +222,8 @@ dx-retrieve-one() {
     read METADATA_TYPE
     echo "What is the API name of the metadata you are retrieving? \( -m \| --metadata\)?"
     read METADATA_API_NAME
-    echo "sfdx force:source:retrieve --metadata=\""$METADATA_TYPE:$METADATA_API_NAME\" --targetusername $ALIAS
-    time sfdx force:source:retrieve --metadata "$METADATA_TYPE:$METADATA_API_NAME" --targetusername $ALIAS
+    echo "sf project retrieve start --metadata \""$METADATA_TYPE:$METADATA_API_NAME\"" --target-org $ALIAS"
+    time sf project retrieve start --metadata "$METADATA_TYPE:$METADATA_API_NAME" --target-org $ALIAS
 
 }
 
@@ -232,8 +232,8 @@ dx-retrieve-package() {
     read ALIAS
     echo "What is the name of the package to retrieve\( -n \| --package-name\)? - Note - spaces allowed"
     read PACKAGE_NAME
-    echo "sf project retrieve start --package-name \""$PACKAGE_NAME\"  --target-org $ALIAS
-    sf project retrieve start --package-name \"$PACKAGE_NAME\"  --target-org $ALIAS
+    echo "sf project retrieve start --package-name \""$PACKAGE_NAME\"" --target-org $ALIAS"
+    time sf project retrieve start --package-name "$PACKAGE_NAME"  --target-org $ALIAS
 }
 
 dx-show-package-versions-for-specific-package() {
@@ -365,17 +365,6 @@ dx-data-tree-import() {
 }
 
 dx-create-scratch() {
-    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
-    read devHub
-    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
-    read durationDays
-    echo "What will the scratch org\'s alias\(--setalias\) be?"
-    read alias
-    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
-    time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
-}
-
-dx-create-scratch-sf() {
     echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
     read DEVHUB
     echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
@@ -437,8 +426,8 @@ dx-create-scratch-and-push() {
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "PUSHING CODEBASE TO $alias"
-        echo "sfdx force:source:push --targetusername $alias --wait 10"
-        time sfdx force:source:push --targetusername $alias --wait 10 
+        echo "sf project deploy start --target-org $alias --wait 10"
+        time sf project deploy start --target-org $alias --wait 10 
     else 
         echo "The scratch org creation failed"
     fi
@@ -821,42 +810,42 @@ dx-validate-only-mdapi-by-environment() {
 }
 
 dx-pull() {
-    echo "sfdx force:source:pull "
-    time sfdx force:source:pull
+    echo "sf project retrieve start "
+    time sf project retrieve start
 }
 
 dx-pull-force() {
-    echo "sfdx force:source:pull -f "
-    time sfdx force:source:pull -f
+    echo "sf project retrieve start -f "
+    time sf project retrieve start -f
 }
 
 dx-pull-by-alias() {
     echo "What is the username or alias to source pull from? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo "sfdx force:source:pull --targetusername $TARGET_USERNAME"
-    time sfdx force:source:pull --targetusername $TARGET_USERNAME
+    echo "sf project retrieve start --targetusername $TARGET_USERNAME"
+    time sf project retrieve start --targetusername $TARGET_USERNAME
 }
 
 dx-pull-default() {
-    echo "sfdx force:source:pull"
-    time sfdx force:source:pull
+    echo "sf project retrieve start"
+    time sf project retrieve start
 }
 
 dx-push-by-alias() {
     echo "What is the username or alias to source push to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo "sfdx force:source:push --targetusername $TARGET_USERNAME"
-    time sfdx force:source:push --targetusername $TARGET_USERNAME
+    echo "sf project deploy start --target-org $TARGET_USERNAME"
+    time sf project deploy start --target-org $TARGET_USERNAME
 }
 
 dx-push() {
-    echo "sfdx force:source:push "
-    time sfdx force:source:push
+    echo "sf project deploy start "
+    time sf project deploy start
 }
 
 dx-push-force() {
-    echo "sfdx force:source:push -f "
-    time sfdx force:source:push -f
+    echo "sf project deploy start -f "
+    time sf project deploy start -f
 }
 
 dx-show-revisions() {
@@ -934,24 +923,6 @@ dx-sfdmu-org2org-path() {
     sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
 }
 
-dx-generate-scratchorg-user-password-by-alias() {
-
-    echo "What is the alias/username\(-u, targetusername \) for the ORG?"
-    read ALIAS
-    echo "sfdx force:user:password:generate --targetusername $ALIAS"
-    #show user details immediate after
-    command_result=$(time sfdx force:user:password:generate --targetusername $ALIAS)
-    echo "$command_result"
-    if [[ $command_result =~ "Successfully" ]]
-    then
-        echo "SHOWING USER DETAILS"
-        dx-function-show-scratchorg-user-info-by-provided-alias $ALIAS
-    else 
-        echo "The scrach org user password generation failed"
-    fi
-    
-}
-
 dx-show-scratchorg-user-info-by-alias() {
 
     echo "What is the alias/username\(-u, targetusername \) for the ORG?"
@@ -964,8 +935,8 @@ dx-function-show-scratchorg-user-info-by-provided-alias() {
 
     ALIAS=$1
     echo "$ALIAS "
-    echo "sfdx force:user:display --targetusername $ALIAS"
-    time sfdx force:user:display --targetusername $ALIAS
+    echo "sf org display user --target-org $ALIAS"
+    time sf org display user --target-org $ALIAS
 
 }
 
@@ -1353,6 +1324,21 @@ dx-dry-run-deploy-dry-run-by-path-and-target-org-sf() {
     echo "sf project deploy start --source-dir \""$SOURCE_DIR\" --target-org $TARGET_ORG --dry-run --wait 20 --json
     time sf project deploy start --source-dir $SOURCE_DIR --target-org $TARGET_ORG --dry-run --wait 20 --json
 
+}
+
+dx-generate-password() {
+    echo "What is the target alias/username to reset? \(--target-org \| -o\)"
+	read TARGET_ORG
+    echo "sf org generate password --target-org $TARGET_ORG"
+    command_result=$(time sf org generate password --target-org $TARGET_ORG)
+    echo "$command_result"
+    if [[ $command_result =~ "Successfully" ]]
+    then
+        echo "SHOWING USER DETAILS"
+        dx-function-show-scratchorg-user-info-by-provided-alias $TARGET_ORG
+    else 
+        echo "The scrach org user password generation failed"
+    fi
 }
 
 
