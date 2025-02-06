@@ -775,7 +775,7 @@ dx-deploy() {
     echo "What is the ORG username or alias to deploy to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
     echo "Where is the Source Directory located? \( --sourcepath \| -p \)"
-    read SOURCE_DIRECTORY
+    read -e SOURCE_DIRECTORY
     echo "sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME"
     time sfdx force:source:deploy --sourcepath $SOURCE_DIRECTORY --targetusername $TARGET_USERNAME 
 }
@@ -815,8 +815,8 @@ dx-pull() {
 }
 
 dx-pull-force() {
-    echo "sf project retrieve start -f "
-    time sf project retrieve start -f
+    echo "sf project retrieve start -c "
+    time sf project retrieve start -c
 }
 
 dx-pull-by-alias() {
@@ -844,8 +844,8 @@ dx-push() {
 }
 
 dx-push-force() {
-    echo "sf project deploy start -f "
-    time sf project deploy start -f
+    echo "sf project deploy start -c "
+    time sf project deploy start -c
 }
 
 dx-show-revisions() {
