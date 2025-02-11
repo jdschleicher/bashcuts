@@ -8,6 +8,8 @@ if [[ $OSTYPE == 'darwin'* ]]; then
     alias o-snip-lwc="start ~/Library/Application\ Support/Code/User/snippets/lwc.code-snippets"
     alias o-snip-powershell="start ~/Library/Application\ Support/Code/User/snippets/powershell.code-snippets"
     alias o-snip-az="start ~/Library/Application\ Support/Code/User/snippets/azure-cli.code-snippets"
+    alias o-snip-ts="start ~/Library/Application\ Support/Code/User/snippets/typescript.code-snippets"
+
 else
     echo "SNIPPETS LOADING FOR WINDOWS"
     alias o-snip-snippets="start ~/AppData/Roaming/Code/User/snippets"
@@ -15,6 +17,7 @@ else
     alias o-snip-lwc="start ~/AppData/Roaming/Code/User/snippets/lwc.code-snippets"
     alias o-snip-powershell="start ~/AppData/Roaming/Code/User/snippets/powershell.code-snippets"
     alias o-snip-az="start ~/AppData/Roaming/Code/User/snippets/azure-cli.code-snippets"
+    alias o-snip-ts="start ~/AppData/Roaming/Code/User/snippets/typescript.code-snippets"
 fi
 
 #OPEN ALIAS FILE
