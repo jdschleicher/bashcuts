@@ -209,8 +209,8 @@ dx-retrieve-manifest() {
     read ALIAS
     echo "What is the package.xml directory path \( -x \| --manifest\)?"
     read -e MANIFEST_PATH
-    echo "sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS"
-    time sfdx force:source:retrieve --manifest $MANIFEST_PATH --targetusername $ALIAS
+    echo "sf project retrieve start --manifest $MANIFEST_PATH --target-org $ALIAS"
+    time sf project retrieve start --manifest $MANIFEST_PATH --target-org $ALIAS
 
 }
 
