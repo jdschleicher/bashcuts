@@ -873,15 +873,15 @@ dx-sfdmu-org2org() {
     read SOURCE_USERNAME
     echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt"
-    sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt
+    echo "sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt"
+    time sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --noprompt
 }
 
 dx-sfdmu-csvfile2org() {
     echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo "sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt"
-    sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt
+    echo "sf sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt"
+    time sf sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --noprompt
 }
 
 dx-sfdmu-csvfile2Org-path() {
@@ -889,8 +889,8 @@ dx-sfdmu-csvfile2Org-path() {
     read -e SOURCEPATH
     echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo "sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
-    sfdx sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
+    echo "sf sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
+    time sf sfdmu:run --sourceusername csvfile --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
 }
 
 dx-sfdmu-csvfileFromOrg-path() {
@@ -898,8 +898,8 @@ dx-sfdmu-csvfileFromOrg-path() {
     read -e SOURCEPATH
     echo "What is the username or alias to get csv data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path ""$SOURCEPATH" --noprompt 
-    sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path "$SOURCEPATH" --noprompt
+    echo "sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path ""$SOURCEPATH" --noprompt 
+    time sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --path "$SOURCEPATH" --noprompt
 }
 
 dx-sfdmu-csvfileFromOrg() {
@@ -907,8 +907,8 @@ dx-sfdmu-csvfileFromOrg() {
     read -e SOURCEPATH
     echo "What is the username or alias to get csv data from? \( -s, --sourceusername \)"
     read SOURCE_USERNAME
-    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt "
-    sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt
+    echo "sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt "
+    time sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername csvfile --noprompt
 }
 
 
@@ -919,19 +919,19 @@ dx-sfdmu-org2org-path() {
     read SOURCE_USERNAME
     echo "What is the username or alias to move the exported data to? \( -u, --targetusername \)"
     read TARGET_USERNAME
-    echo "sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
-    sfdx sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
+    echo "sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path ""$SOURCEPATH" --noprompt
+    time sf sfdmu:run --sourceusername $SOURCE_USERNAME --targetusername $TARGET_USERNAME --path "$SOURCEPATH" --noprompt
 }
 
 dx-show-scratchorg-user-info-by-alias() {
 
     echo "What is the alias/username\(-u, targetusername \) for the ORG?"
     read ALIAS
-    dx-function-show-scratchorg-user-info-by-provided-alias $ALIAS
+    dx-show-login-detail-by-alias $ALIAS
 
 }
 
-dx-function-show-scratchorg-user-info-by-provided-alias() {
+dx-show-login-detail-by-alias() {
 
     ALIAS=$1
     echo "$ALIAS "
@@ -1335,7 +1335,7 @@ dx-generate-password() {
     if [[ $command_result =~ "Successfully" ]]
     then
         echo "SHOWING USER DETAILS"
-        dx-function-show-scratchorg-user-info-by-provided-alias $TARGET_ORG
+        dx-show-login-detail-by-alias $TARGET_ORG
     else 
         echo "The scrach org user password generation failed"
     fi
