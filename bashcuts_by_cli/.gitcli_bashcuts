@@ -238,7 +238,7 @@ g-show-all-commits-for-file() {
 }
 
 g-open-browser-to-commit-id() {
-    echo What is the commit ID to view?
+    echo "What is the commit ID to view?"
     read COMMIT_ID
     remote_url=$(git config --get remote.origin.url)
     git_extension_pattern=".git"
