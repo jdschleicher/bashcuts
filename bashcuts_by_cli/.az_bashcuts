@@ -1,29 +1,37 @@
 
 # AZURE DEVOPS CLI
-az-show-my-features() {
-    az boards query --output table --wiql "select [id],[Work Item Type],[Title] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Feature'"
+az-query-my-features() {
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title], [System.IterationPath], [System.AreaPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Feature'"
 }
 
-az-show-my-tasks() {
-    az boards query --output table --wiql "select [id],[Work Item Type],[Title] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Task'"
+az-query-my-tasks() {
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title], [System.IterationPath], [System.AreaPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Task'"
 }
 
-az-query-all-pie-by-phrase() {
+az-query-my-stories() {
+    az boards query --output table --wiql "select [id],[State],[Work Item Type],[Title], [System.AreaPath], [System.IterationPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'User Story'"
+}
+
+az-query-my-items() {
+    az boards query --output table --wiql "select [id],[State],[Work Item Type],[Title], [System.IterationPath], [System.AreaPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL'"
+}
+
+az-query-all-items-by-phrase() {
     echo "What phrase would you like to query?"
     read query_item
-    az boards query --output table --wiql "select [id],[Work Item Type],[Title],[System.AreaPath] from workitems where [System.AreaPath] = 'DTC Release\PIE' and ([Title] contains '$query_item' or [Description] contains '$query_item')" 
+    az boards query --output table --wiql "select [id],[Work Item Type],[Title],[System.AreaPath] from workitems where [System.AreaPath] = '$AZ_AREA' and ([Title] contains '$query_item' or [Description] contains '$query_item')" 
 }
 
 az-set-default-org-by-bashrc() {
-    echo az devops configure --defaults organization=$AZ_DEFAULT_ORG
-    az devops configure --defaults organization="$AZ_DEFAULT_ORG"
+    echo az devops configure --defaults organization=$AZ_DEFAULT_ORG_URL
+    az devops configure --defaults organization="$AZ_DEFAULT_ORG_URL"
 }
 
 az-set-default-organization() {
     echo What url represents the organization to default?
-    read DEFAULT_ORG_URL
-    echo az devops configure -d organization=$DEFAULT_ORG_URL
-    az devops configure -d organization=$DEFAULT_ORG_URL
+    read AZ_DEFAULT_ORG_URL
+    echo az devops configure -d organization=$AZ_DEFAULT_ORG_URL
+    az devops configure -d organization=$AZ_DEFAULT_ORG_URL
 }
 
 az-create-child-tasks () {
@@ -126,8 +134,12 @@ az-open-work-item() {
     echo What is the ID of the work item? \(--id\)
     read WORK_ITEM_ID
     echo az boards work-item show --id $WORK_ITEM_ID --open
-    az boards work-item show --id 12205 --open
-    12205,
+    az boards work-item show --id $WORK_ITEM_ID --open
+}
+
+az-o-wi() {
+    echo az boards work-item show --id $1 --open 
+    az boards work-item show --id $1 --open
 }
 
 az-get-work-item() {
@@ -152,9 +164,19 @@ az-open-board() {
 }
 
 az-open-hierarchy() {
-    start $AZ_HIERARCHY_VIEW
+    start "https://dev.azure.com/$AZ_DEFAULT_ORG/$AZ_PROJECT_URL_SAFE/_backlogs/backlog/$AZ_AREA_SWIM_LANE_URL_SAFE/Epics"
 }
 
 az-open-current-sprint-stories-view() {
     start $AZ_CURRENT_SPRINT_STORIES_VIEW
+}
+
+az-open-repo() {
+    REMOTE_URL=$(git config --get remote.origin.url)
+    REPO_NAME=$(basename -s .git "$REMOTE_URL")
+    echo $AZ_DEFAULT_ORG_URL
+    FULL_REPO_URL="$AZ_DEFAULT_ORG_URL$AZ_PROJECT_URL_SAFE/_git/$REPO_NAME"
+    echo "Opening Azure Repo: $REPO_NAME..."
+    echo "$FULL_REPO_URL"
+    start $FULL_REPO_URL
 }

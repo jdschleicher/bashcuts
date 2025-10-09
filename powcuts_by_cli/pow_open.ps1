@@ -17,7 +17,7 @@ function o-pow-common {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\pow_common.ps1"
 }
 
-function o-pow-az-ci {
+function o-pow-az-cli {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\pow_az_cli.ps1"
 }
 

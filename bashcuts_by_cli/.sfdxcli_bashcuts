@@ -2,8 +2,8 @@
 alias dxaliaslist="time sfdx force:alias:list"
 
 dx-open() {
-    echo "sf org open "
-    time sf org open
+    echo "sf org open --target-org $1"
+    time sf org open --target-org $1
 }
 
 dx-open-devconsole() {
@@ -16,6 +16,15 @@ dx-open-by-alias() {
     read TARGET_USERNAME
     echo "sf org open --target-org $TARGET_USERNAME"
     time sf org open --target-org $TARGET_USERNAME
+}
+
+dx-open-by-alias-and-browser() {
+    echo "What is the username or alias of the org to open? \( --targetusername \| -u z\)"
+    read TARGET_USERNAME
+    echo "What is the name of the browser to use? \( --browser \)"
+    read BROWSER
+    echo "sf org open --target-org $TARGET_USERNAME --browser $BROWSER"
+    time sf org open --target-org $TARGET_USERNAME --browser $BROWSER
 }
 
 dx-open-devconsole-by-alias() {
@@ -194,7 +203,6 @@ dx-apex-by-alias-and-file() {
 }
 
 dx-promote-package() {
-    # time sfdx force:package:version:promote
     echo "What is the alias/username of the DevHub \(--targetdevhubusername, -v \)?"
     read DEVHUB_ALIAS
     echo "What is the 04t package Id to promote \( --package, -p \)"
@@ -375,53 +383,66 @@ dx-create-scratch() {
     time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
 }
 
+dx-create-scratch-preview() {
+    echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
+    read DEVHUB
+    echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
+    read durationDays
+    echo "What will the scratch org\'s alias\(--alias\) be?"
+    read alias
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --release preview --set-default --json"
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --release preview --set-default --json
+}
+
 dx-create-scratch-by-path() {
     echo "What path will scratch org be created from?"
     read -e SFDX_PROJECT_PATH
     cd $SFDX_PROJECT_PATH
     echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
-    read devHub
+    read DEVHUB
     echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
     read durationDays
     echo "What will the scratch org\'s alias\(--setalias\) be?"
     read alias
-    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
-    time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json"
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
     cd -
 }
 
 dx-create-scratch-non-default() {
-    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
-    read devHub
-    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
+    echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
+    read DEVHUB
+    echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo "What will the scratch org\'s alias\(--setalias\) be?"
+    echo "What will the scratch org\'s alias\(--alias\) be?"
     read alias
-    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --loglevel trace"
-    time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --loglevel trace
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --json"
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --json
 }
 
+
 dx-create-scratch-and-open() {
-    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
-    read devHub
-    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
+    echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
+    read DEVHUB
+    echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo "What will the scratch org\'s alias\(--setalias\) be?"
+    echo "What will the scratch org\'s alias\(--alias\) be?"
     read alias
-    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace"
-    time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --loglevel trace
-    dx-open
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json"
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
+    dx-open $alias
 }
 
 dx-create-scratch-and-push() {
-    echo "What DevHub will this Scratch Org be created from\(--targetdevhubusername \|-v\)?"
-    read devHub
-    echo "How many days\(--durationdays\) will this scratch org Exist \(1-30\)?"
+    echo "What DevHub will this Scratch Org be created from\(--target-dev-hub \|-v\)?"
+    read DEVHUB
+    echo "How many days\(--duration-days\) will this scratch org Exist \(1-30\)?"
     read durationDays
-    echo "What will the scratch org\'s alias\(--setalias\) be?"
+    echo "What will the scratch org\'s alias\(--alias\) be?"
     read alias
-    echo "sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR"
-    command_result=$(time sfdx force:org:create --targetdevhubusername $devHub --definitionfile config/project-scratch-def.json --setalias $alias --durationdays $durationDays --setdefaultusername --wait 10 --loglevel ERROR)
+    echo "sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json"
+    time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json
+    command_result=$( time sf org create scratch --target-dev-hub $DEVHUB --definition-file config/project-scratch-def.json --alias $alias --duration-days $durationDays --set-default --json)
     echo "$command_result"
     if [[ $command_result =~ "Successfully" ]]
     then
@@ -783,10 +804,31 @@ dx-deploy() {
 dx-deploy-path() {
     echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
     read TARGET_USERNAME
+    echo "What path contains the source metadata to deploy? \(--source-dir, -p \)"
+    read -e SOURCE_DIRECTORY
+    echo "sf project deploy start --target-org $TARGET_USERNAME --source-dir \""$SOURCE_DIRECTORY\"
+    time sf project deploy start --target-org $TARGET_USERNAME --source-dir "$SOURCE_DIRECTORY"
+}
+
+dx-deploy-path-api-version-override() {
+    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
+    read TARGET_USERNAME
+    echo "What path contains the source metadata to deploy? \(--source-dir, -p \)"
+    read -e SOURCEPATH
+    echo "What api version to deploy? \(--api-version \)"
+    read -e API_VERSION_OVERRIDE
+    echo "sf project deploy start --target-org $TARGET_USERNAME --source-dir \""$SOURCEPATH\" --api-version $API_VERSION_OVERRIDE
+    time sf project deploy start --target-org $TARGET_USERNAME --source-dir "$SOURCEPATH" --api-version $API_VERSION_OVERRIDE
+}
+
+
+dx-validate-only-source-by-environment() {
+    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
+    read TARGET_USERNAME
     echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
     read -e SOURCEPATH
-    echo "sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath \""$SOURCEPATH\"
-    time sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath "$SOURCEPATH"
+    echo "sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH"
+    time sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH
 }
 
 dx-validate-only-source-by-environment() {
@@ -794,8 +836,17 @@ dx-validate-only-source-by-environment() {
     read TARGET_USERNAME
     echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
     read -e SOURCEPATH
-    echo "sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath $SOURCEPATH --checkonly"
-    time sfdx force:source:deploy --targetusername $TARGET_USERNAME --sourcepath $SOURCEPATH --checkonly
+    echo "sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH"
+    time sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH
+}
+
+dx-dry-run-by-environment-and-path-runlocaltests() {
+    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
+    read TARGET_USERNAME
+    echo "What path contains the source metadata to dry-run? \(--source-dr, -p \)"
+    read -e SOURCEPATH
+    echo "sf project deploy start --dry-run --test-level RunLocalTests  --target-org $TARGET_USERNAME --source-dir \"$SOURCEPATH\""
+    time sf project deploy start --dry-run --test-level RunLocalTests --target-org $TARGET_USERNAME --source-dir "$SOURCEPATH"
 }
 
 dx-validate-only-mdapi-by-environment() {
@@ -810,7 +861,7 @@ dx-validate-only-mdapi-by-environment() {
 }
 
 dx-pull() {
-    echo "sf project retrieve start "
+    echo "sf project retrieve start"
     time sf project retrieve start
 }
 
@@ -826,26 +877,42 @@ dx-pull-by-alias() {
     time sf project retrieve start --targetusername $TARGET_USERNAME
 }
 
-dx-pull-default() {
+dx-retrieve-default() {
     echo "sf project retrieve start"
     time sf project retrieve start
 }
 
-dx-push-by-alias() {
-    echo "What is the username or alias to source push to? \( --targetusername \| -u \)"
+dx-deploy-by-alias() {
+    echo "What is the username or alias to source deploy to? \( --targetusername \| -u \)"
     read TARGET_USERNAME
     echo "sf project deploy start --target-org $TARGET_USERNAME"
     time sf project deploy start --target-org $TARGET_USERNAME
 }
 
-dx-push() {
+dx-deploy-by-alias-and-path() {
+    echo "What is the username or alias to source deploy to? \( --targetusername \| -u \)"
+    read TARGET_USERNAME
+    echo "What is the path of the components to deploy? \(--source-dir \)"
+    read -e PATH_TO_DEPLOY
+    echo "sf project deploy start --target-org "$TARGET_USERNAME" --source-dir \""$PATH_TO_DEPLOY"\""
+    time sf project deploy start --target-org "$TARGET_USERNAME" --source-dir "$PATH_TO_DEPLOY"
+}
+
+dx-deploy-by-alias-force() {
+    echo "What is the username or alias to source deploy to? \( --targetusername \| -u \)"
+    read TARGET_USERNAME
+    echo "sf project deploy start --target-org $TARGET_USERNAME --ignore-conflicts"
+    time sf project deploy start --target-org $TARGET_USERNAME --ignore-conflicts
+}
+
+dx-deploy-default-org() {
     echo "sf project deploy start "
     time sf project deploy start
 }
 
-dx-push-force() {
-    echo "sf project deploy start -c "
-    time sf project deploy start -c
+dx-deploy-default-org-force() {
+    echo "sf project deploy start --ignore-conflicts "
+    time sf project deploy start --ignore-conflicts
 }
 
 dx-show-revisions() {
@@ -958,40 +1025,35 @@ dx-lwc-debug() {
     time sfdx force:data:record:update --sobjecttype=User --where="Username="$1"" --values="UserPreferencesUserDebugModePref=$2"
 }
 
-dx-auth-web() {
-    echo "What is the custom url\(--instanceurl\)?"
-    read customUrl
-    echo "What is the alias\(--setalias\) for this custom url authorization?"
+dx-auth-sandbox-web() {
+    echo "What is the combined company and sandbox name \( companyname--sandboxname \)?"
+    read FULL_SANDBOX_DOMAIN
+    echo "What is the alias\(--setalias\) for this sandbox authentication?"
     read alias
-    echo "sfdx auth:web:login --setalias $alias --instanceurl ""$customUrl"
-    sfdx auth:web:login --setalias $alias --instanceurl "$customUrl"
+    FULL_SANDBOX_URL="https://${FULL_SANDBOX_DOMAIN}.sandbox.my.salesforce.com"
+    echo "sf org login web --instance-url "$FULL_SANDBOX_URL" --alias $alias --json"
+    time sf org login web --instance-url "$FULL_SANDBOX_URL" --alias $alias --json
 }
 
-dx-auth-web-setdefault() {
-    echo "What is the custom url\(--instanceurl\)?"
-    read customUrl
-    echo "What is the alias\(--setalias\) for this custom url authorization?"
+dx-auth-prod-web() {
+    echo "What is the domain name of the prod or developer edition org?"
+    read PROD_OR_DEVELOPER_EDITION_NAME
+    echo "What is the alias\(--setalias\) for this sandbox authentication?"
     read alias
-    echo "sfdx auth:web:login --setalias $alias --instanceurl ""$customUrl" --setdefaultusername
-    sfdx auth:web:login --setalias $alias --instanceurl "$customUrl" --setdefaultusername
+    FULL_ORGANIZATION_URL="https://${PROD_OR_DEVELOPER_EDITION_NAME}.my.salesforce.com"
+    echo "sf org login web --instance-url "$FULL_ORGANIZATION_URL" --alias $alias --json"
+    time sf org login web --instance-url "$FULL_ORGANIZATION_URL" --alias $alias --json
 }
 
-dx-auth-device() {
-    echo "What is the custom url\(--instanceurl\)?"
-    read customUrl
-    echo "What is the alias\(--setalias\) for this custom url authorization?"
-    read alias
-    echo "sfdx auth:device:login -r ""$customUrl" -a $alias
-    sfdx auth:device:login -r "$customUrl" -a $alias
-}
 
-dx-auth-device-set-devhub-default() {
-    echo "What is the DevHub custom url\(--instanceurl\)?"
-    read customUrl
-    echo "What is the DevHub alias\(--setalias\) for this custom url authorization?"
+dx-auth-sandbox-web-setdefault() {
+    echo "What is the combined company and sandbox name \( companyname--sandboxname \)?"
+    read FULL_SANDBOX_DOMAIN
+    echo "What is the alias\(--setalias\) for this sandbox authentication?"
     read alias
-    echo "sfdx auth:device:login -r ""$customUrl" -a $alias --setdefaultdevhubusername
-    sfdx auth:device:login -r "$customUrl" -a $alias --setdefaultdevhubusername
+    FULL_SANDBOX_URL="https://${FULL_SANDBOX_DOMAIN}.sandbox.my.salesforce.com"
+    echo "sf org login web --instance-url "$FULL_SANDBOX_URL" --alias $alias --json --set-default"
+    time sf org login web --instance-url "$FULL_SANDBOX_URL" --alias $alias --json --set-default
 }
 
 dx-auth-jwt() {
@@ -1341,5 +1403,13 @@ dx-generate-password() {
     fi
 }
 
+dx-bulk-results-by-job-id() {
+    echo "What is the job id of the bulk job?(--job-id )"
+    read JOB_ID
+    echo "What is the target org alias of the bulk job?"
+    read TARGET_ORG_ALIAS
+    echo "sf data bulk results --job-id $JOB_ID --target-org $TARGET_ORG_ALIAS"
+    time sf data bulk results --job-id $JOB_ID --target-org $TARGET_ORG_ALIAS
+}
 
 
