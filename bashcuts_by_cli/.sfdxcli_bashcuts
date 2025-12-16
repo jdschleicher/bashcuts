@@ -235,6 +235,21 @@ dx-retrieve-one() {
 
 }
 
+dx-retrieve-one-api-override() {
+
+    echo "What is the alias/username of the org retrieving from \(-u \| --targetusername\)?"
+    read ALIAS
+    echo "What is the metadata type you are retrieving? \( -x \| --manifest\)?"
+    read METADATA_TYPE
+    echo "What is the API name of the metadata you are retrieving? \( -m \| --metadata\)?"
+    read METADATA_API_NAME
+    echo "What api version to retrieve by? \(--api-version \)"
+    read -e API_VERSION_OVERRIDE
+    echo "sf project retrieve start --metadata \""$METADATA_TYPE:$METADATA_API_NAME\"" --target-org $ALIAS --api-version $API_VERSION_OVERRIDE"
+    time sf project retrieve start --metadata "$METADATA_TYPE:$METADATA_API_NAME" --target-org $ALIAS --api-version $API_VERSION_OVERRIDE
+
+}
+
 dx-retrieve-package() {
      echo "What is the alias/username of the org retrieving from \(-o \| --target-org\)?"
     read ALIAS
@@ -1327,17 +1342,6 @@ dx-getfields-by-object() {
     sfdx shane:object:fields:describe -o $API_OBJECT_NAME
 }
 
-dx-create-org-shape() {
-    echo "What is the alias of the org shape source org? \(--targetusername \| -u\)"
-    read ORG_SHAPE_ALIAS
-    echo "sfdx force:org:shape:create --targetusername $ORG_SHAPE_ALIAS"
-    time sfdx force:org:shape:create --targetusername $ORG_SHAPE_ALIAS
-}
-
-dx-show-org-shapes() {
-    echo "sfdx force:org:shape:list"
-    time sfdx force:org:shape:list
-}
 
 dx-show-org-shapes-sf() {
     echo "sf org list shape --json"
