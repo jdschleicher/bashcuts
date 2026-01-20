@@ -259,6 +259,18 @@ dx-retrieve-package() {
     time sf project retrieve start --package-name "$PACKAGE_NAME"  --target-org $ALIAS
 }
 
+dx-retrieve-by-alias-and-path() {
+
+    echo "What is the alias/username of the org retrieving from \(-u \| --targetusername\)?"
+    read ALIAS
+    echo "What is the path of the metadata you are retrieving? \( -x \| --manifest\)?"
+    read -e FOLDER_PATH
+    echo "sf project retrieve start --source-dir "\"$FOLDER_PATH\"" --target-org $ALIAS"
+    time sf project retrieve start --source-dir "$FOLDER_PATH" --target-org $ALIAS
+
+}
+
+
 dx-show-package-versions-for-specific-package() {
     echo "What is the alias/username of the DevHub \(--targetdevhubusername\)?"
     read devhub
