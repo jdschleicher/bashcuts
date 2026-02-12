@@ -1107,8 +1107,8 @@ dx-codescan() {
     echo "$dateAndTime"
     resultsDirectory=scanresults/datetime_"$dateAndTime"
     mkdir -p "$resultsDirectory"
-    echo "sfdx scanner:run -o "$resultsDirectory"/scannerresults_"$dateAndTime".csv -f csv -t=$CODESCAN_DIRECTORY_PATH"
-    sfdx scanner:run -o "$resultsDirectory"/scannerresults_"$dateAndTime".csv -f csv -t=$CODESCAN_DIRECTORY_PATH
+    echo "sf code-analyzer run --output-file "$resultsDirectory"/scannerresults_"$dateAndTime".csv --target "$CODESCAN_DIRECTORY_PATH""
+    time sf code-analyzer run --output-file "$resultsDirectory"/scannerresults_"$dateAndTime".csv --target "$CODESCAN_DIRECTORY_PATH"
 }
 
 dx-test-method () {
