@@ -858,15 +858,6 @@ dx-validate-only-source-by-environment() {
     time sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH
 }
 
-dx-validate-only-source-by-environment() {
-    echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
-    read TARGET_USERNAME
-    echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
-    read -e SOURCEPATH
-    echo "sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH"
-    time sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH
-}
-
 dx-dry-run-by-environment-and-path-runlocaltests() {
     echo "What is the ORG username or alias to deploy to? \( --targetusername, -u \)"
     read TARGET_USERNAME

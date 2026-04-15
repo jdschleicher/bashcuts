@@ -142,12 +142,72 @@ az-o-wi() {
     az boards work-item show --id $1 --open
 }
 
-az-get-work-item() {
+az-show-work-item() {
     echo What is the ID of the work item? \(--id\)
     read WORK_ITEM_ID
     echo az boards work-item show --id $WORK_ITEM_ID 
     az boards work-item show --id $WORK_ITEM_ID 
 }
+
+az-show-work-item-output-table() {
+    echo What is the ID of the work item? \(--id\)
+    read WORK_ITEM_ID
+    echo az boards query --output table --wiql "SELECT [System.Id], [System.TeamProject], [System.AreaPath], [System.IterationPath], [System.WorkItemType], [System.State], [System.Title] FROM workitems WHERE [System.Id] = $WORK_ITEM_ID"
+
+    time az boards query --output table --wiql "SELECT [System.Id], [System.TeamProject], [System.AreaPath], [System.IterationPath], [System.WorkItemType], [System.State], [System.Title] FROM workitems WHERE [System.Id] = $WORK_ITEM_ID"
+
+}
+
+az-show-work-item-full-detail-output-table() {
+    # If ID isn't passed as an argument, prompt for it
+    if [ -z "$1" ]; then
+        echo "What is the ID of the work item? (--id)"
+        read -r WORK_ITEM_ID
+    else
+        WORK_ITEM_ID=$1
+    fi
+
+    echo "Fetching Hierarchy for ID: $WORK_ITEM_ID..."
+    echo ""
+
+    # Define the Header
+    printf "%-8s | %-12s | %-10s | %-25s | %s\n" "ID" "Type" "State" "Area Path" "Title"
+    echo "----------------------------------------------------------------------------------------------------------------"
+
+    CURRENT_ID=$WORK_ITEM_ID
+
+    while [ -n "$CURRENT_ID" ] && [ "$CURRENT_ID" != "null" ]; do
+        # Fetch data in JSON format
+        DATA=$(az boards work-item show --id "$CURRENT_ID" \
+            --query "{
+                id: id, 
+                type: fields.'System.WorkItemType', 
+                state: fields.'System.State', 
+                area: fields.'System.AreaPath', 
+                title: fields.'System.Title', 
+                parentUrl: relations[?rel=='System.LinkTypes.Hierarchy-Reverse'].url | [0]
+            }" -o json)
+
+        # Parse values using jq
+        ID=$(echo "$DATA" | jq -r '.id')
+        TYPE=$(echo "$DATA" | jq -r '.type')
+        STATE=$(echo "$DATA" | jq -r '.state')
+        AREA=$(echo "$DATA" | jq -r '.area')
+        TITLE=$(echo "$DATA" | jq -r '.title')
+        PARENT_URL=$(echo "$DATA" | jq -r '.parentUrl')
+
+        # Print the row with controlled spacing to prevent truncation
+        printf "%-8s | %-12s | %-10s | %-25s | %s\n" "$ID" "$TYPE" "$STATE" "$AREA" "$TITLE"
+
+        # Extract Parent ID from the URL (if it exists)
+        if [[ "$PARENT_URL" != "null" ]]; then
+            CURRENT_ID=$(echo "$PARENT_URL" | grep -oE '[0-9]+$')
+        else
+            CURRENT_ID=""
+        fi
+    done
+}
+
 
 az-quick-wi-get() {
     echo az boards work-item show --id $1
@@ -172,6 +232,16 @@ az-open-current-sprint-stories-view() {
 }
 
 az-open-repo() {
+    REMOTE_URL=$(git config --get remote.origin.url)
+    REPO_NAME=$(basename -s .git "$REMOTE_URL")
+    echo $AZ_DEFAULT_ORG_URL
+    FULL_REPO_URL="$AZ_DEFAULT_ORG_URL$AZ_PROJECT_URL_SAFE/_git/$REPO_NAME"
+    echo "Opening Azure Repo: $REPO_NAME..."
+    echo "$FULL_REPO_URL"
+    start $FULL_REPO_URL
+}
+
+azview() {
     REMOTE_URL=$(git config --get remote.origin.url)
     REPO_NAME=$(basename -s .git "$REMOTE_URL")
     echo $AZ_DEFAULT_ORG_URL

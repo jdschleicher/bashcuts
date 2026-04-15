@@ -44,9 +44,10 @@ gbp() {
 }
 
 gca() {
-    git add -A;
-    git commit -am "${1}"
+    git add -A > /dev/null 2>&1;
+    git commit -am "${1} --quiet"
 }
+
 
 g-rename-current-branch() {
     echo "What is the new name of the branch?"
