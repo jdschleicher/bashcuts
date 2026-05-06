@@ -30,6 +30,7 @@ Match each comment's first line against known skill headings. Use the **most rec
 | `## 🐚 Code Review — Senior Bash Engineer` | Bash Engineer Review | 🐚 |
 | `## 💠 Code Review — Senior PowerShell Engineer` | PowerShell Engineer Review | 💠 |
 | `## 🛡️ Security Audit` (or `## 🛡️ Security Review`) | Security Audit | 🛡️ |
+| `## 🧼 Code Review — Senior Clean-Code Engineer` | Clean-Code Engineer Review | 🧼 |
 | `## ✅ Criteria Check` | Criteria Check | ✅ |
 | `## 📚 Docs Check` | Docs Check | 📚 |
 
@@ -78,6 +79,7 @@ Read the current PR body and detect which `## Heading` sections exist:
 | 🐚 Bash Engineer Review | ✅ APPROVE — [View](#issuecomment-NNNN) |
 | 💠 PowerShell Engineer Review | ✅ APPROVE — [View](#issuecomment-NNNN) |
 | 🛡️ Security Audit | ✅ PASS — [View](#issuecomment-NNNN) |
+| 🧼 Clean-Code Engineer Review | ✅ APPROVE — [View](#issuecomment-NNNN) |
 | ✅ Criteria Check | ✅ PASS — [View](#issuecomment-NNNN) |
 | 📚 Docs Check | ✅ CURRENT — [View](#issuecomment-NNNN) |
 ```
