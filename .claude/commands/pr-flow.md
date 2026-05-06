@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, criteria check, docs check, pr-body ToC. One command to ship.
+description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, triple code review (bash + PowerShell + security), criteria check, docs check, pr-body ToC. One command to ship.
 ---
 
 You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortcuts repo). Run every check in the correct order, gate on failures, and produce a fully reviewed, documented PR.
@@ -11,9 +11,10 @@ You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortc
 
 1. **Phase 1** — Pre-commit checks (bash syntax, PowerShell parse, shell parity, sourcing wire-up)
 2. **Phase 2** — Commit, push, create PR
-3. **Phase 3** — Docs check (`/docs-check`)
-4. **Phase 4** — Criteria check (`/criteria-check`)
-5. **Phase 5** — PR body ToC (`/pr-body`)
+3. **Phase 3** — Triple code review (`/code-review` — bash + PowerShell + security in parallel)
+4. **Phase 4** — Docs check (`/docs-check`)
+5. **Phase 5** — Criteria check (`/criteria-check`)
+6. **Phase 6** — PR body ToC (`/pr-body`)
 
 Each phase gates on the previous. If Phase 1 fails, stop.
 
@@ -144,7 +145,20 @@ If a PR already exists, note its number and URL and continue.
 
 ---
 
-## Phase 3 — Docs Check
+## Phase 3 — Triple Code Review
+
+Invoke `/code-review`. This launches three reviewers in parallel:
+- 🐚 Senior Bash Engineer
+- 💠 Senior PowerShell Engineer
+- 🛡️ Senior Security Engineer (`/security-review`)
+
+Each posts its own comment to the PR. Wait for all three to complete.
+
+**Gate:** If any reviewer returns `REQUEST CHANGES` on a CRITICAL finding, surface it to the user and ask whether to proceed or fix first. HIGH/MEDIUM findings are non-blocking but should be summarized.
+
+---
+
+## Phase 4 — Docs Check
 
 Invoke `/docs-check` as an Agent. Wait for completion.
 
@@ -152,7 +166,7 @@ Invoke `/docs-check` as an Agent. Wait for completion.
 
 ---
 
-## Phase 4 — Criteria Check
+## Phase 5 — Criteria Check
 
 Invoke `/criteria-check`. Wait for completion.
 
@@ -160,7 +174,7 @@ If no Acceptance Criteria section exists in the linked issue, note it and contin
 
 ---
 
-## Phase 5 — PR Body ToC
+## Phase 6 — PR Body ToC
 
 Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body navigation hub.
 
@@ -179,6 +193,9 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 | Sourcing Wire-up | ✅ WIRED |
 | Shell Parity | ✅ MATCHED / ⚠️ bash-only / ⚠️ pwsh-only |
 | Debug Artifacts | ✅ CLEAN |
+| 🐚 Bash Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
+| 💠 PowerShell Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
+| 🛡️ Security Audit | ✅ PASS / ❌ FAIL |
 | Docs Check | ✅ CURRENT / ⚠️ <stale items> |
 | Criteria Check | ✅ PASS / ⏭️ no AC section |
 | PR Body | ✅ Updated |
