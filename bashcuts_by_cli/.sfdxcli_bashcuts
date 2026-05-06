@@ -39,6 +39,11 @@ dx-open-local-user-sfdx() {
     start ~/.sfdx
 }
 
+dx-open-local-alias-json() {
+    echo "start ~/.sfdx/alias.json"
+    start ~/.sfdx/alias.json
+}
+
 dx-open-local-appdata-sfdx() {
    start ~/AppData/Local/sfdx
 }
@@ -854,8 +859,8 @@ dx-validate-only-source-by-environment() {
     read TARGET_USERNAME
     echo "What path contains the source metadata to deploy? \(--sourcepath, -p \)"
     read -e SOURCEPATH
-    echo "sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH"
-    time sf project deploy validate --target-org $TARGET_USERNAME --source-dir $SOURCEPATH
+    echo "sf project deploy validate --target-org $TARGET_USERNAME --source-dir \"$SOURCEPATH\""
+    time sf project deploy validate --target-org $TARGET_USERNAME --source-dir "$SOURCEPATH"
 }
 
 dx-dry-run-by-environment-and-path-runlocaltests() {
