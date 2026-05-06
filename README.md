@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Future commands in this batch will add cached lists of items assigned to you, items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), and a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`). Future commands in this batch will add items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
 
 ### Prerequisites
 
