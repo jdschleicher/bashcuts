@@ -242,3 +242,246 @@ function Connect-AzDevOps {
     Write-Host ""
     Write-Host "READY - Azure DevOps connection verified for project=$env:AZ_PROJECT in org=$env:AZ_DEVOPS_ORG" -ForegroundColor Green
 }
+
+
+# ---------------------------------------------------------------------------
+# Local cache + scheduled refresh
+#
+# Cache directory: $HOME/.bashcuts-cache/azure-devops/
+#   assigned.json   - items where [System.AssignedTo] = @Me
+#   mentions.json   - items where the user's email (or '@') appears in
+#                     [System.History] (best-effort - WIQL has no first-class
+#                     "@-mention" predicate)
+#   hierarchy.json  - WorkItemLinks tree of Epic/Feature/User Story rows
+#                     in $env:AZ_PROJECT (parent->child Hierarchy-Forward)
+#   last-sync.json  - { Timestamp (round-trip), Counts: {dataset: rows} }
+#   sync.log        - append-only, rotated to sync.log.1 at ~1 MB
+#
+# Public functions:
+#   Sync-AzDevOpsCache              - one-shot refresh of all three datasets
+#   Get-AzDevOpsCacheStatus         - prints freshness vs 6h threshold
+#   Register-AzDevOpsSyncSchedule   - Task Scheduler (Windows) or crontab
+#                                      (macOS/Linux) entry, every 5 hours
+#   Unregister-AzDevOpsSyncSchedule - removes the schedule on either OS
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsCachePaths {
+    $cacheDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    return [PSCustomObject]@{
+        Dir       = $cacheDir
+        Assigned  = Join-Path $cacheDir 'assigned.json'
+        Mentions  = Join-Path $cacheDir 'mentions.json'
+        Hierarchy = Join-Path $cacheDir 'hierarchy.json'
+        LastSync  = Join-Path $cacheDir 'last-sync.json'
+        Log       = Join-Path $cacheDir 'sync.log'
+    }
+}
+
+
+function Initialize-AzDevOpsCacheDir {
+    $paths = Get-AzDevOpsCachePaths
+    if (-not (Test-Path -LiteralPath $paths.Dir)) {
+        New-Item -ItemType Directory -Path $paths.Dir -Force | Out-Null
+    }
+    return $paths
+}
+
+
+function Write-AzDevOpsCacheFile {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Content
+    )
+    $tmp = "$Path.tmp"
+    Set-Content -LiteralPath $tmp -Value $Content -Encoding UTF8
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+
+function Write-AzDevOpsSyncLog {
+    param([Parameter(Mandatory)] [string] $Message)
+    $paths = Get-AzDevOpsCachePaths
+    if (-not (Test-Path -LiteralPath $paths.Dir)) { return }
+
+    if (Test-Path -LiteralPath $paths.Log) {
+        $size = (Get-Item -LiteralPath $paths.Log).Length
+        if ($size -gt 1MB) {
+            Move-Item -LiteralPath $paths.Log -Destination "$($paths.Log).1" -Force
+        }
+    }
+    $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+    Add-Content -LiteralPath $paths.Log -Value "$stamp $Message"
+}
+
+
+function Invoke-AzDevOpsBoardsQuery {
+    param([Parameter(Mandatory)] [string] $Wiql)
+    $json = az boards query --wiql $Wiql --output json 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return $json
+}
+
+
+function Sync-AzDevOpsCache {
+    if (-not (Test-AzDevOpsAuth)) {
+        Write-Host "Sync-AzDevOpsCache aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+        return
+    }
+
+    $paths = Initialize-AzDevOpsCacheDir
+    Write-AzDevOpsSyncLog 'sync started'
+
+    # Mentions: WIQL has no first-class @-mention predicate. Best effort is
+    # [System.History] Contains 'literal'. Prefer "@<user-email>" when set,
+    # otherwise fall back to a bare "@" - the latter is noisy but at least
+    # populates the cache shape so downstream commands keep working.
+    $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+
+    $datasets = @(
+        @{
+            Name = 'assigned'
+            Path = $paths.Assigned
+            Wiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
+        },
+        @{
+            Name = 'mentions'
+            Path = $paths.Mentions
+            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
+        },
+        @{
+            Name = 'hierarchy'
+            Path = $paths.Hierarchy
+            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
+        }
+    )
+
+    $counts = [ordered]@{}
+    foreach ($ds in $datasets) {
+        $json = Invoke-AzDevOpsBoardsQuery -Wiql $ds.Wiql
+        if ($null -eq $json) {
+            Write-Host "  X $($ds.Name) query failed" -ForegroundColor Red
+            Write-AzDevOpsSyncLog "ERROR $($ds.Name) query failed"
+            continue
+        }
+        try {
+            $parsed = $json | ConvertFrom-Json
+        } catch {
+            Write-Host "  X $($ds.Name) parse failed" -ForegroundColor Red
+            Write-AzDevOpsSyncLog "ERROR $($ds.Name) parse failed"
+            continue
+        }
+        $count  = @($parsed).Count
+        $pretty = $parsed | ConvertTo-Json -Depth 10
+        Write-AzDevOpsCacheFile -Path $ds.Path -Content $pretty
+        $counts[$ds.Name] = $count
+        Write-Host "  OK  $($ds.Name) - $count rows" -ForegroundColor Green
+        Write-AzDevOpsSyncLog "$($ds.Name) wrote $count rows"
+    }
+
+    $lastSync = [PSCustomObject]@{
+        Timestamp = (Get-Date).ToString('o')
+        Counts    = $counts
+    }
+    Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
+    Write-AzDevOpsSyncLog 'sync complete'
+}
+
+
+function Get-AzDevOpsCacheStatus {
+    $paths = Get-AzDevOpsCachePaths
+    if (-not (Test-Path -LiteralPath $paths.LastSync)) {
+        Write-Host "No cache yet - run Sync-AzDevOpsCache" -ForegroundColor Yellow
+        return
+    }
+
+    $info   = Get-Content -LiteralPath $paths.LastSync -Raw | ConvertFrom-Json
+    $synced = [datetime]$info.Timestamp
+    $age    = (Get-Date) - $synced
+
+    $ageText = if ($age.TotalMinutes -lt 60) {
+        "$([int]$age.TotalMinutes) min ago"
+    } elseif ($age.TotalHours -lt 24) {
+        "$([math]::Round($age.TotalHours, 1)) hours ago"
+    } else {
+        "$([int]$age.TotalDays) days ago"
+    }
+
+    if ($age.TotalHours -lt 6) {
+        Write-Host "OK fresh - synced $ageText" -ForegroundColor Green
+    } else {
+        Write-Host "STALE - last synced $ageText" -ForegroundColor Yellow
+    }
+
+    if ($info.Counts) {
+        $info.Counts.PSObject.Properties | ForEach-Object {
+            Write-Host "  $($_.Name): $($_.Value) rows"
+        }
+    }
+}
+
+
+function Register-AzDevOpsSyncSchedule {
+    $isWin    = $IsWindows -or ($env:OS -eq 'Windows_NT')
+    $pwshPath = (Get-Process -Id $PID).Path
+    # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
+    # available; without -NoProfile, the scheduled invocation has the same
+    # context as an interactive shell.
+    $command = 'Sync-AzDevOpsCache'
+
+    if ($isWin) {
+        $taskName = 'BashcutsAzDevOpsSync'
+        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"$command`""
+        $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
+                        -RepetitionInterval (New-TimeSpan -Hours 5)
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
+        Write-Host "Registered: scheduled task '$taskName' (every 5 hours)" -ForegroundColor Green
+        return
+    }
+
+    if ($IsMacOS -or $IsLinux) {
+        $tag         = '# bashcuts-azdevops-sync'
+        $cronLine    = "0 */5 * * * $pwshPath -Command `"$command`" $tag"
+        $existingRaw = crontab -l 2>$null
+        $existing    = if ($existingRaw) {
+            @($existingRaw -split "`n" | Where-Object { $_ -and ($_ -notmatch [regex]::Escape($tag)) })
+        } else { @() }
+        $newCron = (@($existing) + $cronLine) -join "`n"
+        $newCron | crontab -
+        Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Unsupported OS for Register-AzDevOpsSyncSchedule" -ForegroundColor Red
+}
+
+
+function Unregister-AzDevOpsSyncSchedule {
+    $isWin = $IsWindows -or ($env:OS -eq 'Windows_NT')
+
+    if ($isWin) {
+        $taskName = 'BashcutsAzDevOpsSync'
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+            Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
+        } else {
+            Write-Host "No scheduled task '$taskName' to remove" -ForegroundColor Yellow
+        }
+        return
+    }
+
+    if ($IsMacOS -or $IsLinux) {
+        $tag         = '# bashcuts-azdevops-sync'
+        $existingRaw = crontab -l 2>$null
+        $existing    = if ($existingRaw) { @($existingRaw -split "`n") } else { @() }
+        $filtered    = @($existing | Where-Object { $_ -and ($_ -notmatch [regex]::Escape($tag)) })
+        if ($filtered.Count -eq ($existing | Where-Object { $_ }).Count) {
+            Write-Host "No bashcuts-azdevops-sync cron entry to remove" -ForegroundColor Yellow
+            return
+        }
+        ($filtered -join "`n") | crontab -
+        Write-Host "Unregistered: removed bashcuts-azdevops-sync cron entry" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Unsupported OS for Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
+}
