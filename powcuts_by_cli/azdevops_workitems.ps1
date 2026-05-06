@@ -11,8 +11,9 @@
 #                        in later AzDevOps commands; returns $true / $false
 #
 # Step functions invoked by Connect-AzDevOps (also exposed for direct use,
-# e.g. to debug a single failing step). Each returns a result object
-# @{ Ok = <bool>; FailMessage = <string> } and prints its own status:
+# e.g. to debug a single failing step). Each returns a [PSCustomObject]
+# with Ok (bool) and FailMessage (string or $null) properties, and prints
+# its own status:
 #   Confirm-AzDevOpsCli              - step 1 (CLI on PATH + version echo)
 #   Confirm-AzDevOpsExtension        - step 2 (azure-devops extension; offers install)
 #   Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
@@ -97,7 +98,8 @@ function Test-AzDevOpsAuth {
 
 # ---------------------------------------------------------------------------
 # Step functions invoked by Connect-AzDevOps. Each owns its print + I/O for
-# one step and returns @{ Ok = <bool>; FailMessage = <string> }.
+# one step and returns a [PSCustomObject] with Ok (bool) and FailMessage
+# (string or $null) properties.
 # ---------------------------------------------------------------------------
 
 function Confirm-AzDevOpsCli {
@@ -112,11 +114,11 @@ function Confirm-AzDevOpsCli {
         } else {
             Write-Host "    See: https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
         }
-        return @{ Ok = $false; FailMessage = 'az CLI missing' }
+        return [PSCustomObject]@{ Ok = $false; FailMessage = 'az CLI missing' }
     }
     $azVersion = (az version --output json 2>$null | ConvertFrom-Json).'azure-cli'
     Write-Host "  OK  az CLI present (v$azVersion)" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -126,15 +128,15 @@ function Confirm-AzDevOpsExtension {
         $resp = Read-Host "    Install now? [Y/n]"
         if ($resp -match '^(n|no)$') {
             Write-Host "    Hint: az extension add --name azure-devops"
-            return @{ Ok = $false; FailMessage = 'extension missing' }
+            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension missing' }
         }
         az extension add --name azure-devops 2>&1 | Out-Host
         if (-not (Test-AzDevOpsExtensionInstalled)) {
-            return @{ Ok = $false; FailMessage = 'extension install failed' }
+            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension install failed' }
         }
     }
     Write-Host "  OK  azure-devops extension installed" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -152,11 +154,11 @@ function Confirm-AzDevOpsEnvVars {
         Write-Host "    `$env:AZ_ITERATION  = 'My Project\Sprint 42'"
         Write-Host "    ---------------------------------------------------------------"
         Write-Host "    See README section 'Azure DevOps work-item shortcuts' for details."
-        return @{ Ok = $false; FailMessage = 'env vars missing' }
+        return [PSCustomObject]@{ Ok = $false; FailMessage = 'env vars missing' }
     }
     Write-Host "  OK  AZ_DEVOPS_ORG = $env:AZ_DEVOPS_ORG" -ForegroundColor Green
     Write-Host "  OK  AZ_PROJECT    = $env:AZ_PROJECT" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -166,16 +168,16 @@ function Confirm-AzDevOpsLogin {
         $resp = Read-Host "    Run 'az login' now? [Y/n]"
         if ($resp -match '^(n|no)$') {
             Write-Host "    Hint: az login"
-            return @{ Ok = $false; FailMessage = 'not logged in' }
+            return [PSCustomObject]@{ Ok = $false; FailMessage = 'not logged in' }
         }
         az login | Out-Host
         if (-not (Test-AzDevOpsLoggedIn)) {
-            return @{ Ok = $false; FailMessage = 'az login failed' }
+            return [PSCustomObject]@{ Ok = $false; FailMessage = 'az login failed' }
         }
     }
     $account = az account show --output json 2>$null | ConvertFrom-Json
     Write-Host "  OK  Logged in as $($account.user.name) (sub: $($account.name))" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -184,10 +186,10 @@ function Set-AzDevOpsDefaults {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  X az devops configure failed" -ForegroundColor Red
         Write-Host "    $configOutput"
-        return @{ Ok = $false; FailMessage = 'configure failed' }
+        return [PSCustomObject]@{ Ok = $false; FailMessage = 'configure failed' }
     }
     Write-Host "  OK  Defaults set: org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -196,10 +198,10 @@ function Confirm-AzDevOpsSmokeQuery {
     if ($null -eq $count) {
         Write-Host "  X Smoke query failed" -ForegroundColor Red
         Write-Host "    Try: az boards query --wiql 'Select [System.Id] From WorkItems Where [System.AssignedTo] = @Me'"
-        return @{ Ok = $false; FailMessage = 'smoke query failed' }
+        return [PSCustomObject]@{ Ok = $false; FailMessage = 'smoke query failed' }
     }
     Write-Host "  OK  Smoke test passed ($count items assigned to you)" -ForegroundColor Green
-    return @{ Ok = $true }
+    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
 }
 
 
@@ -214,6 +216,9 @@ function Connect-AzDevOps {
     Write-Host "Connect-AzDevOps" -ForegroundColor Cyan
     Write-Host "================" -ForegroundColor Cyan
 
+    # $steps is a closed internal array of step descriptors. Each Action is a
+    # hardcoded scriptblock invoking a known function; nothing here accepts
+    # untrusted input, so & $step.Action below has no injection surface.
     $steps = @(
         @{ Num = 1; Name = 'Azure CLI';                     Action = { Confirm-AzDevOpsCli } },
         @{ Num = 2; Name = 'azure-devops extension';        Action = { Confirm-AzDevOpsExtension } },
