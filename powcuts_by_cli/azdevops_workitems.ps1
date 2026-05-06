@@ -316,9 +316,28 @@ function Write-AzDevOpsSyncLog {
 
 function Invoke-AzDevOpsBoardsQuery {
     param([Parameter(Mandatory)] [string] $Wiql)
-    $json = az boards query --wiql $Wiql --output json 2>$null
-    if ($LASTEXITCODE -ne 0) { return $null }
-    return $json
+
+    # Redirecting stderr to a temp file (rather than $null or 2>&1) lets us
+    # keep stdout JSON parseable while still preserving the az error text for
+    # callers to surface to the user / log on failure.
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $json = az boards query --wiql $Wiql --output json 2>$stderrFile
+        $exit = $LASTEXITCODE
+        $stderr = if (Test-Path -LiteralPath $stderrFile) {
+            (Get-Content -LiteralPath $stderrFile -Raw)
+        } else { '' }
+    } finally {
+        Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $stderr) { $stderr = '' }
+
+    return [PSCustomObject]@{
+        Json     = $json
+        Error    = $stderr
+        ExitCode = $exit
+    }
 }
 
 
@@ -339,51 +358,103 @@ function Sync-AzDevOpsCache {
 
     $datasets = @(
         @{
-            Name = 'assigned'
-            Path = $paths.Assigned
-            Wiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
+            Name  = 'assigned'
+            Label = 'System.AssignedTo = @Me'
+            Path  = $paths.Assigned
+            Wiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
         },
         @{
-            Name = 'mentions'
-            Path = $paths.Mentions
-            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
+            Name  = 'mentions'
+            Label = "System.History Contains '$mentionsToken'"
+            Path  = $paths.Mentions
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
         },
         @{
-            Name = 'hierarchy'
-            Path = $paths.Hierarchy
-            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
+            Name  = 'hierarchy'
+            Label = 'Epic/Feature/Story hierarchy in @Project'
+            Path  = $paths.Hierarchy
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
         }
     )
 
-    $counts = [ordered]@{}
+    $counts   = [ordered]@{}
+    $statuses = [ordered]@{}
+    $errored  = 0
+
     foreach ($ds in $datasets) {
-        $json = Invoke-AzDevOpsBoardsQuery -Wiql $ds.Wiql
-        if ($null -eq $json) {
-            Write-Host "  X $($ds.Name) query failed" -ForegroundColor Red
-            Write-AzDevOpsSyncLog "ERROR $($ds.Name) query failed"
+        Write-Host "-> Querying $($ds.Name) ($($ds.Label))..." -ForegroundColor Cyan
+
+        $sw      = [System.Diagnostics.Stopwatch]::StartNew()
+        $result  = Invoke-AzDevOpsBoardsQuery -Wiql $ds.Wiql
+        $sw.Stop()
+        $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
+
+        if ($result.ExitCode -ne 0) {
+            $stderr    = if ($result.Error) { $result.Error } else { '' }
+            $firstLine = ($stderr -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+            if (-not $firstLine) { $firstLine = "az exited with code $($result.ExitCode)" }
+
+            Write-Host "  X $($ds.Name) - $firstLine (in $elapsed)" -ForegroundColor Red
+            Write-AzDevOpsSyncLog "ERROR $($ds.Name) query failed (exit=$($result.ExitCode), elapsed=$elapsed)"
+            foreach ($line in ($stderr -split "`r?`n")) {
+                if ($line.Trim()) {
+                    Write-AzDevOpsSyncLog "  [$($ds.Name)] $line"
+                }
+            }
+
+            $truncated = $stderr.TrimEnd()
+            if ($truncated.Length -gt 500) { $truncated = $truncated.Substring(0, 500) }
+            $statuses[$ds.Name] = [PSCustomObject]@{
+                Status  = 'error'
+                Error   = $truncated
+                Elapsed = $elapsed
+            }
+            $errored++
             continue
         }
+
         try {
-            $parsed = $json | ConvertFrom-Json
+            $parsed = $result.Json | ConvertFrom-Json
         } catch {
-            Write-Host "  X $($ds.Name) parse failed" -ForegroundColor Red
-            Write-AzDevOpsSyncLog "ERROR $($ds.Name) parse failed"
+            $msg = $_.Exception.Message
+            Write-Host "  X $($ds.Name) - parse failed: $msg (in $elapsed)" -ForegroundColor Red
+            Write-AzDevOpsSyncLog "ERROR $($ds.Name) parse failed (elapsed=$elapsed): $msg"
+            $statuses[$ds.Name] = [PSCustomObject]@{
+                Status  = 'error'
+                Error   = "parse failed: $msg"
+                Elapsed = $elapsed
+            }
+            $errored++
             continue
         }
+
         $count  = @($parsed).Count
         $pretty = $parsed | ConvertTo-Json -Depth 10
         Write-AzDevOpsCacheFile -Path $ds.Path -Content $pretty
-        $counts[$ds.Name] = $count
-        Write-Host "  OK  $($ds.Name) - $count rows" -ForegroundColor Green
-        Write-AzDevOpsSyncLog "$($ds.Name) wrote $count rows"
+
+        $counts[$ds.Name]   = $count
+        $statuses[$ds.Name] = [PSCustomObject]@{
+            Status  = 'ok'
+            Rows    = $count
+            Elapsed = $elapsed
+        }
+        Write-Host "  OK  $($ds.Name) - $count rows in $elapsed" -ForegroundColor Green
+        Write-AzDevOpsSyncLog "$($ds.Name) wrote $count rows in $elapsed"
     }
 
     $lastSync = [PSCustomObject]@{
         Timestamp = (Get-Date).ToString('o')
         Counts    = $counts
+        Datasets  = $statuses
     }
     Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
     Write-AzDevOpsSyncLog 'sync complete'
+
+    Write-Host ""
+    Write-Host "Cache: $($paths.Dir)" -ForegroundColor Cyan
+    if ($errored -gt 0) {
+        Write-Host "Partial sync - $errored of $($datasets.Count) dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
+    }
 }
 
 
@@ -415,6 +486,19 @@ function Get-AzDevOpsCacheStatus {
     if ($info.Counts) {
         $info.Counts.PSObject.Properties | ForEach-Object {
             Write-Host "  $($_.Name): $($_.Value) rows"
+        }
+    }
+
+    if ($info.Datasets) {
+        $errored = @($info.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
+        if ($errored.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Partial sync - $($errored.Count) dataset(s) errored:" -ForegroundColor Yellow
+            foreach ($e in $errored) {
+                $msg = if ($e.Value.Error) { $e.Value.Error -split "`r?`n" | Select-Object -First 1 } else { '(no error text)' }
+                Write-Host "  X $($e.Name): $msg" -ForegroundColor Red
+            }
+            Write-Host "  See $($paths.Log) for full az stderr" -ForegroundColor Yellow
         }
     }
 }
