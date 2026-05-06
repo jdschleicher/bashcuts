@@ -102,6 +102,25 @@ function Test-AzDevOpsAuth {
 # (string or $null) properties.
 # ---------------------------------------------------------------------------
 
+function New-AzDevOpsStepResult {
+    param(
+        [Parameter(Mandatory)] [bool] $Ok,
+        $FailMessage = $null
+    )
+    return [PSCustomObject]@{ Ok = $Ok; FailMessage = $FailMessage }
+}
+
+
+function Read-AzDevOpsYesNo {
+    # Default-yes Y/n prompt used by Confirm-* steps that offer a remediation
+    # action. Returns $true when the user accepts (empty input or anything
+    # other than n/no), $false on explicit refusal.
+    param([Parameter(Mandatory)] [string] $Prompt)
+    $resp = Read-Host "    $Prompt [Y/n]"
+    return -not ($resp -match '^(n|no)$')
+}
+
+
 function Confirm-AzDevOpsCli {
     if (-not (Test-AzDevOpsCliPresent)) {
         Write-Host "  X az CLI not on PATH" -ForegroundColor Red
@@ -114,29 +133,28 @@ function Confirm-AzDevOpsCli {
         } else {
             Write-Host "    See: https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
         }
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'az CLI missing' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'az CLI missing'
     }
     $azVersion = (az version --output json 2>$null | ConvertFrom-Json).'azure-cli'
     Write-Host "  OK  az CLI present (v$azVersion)" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
 function Confirm-AzDevOpsExtension {
     if (-not (Test-AzDevOpsExtensionInstalled)) {
         Write-Host "  !  azure-devops extension not installed" -ForegroundColor Yellow
-        $resp = Read-Host "    Install now? [Y/n]"
-        if ($resp -match '^(n|no)$') {
+        if (-not (Read-AzDevOpsYesNo -Prompt 'Install now?')) {
             Write-Host "    Hint: az extension add --name azure-devops"
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension missing' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'extension missing'
         }
         az extension add --name azure-devops 2>&1 | Out-Host
         if (-not (Test-AzDevOpsExtensionInstalled)) {
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension install failed' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'extension install failed'
         }
     }
     Write-Host "  OK  azure-devops extension installed" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -154,30 +172,29 @@ function Confirm-AzDevOpsEnvVars {
         Write-Host "    `$env:AZ_ITERATION  = 'My Project\Sprint 42'"
         Write-Host "    ---------------------------------------------------------------"
         Write-Host "    See README section 'Azure DevOps work-item shortcuts' for details."
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'env vars missing' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'env vars missing'
     }
     Write-Host "  OK  AZ_DEVOPS_ORG = $env:AZ_DEVOPS_ORG" -ForegroundColor Green
     Write-Host "  OK  AZ_PROJECT    = $env:AZ_PROJECT" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
 function Confirm-AzDevOpsLogin {
     if (-not (Test-AzDevOpsLoggedIn)) {
         Write-Host "  !  No active az login session" -ForegroundColor Yellow
-        $resp = Read-Host "    Run 'az login' now? [Y/n]"
-        if ($resp -match '^(n|no)$') {
+        if (-not (Read-AzDevOpsYesNo -Prompt "Run 'az login' now?")) {
             Write-Host "    Hint: az login"
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'not logged in' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'not logged in'
         }
         az login | Out-Host
         if (-not (Test-AzDevOpsLoggedIn)) {
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'az login failed' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'az login failed'
         }
     }
     $account = az account show --output json 2>$null | ConvertFrom-Json
     Write-Host "  OK  Logged in as $($account.user.name) (sub: $($account.name))" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -186,10 +203,10 @@ function Set-AzDevOpsDefaults {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  X az devops configure failed" -ForegroundColor Red
         Write-Host "    $configOutput"
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'configure failed' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'configure failed'
     }
     Write-Host "  OK  Defaults set: org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -198,10 +215,10 @@ function Confirm-AzDevOpsSmokeQuery {
     if ($null -eq $count) {
         Write-Host "  X Smoke query failed" -ForegroundColor Red
         Write-Host "    Try: az boards query --wiql 'Select [System.Id] From WorkItems Where [System.AssignedTo] = @Me'"
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'smoke query failed' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'smoke query failed'
     }
     Write-Host "  OK  Smoke test passed ($count items assigned to you)" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -580,6 +597,16 @@ function Get-AzDevOpsPlatform {
 }
 
 
+function Get-AzDevOpsScheduledTaskName {
+    return 'BashcutsAzDevOpsSync'
+}
+
+
+function Get-AzDevOpsSyncIntervalHours {
+    return 5
+}
+
+
 function Get-AzDevOpsCronTag {
     return '# bashcuts-azdevops-sync'
 }
@@ -587,8 +614,9 @@ function Get-AzDevOpsCronTag {
 
 function Get-AzDevOpsCronLine {
     param([Parameter(Mandatory)] [string] $PwshPath)
-    $tag = Get-AzDevOpsCronTag
-    return "0 */5 * * * $PwshPath -Command `"Sync-AzDevOpsCache`" $tag"
+    $tag   = Get-AzDevOpsCronTag
+    $hours = Get-AzDevOpsSyncIntervalHours
+    return "0 */$hours * * * $PwshPath -Command `"Sync-AzDevOpsCache`" $tag"
 }
 
 
@@ -618,14 +646,15 @@ function Register-AzDevOpsSyncSchedule {
     # available; without -NoProfile, the scheduled invocation has the same
     # context as an interactive shell.
     $pwshPath = (Get-Process -Id $PID).Path
+    $hours    = Get-AzDevOpsSyncIntervalHours
 
     if ($platform -eq 'Windows') {
-        $taskName = 'BashcutsAzDevOpsSync'
+        $taskName = Get-AzDevOpsScheduledTaskName
         $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"Sync-AzDevOpsCache`""
         $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-                        -RepetitionInterval (New-TimeSpan -Hours 5)
+                        -RepetitionInterval (New-TimeSpan -Hours $hours)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
-        Write-Host "Registered: scheduled task '$taskName' (every 5 hours)" -ForegroundColor Green
+        Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
         return
     }
 
@@ -646,7 +675,7 @@ function Unregister-AzDevOpsSyncSchedule {
     $platform = Get-AzDevOpsPlatform
 
     if ($platform -eq 'Windows') {
-        $taskName = 'BashcutsAzDevOpsSync'
+        $taskName = Get-AzDevOpsScheduledTaskName
         if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
             Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
