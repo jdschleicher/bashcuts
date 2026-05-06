@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, triple code review (bash + PowerShell + security), criteria check, docs check, pr-body ToC. One command to ship.
+description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, pr-body ToC. One command to ship.
 ---
 
 You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortcuts repo). Run every check in the correct order, gate on failures, and produce a fully reviewed, documented PR.
@@ -145,16 +145,17 @@ If a PR already exists, note its number and URL and continue.
 
 ---
 
-## Phase 3 — Triple Code Review
+## Phase 3 — Quad Code Review
 
-Invoke `/code-review`. This launches three reviewers in parallel:
+Invoke `/code-review`. This launches four reviewers in parallel:
 - 🐚 Senior Bash Engineer
 - 💠 Senior PowerShell Engineer
 - 🛡️ Senior Security Engineer (`/security-review`)
+- 🧼 Senior Clean-Code Engineer (`/senior-clean-code-engineer`) — duplication, function shape, abstraction debt; enforces CLAUDE.md's extract-repeated-branches + breathing-room rules
 
-Each posts its own comment to the PR. Wait for all three to complete.
+Each posts its own comment to the PR. Wait for all four to complete.
 
-**Gate:** If any reviewer returns `REQUEST CHANGES` on a CRITICAL finding, surface it to the user and ask whether to proceed or fix first. HIGH/MEDIUM findings are non-blocking but should be summarized.
+**Gate:** If any reviewer returns `REQUEST CHANGES` on a CRITICAL finding, surface it to the user and ask whether to proceed or fix first. HIGH/MEDIUM findings are non-blocking but should be summarized. Clean-code HIGH findings (named CLAUDE.md violations like duplicated branches across 2+ functions) are blocking — fix before merging.
 
 ---
 
@@ -196,6 +197,7 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 | 🐚 Bash Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
 | 💠 PowerShell Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
 | 🛡️ Security Audit | ✅ PASS / ❌ FAIL |
+| 🧼 Clean-Code Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
 | Docs Check | ✅ CURRENT / ⚠️ <stale items> |
 | Criteria Check | ✅ PASS / ⏭️ no AC section |
 | PR Body | ✅ Updated |

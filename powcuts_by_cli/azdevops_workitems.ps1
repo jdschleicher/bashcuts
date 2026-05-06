@@ -102,6 +102,25 @@ function Test-AzDevOpsAuth {
 # (string or $null) properties.
 # ---------------------------------------------------------------------------
 
+function New-AzDevOpsStepResult {
+    param(
+        [Parameter(Mandatory)] [bool] $Ok,
+        $FailMessage = $null
+    )
+    return [PSCustomObject]@{ Ok = $Ok; FailMessage = $FailMessage }
+}
+
+
+function Read-AzDevOpsYesNo {
+    # Default-yes Y/n prompt used by Confirm-* steps that offer a remediation
+    # action. Returns $true when the user accepts (empty input or anything
+    # other than n/no), $false on explicit refusal.
+    param([Parameter(Mandatory)] [string] $Prompt)
+    $resp = Read-Host "    $Prompt [Y/n]"
+    return -not ($resp -match '^(n|no)$')
+}
+
+
 function Confirm-AzDevOpsCli {
     if (-not (Test-AzDevOpsCliPresent)) {
         Write-Host "  X az CLI not on PATH" -ForegroundColor Red
@@ -114,29 +133,28 @@ function Confirm-AzDevOpsCli {
         } else {
             Write-Host "    See: https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
         }
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'az CLI missing' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'az CLI missing'
     }
     $azVersion = (az version --output json 2>$null | ConvertFrom-Json).'azure-cli'
     Write-Host "  OK  az CLI present (v$azVersion)" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
 function Confirm-AzDevOpsExtension {
     if (-not (Test-AzDevOpsExtensionInstalled)) {
         Write-Host "  !  azure-devops extension not installed" -ForegroundColor Yellow
-        $resp = Read-Host "    Install now? [Y/n]"
-        if ($resp -match '^(n|no)$') {
+        if (-not (Read-AzDevOpsYesNo -Prompt 'Install now?')) {
             Write-Host "    Hint: az extension add --name azure-devops"
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension missing' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'extension missing'
         }
         az extension add --name azure-devops 2>&1 | Out-Host
         if (-not (Test-AzDevOpsExtensionInstalled)) {
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'extension install failed' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'extension install failed'
         }
     }
     Write-Host "  OK  azure-devops extension installed" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -154,30 +172,29 @@ function Confirm-AzDevOpsEnvVars {
         Write-Host "    `$env:AZ_ITERATION  = 'My Project\Sprint 42'"
         Write-Host "    ---------------------------------------------------------------"
         Write-Host "    See README section 'Azure DevOps work-item shortcuts' for details."
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'env vars missing' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'env vars missing'
     }
     Write-Host "  OK  AZ_DEVOPS_ORG = $env:AZ_DEVOPS_ORG" -ForegroundColor Green
     Write-Host "  OK  AZ_PROJECT    = $env:AZ_PROJECT" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
 function Confirm-AzDevOpsLogin {
     if (-not (Test-AzDevOpsLoggedIn)) {
         Write-Host "  !  No active az login session" -ForegroundColor Yellow
-        $resp = Read-Host "    Run 'az login' now? [Y/n]"
-        if ($resp -match '^(n|no)$') {
+        if (-not (Read-AzDevOpsYesNo -Prompt "Run 'az login' now?")) {
             Write-Host "    Hint: az login"
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'not logged in' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'not logged in'
         }
         az login | Out-Host
         if (-not (Test-AzDevOpsLoggedIn)) {
-            return [PSCustomObject]@{ Ok = $false; FailMessage = 'az login failed' }
+            return New-AzDevOpsStepResult -Ok $false -FailMessage 'az login failed'
         }
     }
     $account = az account show --output json 2>$null | ConvertFrom-Json
     Write-Host "  OK  Logged in as $($account.user.name) (sub: $($account.name))" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -186,10 +203,10 @@ function Set-AzDevOpsDefaults {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  X az devops configure failed" -ForegroundColor Red
         Write-Host "    $configOutput"
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'configure failed' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'configure failed'
     }
     Write-Host "  OK  Defaults set: org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -198,10 +215,10 @@ function Confirm-AzDevOpsSmokeQuery {
     if ($null -eq $count) {
         Write-Host "  X Smoke query failed" -ForegroundColor Red
         Write-Host "    Try: az boards query --wiql 'Select [System.Id] From WorkItems Where [System.AssignedTo] = @Me'"
-        return [PSCustomObject]@{ Ok = $false; FailMessage = 'smoke query failed' }
+        return New-AzDevOpsStepResult -Ok $false -FailMessage 'smoke query failed'
     }
     Write-Host "  OK  Smoke test passed ($count items assigned to you)" -ForegroundColor Green
-    return [PSCustomObject]@{ Ok = $true; FailMessage = $null }
+    return New-AzDevOpsStepResult -Ok $true
 }
 
 
@@ -316,9 +333,165 @@ function Write-AzDevOpsSyncLog {
 
 function Invoke-AzDevOpsBoardsQuery {
     param([Parameter(Mandatory)] [string] $Wiql)
-    $json = az boards query --wiql $Wiql --output json 2>$null
-    if ($LASTEXITCODE -ne 0) { return $null }
-    return $json
+
+    # Redirecting stderr to a temp file (rather than $null or 2>&1) lets us
+    # keep stdout JSON parseable while still preserving the az error text for
+    # callers to surface to the user / log on failure.
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $json = az boards query --wiql $Wiql --output json 2>$stderrFile
+        $exit = $LASTEXITCODE
+        $stderr = if (Test-Path -LiteralPath $stderrFile) {
+            (Get-Content -LiteralPath $stderrFile -Raw)
+        } else { '' }
+    } finally {
+        Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $stderr) { $stderr = '' }
+
+    return [PSCustomObject]@{
+        Json     = $json
+        Error    = $stderr
+        ExitCode = $exit
+    }
+}
+
+
+# ---------------------------------------------------------------------------
+# Sync helpers — extracted so Sync-AzDevOpsCache stays a small orchestrator
+# and the duplicated "first stderr line" / "build error status" / "log raw
+# stderr" patterns live in one place each (per CLAUDE.md DRY rule).
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsFirstStderrLine {
+    param([string] $Stderr)
+    if (-not $Stderr) { return '' }
+    $line = $Stderr -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1
+    if ($line) { return $line } else { return '' }
+}
+
+
+function New-AzDevOpsDatasetStatus {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('ok', 'error')] [string] $Status,
+        [int]    $Rows,
+        [string] $Message,
+        [string] $Elapsed,
+        [int]    $MaxErrorChars = 500
+    )
+
+    if ($Status -eq 'ok') {
+        return [PSCustomObject]@{
+            Status  = 'ok'
+            Rows    = $Rows
+            Elapsed = $Elapsed
+        }
+    }
+
+    $msg = if ($Message) { $Message.TrimEnd() } else { '' }
+    if ($msg.Length -gt $MaxErrorChars) { $msg = $msg.Substring(0, $MaxErrorChars) }
+
+    return [PSCustomObject]@{
+        Status  = 'error'
+        Error   = $msg
+        Elapsed = $Elapsed
+    }
+}
+
+
+function Write-AzDevOpsSyncStderr {
+    param(
+        [Parameter(Mandatory)] [string] $DatasetName,
+        [Parameter(Mandatory)] [int]    $ExitCode,
+        [Parameter(Mandatory)] [string] $Elapsed,
+        [string] $Stderr
+    )
+
+    Write-AzDevOpsSyncLog "ERROR $DatasetName query failed (exit=$ExitCode, elapsed=$Elapsed)"
+    if (-not $Stderr) { return }
+
+    foreach ($line in ($Stderr -split "`r?`n")) {
+        if ($line.Trim()) {
+            Write-AzDevOpsSyncLog "  [$DatasetName] $line"
+        }
+    }
+}
+
+
+function Get-AzDevOpsSyncDatasets {
+    param([Parameter(Mandatory)] [PSCustomObject] $Paths)
+
+    # Mentions: WIQL has no first-class @-mention predicate. Best effort is
+    # [System.History] Contains 'literal'. Prefer "@<user-email>" when set,
+    # otherwise fall back to a bare "@" - the latter is noisy but at least
+    # populates the cache shape so downstream commands keep working.
+    $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+
+    return @(
+        @{
+            Name  = 'assigned'
+            Label = 'System.AssignedTo = @Me'
+            Path  = $Paths.Assigned
+            Wiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
+        },
+        @{
+            Name  = 'mentions'
+            Label = "System.History Contains '$mentionsToken'"
+            Path  = $Paths.Mentions
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
+        },
+        @{
+            Name  = 'hierarchy'
+            Label = 'Epic/Feature/Story hierarchy in @Project'
+            Path  = $Paths.Hierarchy
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
+        }
+    )
+}
+
+
+function Invoke-AzDevOpsDatasetSync {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $Label,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Wiql
+    )
+
+    Write-Host "-> Querying $Name ($Label)..." -ForegroundColor Cyan
+
+    $sw      = [System.Diagnostics.Stopwatch]::StartNew()
+    $result  = Invoke-AzDevOpsBoardsQuery -Wiql $Wiql
+    $sw.Stop()
+    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
+
+    if ($result.ExitCode -ne 0) {
+        $firstLine = Get-AzDevOpsFirstStderrLine -Stderr $result.Error
+        if (-not $firstLine) { $firstLine = "az exited with code $($result.ExitCode)" }
+
+        Write-Host "  X $Name - $firstLine (in $elapsed)" -ForegroundColor Red
+        Write-AzDevOpsSyncStderr -DatasetName $Name -ExitCode $result.ExitCode -Elapsed $elapsed -Stderr $result.Error
+
+        return New-AzDevOpsDatasetStatus -Status 'error' -Message $result.Error -Elapsed $elapsed
+    }
+
+    try {
+        $parsed = $result.Json | ConvertFrom-Json
+    } catch {
+        $msg = $_.Exception.Message
+        Write-Host "  X $Name - parse failed: $msg (in $elapsed)" -ForegroundColor Red
+        Write-AzDevOpsSyncLog "ERROR $Name parse failed (elapsed=$elapsed): $msg"
+        return New-AzDevOpsDatasetStatus -Status 'error' -Message "parse failed: $msg" -Elapsed $elapsed
+    }
+
+    $count  = @($parsed).Count
+    $pretty = $parsed | ConvertTo-Json -Depth 10
+    Write-AzDevOpsCacheFile -Path $Path -Content $pretty
+    Write-Host "  OK  $Name - $count rows in $elapsed" -ForegroundColor Green
+    Write-AzDevOpsSyncLog "$Name wrote $count rows in $elapsed"
+
+    return New-AzDevOpsDatasetStatus -Status 'ok' -Rows $count -Elapsed $elapsed
 }
 
 
@@ -331,59 +504,36 @@ function Sync-AzDevOpsCache {
     $paths = Initialize-AzDevOpsCacheDir
     Write-AzDevOpsSyncLog 'sync started'
 
-    # Mentions: WIQL has no first-class @-mention predicate. Best effort is
-    # [System.History] Contains 'literal'. Prefer "@<user-email>" when set,
-    # otherwise fall back to a bare "@" - the latter is noisy but at least
-    # populates the cache shape so downstream commands keep working.
-    $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+    $datasets = Get-AzDevOpsSyncDatasets -Paths $paths
 
-    $datasets = @(
-        @{
-            Name = 'assigned'
-            Path = $paths.Assigned
-            Wiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
-        },
-        @{
-            Name = 'mentions'
-            Path = $paths.Mentions
-            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
-        },
-        @{
-            Name = 'hierarchy'
-            Path = $paths.Hierarchy
-            Wiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
-        }
-    )
+    $counts   = [ordered]@{}
+    $statuses = [ordered]@{}
+    $errored  = 0
 
-    $counts = [ordered]@{}
     foreach ($ds in $datasets) {
-        $json = Invoke-AzDevOpsBoardsQuery -Wiql $ds.Wiql
-        if ($null -eq $json) {
-            Write-Host "  X $($ds.Name) query failed" -ForegroundColor Red
-            Write-AzDevOpsSyncLog "ERROR $($ds.Name) query failed"
-            continue
+        $status = Invoke-AzDevOpsDatasetSync @ds
+        $statuses[$ds.Name] = $status
+
+        if ($status.Status -eq 'ok') {
+            $counts[$ds.Name] = $status.Rows
+        } else {
+            $errored++
         }
-        try {
-            $parsed = $json | ConvertFrom-Json
-        } catch {
-            Write-Host "  X $($ds.Name) parse failed" -ForegroundColor Red
-            Write-AzDevOpsSyncLog "ERROR $($ds.Name) parse failed"
-            continue
-        }
-        $count  = @($parsed).Count
-        $pretty = $parsed | ConvertTo-Json -Depth 10
-        Write-AzDevOpsCacheFile -Path $ds.Path -Content $pretty
-        $counts[$ds.Name] = $count
-        Write-Host "  OK  $($ds.Name) - $count rows" -ForegroundColor Green
-        Write-AzDevOpsSyncLog "$($ds.Name) wrote $count rows"
     }
 
     $lastSync = [PSCustomObject]@{
         Timestamp = (Get-Date).ToString('o')
         Counts    = $counts
+        Datasets  = $statuses
     }
     Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
     Write-AzDevOpsSyncLog 'sync complete'
+
+    Write-Host ""
+    Write-Host "Cache: $($paths.Dir)" -ForegroundColor Cyan
+    if ($errored -gt 0) {
+        Write-Host "Partial sync - $errored of $($datasets.Count) dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
+    }
 }
 
 
@@ -417,35 +567,101 @@ function Get-AzDevOpsCacheStatus {
             Write-Host "  $($_.Name): $($_.Value) rows"
         }
     }
+
+    if ($info.Datasets) {
+        $errored = @($info.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
+        if ($errored.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Partial sync - $($errored.Count) dataset(s) errored:" -ForegroundColor Yellow
+            foreach ($e in $errored) {
+                $msg = Get-AzDevOpsFirstStderrLine -Stderr $e.Value.Error
+                if (-not $msg) { $msg = '(no error text)' }
+                Write-Host "  X $($e.Name): $msg" -ForegroundColor Red
+            }
+            Write-Host "  See $($paths.Log) for full az stderr" -ForegroundColor Yellow
+        }
+    }
+}
+
+
+# ---------------------------------------------------------------------------
+# Scheduling helpers — shared by Register-/Unregister-AzDevOpsSyncSchedule
+# so the platform branch and the cron-tag filter live in one place each
+# (CLAUDE.md explicitly names Get-AzDevOpsPlatform / Get-AzDevOpsCronLine).
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsPlatform {
+    if ($IsWindows -or ($env:OS -eq 'Windows_NT')) { return 'Windows' }
+    if ($IsMacOS -or $IsLinux)                     { return 'Posix' }
+    return 'Unknown'
+}
+
+
+function Get-AzDevOpsScheduledTaskName {
+    return 'BashcutsAzDevOpsSync'
+}
+
+
+function Get-AzDevOpsSyncIntervalHours {
+    return 5
+}
+
+
+function Get-AzDevOpsCronTag {
+    return '# bashcuts-azdevops-sync'
+}
+
+
+function Get-AzDevOpsCronLine {
+    param([Parameter(Mandatory)] [string] $PwshPath)
+    $tag   = Get-AzDevOpsCronTag
+    $hours = Get-AzDevOpsSyncIntervalHours
+    return "0 */$hours * * * $PwshPath -Command `"Sync-AzDevOpsCache`" $tag"
+}
+
+
+function Get-AzDevOpsCrontabSplit {
+    # Reads the current crontab and partitions it into bashcuts-tagged lines
+    # vs everything else. Returns the non-bashcuts lines plus a HadBashcuts
+    # flag so Unregister doesn't have to re-grep to know whether it changed
+    # anything. crontab returning no output / nonzero is normalized to empty.
+    $tag         = Get-AzDevOpsCronTag
+    $existingRaw = crontab -l 2>$null
+
+    if (-not $existingRaw) {
+        return [PSCustomObject]@{ Other = @(); HadBashcuts = $false }
+    }
+
+    $allLines    = @($existingRaw -split "`n" | Where-Object { $_ })
+    $otherLines  = @($allLines | Where-Object { $_ -notmatch [regex]::Escape($tag) })
+    $hadBashcuts = ($otherLines.Count -lt $allLines.Count)
+
+    return [PSCustomObject]@{ Other = $otherLines; HadBashcuts = $hadBashcuts }
 }
 
 
 function Register-AzDevOpsSyncSchedule {
-    $isWin    = $IsWindows -or ($env:OS -eq 'Windows_NT')
-    $pwshPath = (Get-Process -Id $PID).Path
+    $platform = Get-AzDevOpsPlatform
     # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
     # available; without -NoProfile, the scheduled invocation has the same
     # context as an interactive shell.
-    $command = 'Sync-AzDevOpsCache'
+    $pwshPath = (Get-Process -Id $PID).Path
+    $hours    = Get-AzDevOpsSyncIntervalHours
 
-    if ($isWin) {
-        $taskName = 'BashcutsAzDevOpsSync'
-        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"$command`""
+    if ($platform -eq 'Windows') {
+        $taskName = Get-AzDevOpsScheduledTaskName
+        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"Sync-AzDevOpsCache`""
         $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-                        -RepetitionInterval (New-TimeSpan -Hours 5)
+                        -RepetitionInterval (New-TimeSpan -Hours $hours)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
-        Write-Host "Registered: scheduled task '$taskName' (every 5 hours)" -ForegroundColor Green
+        Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
         return
     }
 
-    if ($IsMacOS -or $IsLinux) {
-        $tag         = '# bashcuts-azdevops-sync'
-        $cronLine    = "0 */5 * * * $pwshPath -Command `"$command`" $tag"
-        $existingRaw = crontab -l 2>$null
-        $existing    = if ($existingRaw) {
-            @($existingRaw -split "`n" | Where-Object { $_ -and ($_ -notmatch [regex]::Escape($tag)) })
-        } else { @() }
-        $newCron = (@($existing) + $cronLine) -join "`n"
+    if ($platform -eq 'Posix') {
+        $cronLine = Get-AzDevOpsCronLine -PwshPath $pwshPath
+        $split    = Get-AzDevOpsCrontabSplit
+        $newCron  = (@($split.Other) + $cronLine) -join "`n"
         $newCron | crontab -
         Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
         return
@@ -456,10 +672,10 @@ function Register-AzDevOpsSyncSchedule {
 
 
 function Unregister-AzDevOpsSyncSchedule {
-    $isWin = $IsWindows -or ($env:OS -eq 'Windows_NT')
+    $platform = Get-AzDevOpsPlatform
 
-    if ($isWin) {
-        $taskName = 'BashcutsAzDevOpsSync'
+    if ($platform -eq 'Windows') {
+        $taskName = Get-AzDevOpsScheduledTaskName
         if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
             Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
@@ -469,16 +685,13 @@ function Unregister-AzDevOpsSyncSchedule {
         return
     }
 
-    if ($IsMacOS -or $IsLinux) {
-        $tag         = '# bashcuts-azdevops-sync'
-        $existingRaw = crontab -l 2>$null
-        $existing    = if ($existingRaw) { @($existingRaw -split "`n") } else { @() }
-        $filtered    = @($existing | Where-Object { $_ -and ($_ -notmatch [regex]::Escape($tag)) })
-        if ($filtered.Count -eq ($existing | Where-Object { $_ }).Count) {
+    if ($platform -eq 'Posix') {
+        $split = Get-AzDevOpsCrontabSplit
+        if (-not $split.HadBashcuts) {
             Write-Host "No bashcuts-azdevops-sync cron entry to remove" -ForegroundColor Yellow
             return
         }
-        ($filtered -join "`n") | crontab -
+        ($split.Other -join "`n") | crontab -
         Write-Host "Unregistered: removed bashcuts-azdevops-sync cron entry" -ForegroundColor Green
         return
     }

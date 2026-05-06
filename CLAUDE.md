@@ -187,9 +187,10 @@ This repo defines its own Claude Code slash commands:
 | `/project-sync` | Aligns issue ↔ PR ↔ branch on GitHub |
 | `/criteria-check` | Verifies issue acceptance criteria against the code |
 | `/docs-check` | Audits README + sourcing wire-up |
-| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` in parallel |
+| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` + `senior-clean-code-engineer` in parallel |
 | `/senior-bash-engineer` | Solo bash review (called by `/code-review`) |
 | `/senior-powershell-engineer` | Solo PowerShell review (called by `/code-review`) |
+| `/senior-clean-code-engineer` | Solo clean-code review — duplication, function shape, abstraction debt; enforces CLAUDE.md's extract-repeated-branches + breathing-room rules (called by `/code-review`) |
 | `/pr-body` | Builds / refreshes the PR body table of contents |
 | `/pr-flow` | Full pipeline: parse-checks → commit → push → PR → code-review → docs-check → criteria-check → pr-body |
 
