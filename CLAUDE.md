@@ -68,6 +68,8 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 - **Quote variable expansions (bash)** — paths with spaces (`C:\Program Files`, `~/Library/Application Support`) break unquoted `$var`. The README explicitly warns about path-with-spaces; new code must respect that.
 - **macOS `start`** — `.bcut_home` aliases `start` to `open` on Darwin. Code that uses `start` to open files/URLs is fine; **don't redefine `start` and don't pass platform-specific flags** (e.g. Windows `start /B`, mac `open -a "App"`) without an OS conditional.
 - **No comments for self-evident code** — only comment where the logic is genuinely non-obvious.
+- **Breathing room** — keep code visually scannable. Two blank lines between top-level function definitions in a `.ps1` or `.<cli>_bashcuts` file. One blank line between logical groups inside a function body (e.g. before a `foreach`, before a final `return`, between a setup block and the work that uses it). A wall of code without spacing makes review and edits harder; don't be stingy with vertical whitespace.
+- **Extract repeated branches into private helpers** — if the same `if ($IsWindows -or ...)` / `elseif ($IsMacOS -or $IsLinux)` (or any other repeating decision) appears in two or more functions, lift it into a small private helper (e.g. `Get-AzDevOpsPlatform` returning `'Windows'`/`'Posix'`, or `Get-AzDevOpsCronLine` building the cron string). Same rule for bash: if two functions repeat the same `case "$OSTYPE"` block, extract it into `_bashcut_os` in `.bash_commons` or the file's local helper. Private helpers can use unapproved verbs since they aren't user-facing — readability of the public surface is what matters. Apply this proactively when implementing parallel `Register-/Unregister-` style pairs.
 
 ## Project Structure
 
@@ -202,6 +204,7 @@ Use them. `/pr-flow` is the standard "ship it" command.
 - **Mac `start`** — already aliased to `open` on Darwin in `.bcut_home`; don't redefine
 - **Path-with-spaces** — clone path is unsupported per README; quote your own variables but don't try to "fix" the entry points
 - **No tests / no compiler** — your gates are `bash -n`, `pwsh` parse, sourcing wire-up, and a verification plan the user can run
+- **Breathing room + DRY** — two blank lines between top-level functions, one blank line between logical groups within a function; if the same `if`/`case` branch appears in two or more functions, extract a private helper
 
 ---
 
