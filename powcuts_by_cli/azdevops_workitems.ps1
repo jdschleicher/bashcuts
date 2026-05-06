@@ -10,7 +10,17 @@
 #   Test-AzDevOpsAuth  - silent yes/no auth assertion intended for callers
 #                        in later AzDevOps commands; returns $true / $false
 #
-# Diagnostic helpers (also exposed for direct use):
+# Step functions invoked by Connect-AzDevOps (also exposed for direct use,
+# e.g. to debug a single failing step). Each returns a result object
+# @{ Ok = <bool>; FailMessage = <string> } and prints its own status:
+#   Confirm-AzDevOpsCli              - step 1 (CLI on PATH + version echo)
+#   Confirm-AzDevOpsExtension        - step 2 (azure-devops extension; offers install)
+#   Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
+#   Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
+#   Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
+#   Confirm-AzDevOpsSmokeQuery       - step 6 (az boards query smoke test)
+#
+# Silent diagnostic helpers (pure checks, no I/O — used by Test-AzDevOpsAuth):
 #   Test-AzDevOpsCliPresent          - is the `az` CLI on PATH?
 #   Test-AzDevOpsExtensionInstalled  - is the `azure-devops` extension installed?
 #   Get-AzDevOpsMissingEnvVars       - returns array of required env vars not set
@@ -34,6 +44,10 @@
 #   PS> Connect-AzDevOps
 # ============================================================================
 
+
+# ---------------------------------------------------------------------------
+# Silent diagnostic helpers (no I/O; safe for Test-AzDevOpsAuth callers)
+# ---------------------------------------------------------------------------
 
 function Test-AzDevOpsCliPresent {
     return [bool](Get-Command az -ErrorAction SilentlyContinue)
@@ -81,15 +95,12 @@ function Test-AzDevOpsAuth {
 }
 
 
-function Connect-AzDevOps {
+# ---------------------------------------------------------------------------
+# Step functions invoked by Connect-AzDevOps. Each owns its print + I/O for
+# one step and returns @{ Ok = <bool>; FailMessage = <string> }.
+# ---------------------------------------------------------------------------
 
-    Write-Host ""
-    Write-Host "Connect-AzDevOps" -ForegroundColor Cyan
-    Write-Host "================" -ForegroundColor Cyan
-
-    # Step 1 of 6 - az CLI on PATH
-    Write-Host ""
-    Write-Host "Step 1 of 6 - Azure CLI" -ForegroundColor White
+function Confirm-AzDevOpsCli {
     if (-not (Test-AzDevOpsCliPresent)) {
         Write-Host "  X az CLI not on PATH" -ForegroundColor Red
         if ($IsWindows) {
@@ -101,37 +112,33 @@ function Connect-AzDevOps {
         } else {
             Write-Host "    See: https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
         }
-        Write-Host ""
-        Write-Host "NOT READY - blocked at step 1: az CLI missing" -ForegroundColor Red
-        return
+        return @{ Ok = $false; FailMessage = 'az CLI missing' }
     }
     $azVersion = (az version --output json 2>$null | ConvertFrom-Json).'azure-cli'
     Write-Host "  OK  az CLI present (v$azVersion)" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Step 2 of 6 - azure-devops extension
-    Write-Host ""
-    Write-Host "Step 2 of 6 - azure-devops extension" -ForegroundColor White
+
+function Confirm-AzDevOpsExtension {
     if (-not (Test-AzDevOpsExtensionInstalled)) {
         Write-Host "  !  azure-devops extension not installed" -ForegroundColor Yellow
         $resp = Read-Host "    Install now? [Y/n]"
         if ($resp -match '^(n|no)$') {
             Write-Host "    Hint: az extension add --name azure-devops"
-            Write-Host ""
-            Write-Host "NOT READY - blocked at step 2: extension missing" -ForegroundColor Red
-            return
+            return @{ Ok = $false; FailMessage = 'extension missing' }
         }
         az extension add --name azure-devops 2>&1 | Out-Host
         if (-not (Test-AzDevOpsExtensionInstalled)) {
-            Write-Host ""
-            Write-Host "NOT READY - blocked at step 2: extension install failed" -ForegroundColor Red
-            return
+            return @{ Ok = $false; FailMessage = 'extension install failed' }
         }
     }
     Write-Host "  OK  azure-devops extension installed" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Step 3 of 6 - profile env vars
-    Write-Host ""
-    Write-Host "Step 3 of 6 - Profile environment variables" -ForegroundColor White
+
+function Confirm-AzDevOpsEnvVars {
     $missing = Get-AzDevOpsMissingEnvVars
     if ($missing.Count -gt 0) {
         Write-Host "  X Missing env vars: $($missing -join ', ')" -ForegroundColor Red
@@ -145,62 +152,88 @@ function Connect-AzDevOps {
         Write-Host "    `$env:AZ_ITERATION  = 'My Project\Sprint 42'"
         Write-Host "    ---------------------------------------------------------------"
         Write-Host "    See README section 'Azure DevOps work-item shortcuts' for details."
-        Write-Host ""
-        Write-Host "NOT READY - blocked at step 3: env vars missing" -ForegroundColor Red
-        return
+        return @{ Ok = $false; FailMessage = 'env vars missing' }
     }
     Write-Host "  OK  AZ_DEVOPS_ORG = $env:AZ_DEVOPS_ORG" -ForegroundColor Green
     Write-Host "  OK  AZ_PROJECT    = $env:AZ_PROJECT" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Step 4 of 6 - az login session
-    Write-Host ""
-    Write-Host "Step 4 of 6 - Azure login session" -ForegroundColor White
+
+function Confirm-AzDevOpsLogin {
     if (-not (Test-AzDevOpsLoggedIn)) {
         Write-Host "  !  No active az login session" -ForegroundColor Yellow
         $resp = Read-Host "    Run 'az login' now? [Y/n]"
         if ($resp -match '^(n|no)$') {
             Write-Host "    Hint: az login"
-            Write-Host ""
-            Write-Host "NOT READY - blocked at step 4: not logged in" -ForegroundColor Red
-            return
+            return @{ Ok = $false; FailMessage = 'not logged in' }
         }
         az login | Out-Host
         if (-not (Test-AzDevOpsLoggedIn)) {
-            Write-Host ""
-            Write-Host "NOT READY - blocked at step 4: az login failed" -ForegroundColor Red
-            return
+            return @{ Ok = $false; FailMessage = 'az login failed' }
         }
     }
     $account = az account show --output json 2>$null | ConvertFrom-Json
     Write-Host "  OK  Logged in as $($account.user.name) (sub: $($account.name))" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Step 5 of 6 - configure az devops defaults
-    Write-Host ""
-    Write-Host "Step 5 of 6 - Configure az devops defaults" -ForegroundColor White
+
+function Set-AzDevOpsDefaults {
     $configOutput = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  X az devops configure failed" -ForegroundColor Red
         Write-Host "    $configOutput"
-        Write-Host ""
-        Write-Host "NOT READY - blocked at step 5: configure failed" -ForegroundColor Red
-        return
+        return @{ Ok = $false; FailMessage = 'configure failed' }
     }
     Write-Host "  OK  Defaults set: org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Step 6 of 6 - smoke test boards query
-    Write-Host ""
-    Write-Host "Step 6 of 6 - Smoke test (az boards query)" -ForegroundColor White
+
+function Confirm-AzDevOpsSmokeQuery {
     $count = Invoke-AzDevOpsSmokeQuery
     if ($null -eq $count) {
         Write-Host "  X Smoke query failed" -ForegroundColor Red
         Write-Host "    Try: az boards query --wiql 'Select [System.Id] From WorkItems Where [System.AssignedTo] = @Me'"
-        Write-Host ""
-        Write-Host "NOT READY - blocked at step 6: smoke query failed" -ForegroundColor Red
-        return
+        return @{ Ok = $false; FailMessage = 'smoke query failed' }
     }
     Write-Host "  OK  Smoke test passed ($count items assigned to you)" -ForegroundColor Green
+    return @{ Ok = $true }
+}
 
-    # Final verdict
+
+# ---------------------------------------------------------------------------
+# Connect-AzDevOps — thin orchestrator that runs each step in order and
+# bails on the first failure with a clear NOT READY verdict.
+# ---------------------------------------------------------------------------
+
+function Connect-AzDevOps {
+
+    Write-Host ""
+    Write-Host "Connect-AzDevOps" -ForegroundColor Cyan
+    Write-Host "================" -ForegroundColor Cyan
+
+    $steps = @(
+        @{ Num = 1; Name = 'Azure CLI';                     Action = { Confirm-AzDevOpsCli } },
+        @{ Num = 2; Name = 'azure-devops extension';        Action = { Confirm-AzDevOpsExtension } },
+        @{ Num = 3; Name = 'Profile environment variables'; Action = { Confirm-AzDevOpsEnvVars } },
+        @{ Num = 4; Name = 'Azure login session';           Action = { Confirm-AzDevOpsLogin } },
+        @{ Num = 5; Name = 'Configure az devops defaults';  Action = { Set-AzDevOpsDefaults } },
+        @{ Num = 6; Name = 'Smoke test (az boards query)';  Action = { Confirm-AzDevOpsSmokeQuery } }
+    )
+
+    foreach ($step in $steps) {
+        Write-Host ""
+        Write-Host "Step $($step.Num) of $($steps.Count) - $($step.Name)" -ForegroundColor White
+        $result = & $step.Action
+        if (-not $result.Ok) {
+            Write-Host ""
+            Write-Host "NOT READY - blocked at step $($step.Num): $($result.FailMessage)" -ForegroundColor Red
+            return
+        }
+    }
+
     Write-Host ""
     Write-Host "READY - Azure DevOps connection verified for project=$env:AZ_PROJECT in org=$env:AZ_DEVOPS_ORG" -ForegroundColor Green
 }
