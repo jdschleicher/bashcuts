@@ -554,11 +554,13 @@ function Get-AzDevOpsCacheAge {
     }
 
     return [PSCustomObject]@{
-        Synced  = $synced
-        Age     = $age
-        AgeText = $ageText
-        IsStale = ($age.TotalHours -ge 6)
-        Counts  = $info.Counts
+        Synced   = $synced
+        Age      = $age
+        AgeText  = $ageText
+        IsStale  = ($age.TotalHours -ge 6)
+        Counts   = $info.Counts
+        Datasets = $info.Datasets
+        LogPath  = $paths.Log
     }
 }
 
@@ -582,8 +584,8 @@ function Get-AzDevOpsCacheStatus {
         }
     }
 
-    if ($info.Datasets) {
-        $errored = @($info.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
+    if ($cacheAge.Datasets) {
+        $errored = @($cacheAge.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
         if ($errored.Count -gt 0) {
             Write-Host ""
             Write-Host "Partial sync - $($errored.Count) dataset(s) errored:" -ForegroundColor Yellow
@@ -592,7 +594,7 @@ function Get-AzDevOpsCacheStatus {
                 if (-not $msg) { $msg = '(no error text)' }
                 Write-Host "  X $($e.Name): $msg" -ForegroundColor Red
             }
-            Write-Host "  See $($paths.Log) for full az stderr" -ForegroundColor Yellow
+            Write-Host "  See $($cacheAge.LogPath) for full az stderr" -ForegroundColor Yellow
         }
     }
 }
@@ -781,13 +783,17 @@ function Get-AzDevOpsAssigned {
         $items | Where-Object { $_.State -notin @('Closed', 'Removed') }
     }
 
-    foreach ($item in $filtered) {
-        if ($item.Title -and $item.Title.Length -gt 80) {
-            $item.Title = $item.Title.Substring(0, 77) + '...'
-        }
-    }
+    $titleMaxLen = 80
 
-    return $filtered
+    return $filtered | Select-Object Id, Type, State,
+        @{ Name = 'Title'; Expression = {
+            if ($_.Title -and $_.Title.Length -gt $titleMaxLen) {
+                $_.Title.Substring(0, $titleMaxLen - 3) + '...'
+            } else {
+                $_.Title
+            }
+        } },
+        Iteration, AssignedAt
 }
 
 
