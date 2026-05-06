@@ -3,6 +3,7 @@
 * [Choose which Prerequisite CLI's and Other Tools to Install](#tools-used)
 * [System Setup for bash and PowerShell Profiles](#system-setup)
 * [How to use bashcuts](#how-to)
+* [Azure DevOps work-item shortcuts](#azure-devops)
 
 <br>
 
@@ -17,6 +18,8 @@
 - GitHub CLI: https://cli.github.com/
 - CumulusCI: https://cumulusci.readthedocs.io/en/stable/
 - jQ: https://stedolan.github.io/jq/
+- Azure CLI (only if you use the Azure DevOps work-item shortcuts): https://aka.ms/installazurecli
+  - plus the `azure-devops` extension: `az extension add --name azure-devops`
 - sfdx plugins:
   - sfdx scanner: https://forcedotcom.github.io/sfdx-scanner/
   - sfdx texei: https://github.com/texei/texei-sfdx-plugin
@@ -149,4 +152,41 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/00f97b96-60a3-488a-9eca-71202fd922d2)
 
+***
+
+<br>
+
+# <a name="azure-devops"></a>Azure DevOps work-item shortcuts
+
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Future commands in this batch will add cached lists of items assigned to you, items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
+
+### Prerequisites
+
+- Azure CLI: https://aka.ms/installazurecli
+- `azure-devops` CLI extension: `az extension add --name azure-devops` (`Connect-AzDevOps` will offer to install this for you on first run)
+- An active `az login` session (`Connect-AzDevOps` will offer to start one for you on first run)
+
+### Profile environment variables
+
+Add this block to your PowerShell `$profile` and reload (open a new terminal). Replace each value with what's appropriate for your organization:
+
+```powershell
+$env:AZ_DEVOPS_ORG = 'https://dev.azure.com/myorg'
+$env:AZ_PROJECT    = 'My Project'
+$env:AZ_USER_EMAIL = 'user@example.com'
+$env:AZ_AREA       = 'My Project\My Team'
+$env:AZ_ITERATION  = 'My Project\Sprint 42'
+```
+
+### First run
+
+In a fresh PowerShell terminal:
+
+```powershell
+Connect-AzDevOps
+```
+
+This walks through six checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
+
+After `Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
 
