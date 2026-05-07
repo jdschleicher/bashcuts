@@ -70,6 +70,79 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 - **No comments for self-evident code** — only comment where the logic is genuinely non-obvious.
 - **Breathing room** — keep code visually scannable. Two blank lines between top-level function definitions in a `.ps1` or `.<cli>_bashcuts` file. One blank line between logical groups inside a function body (e.g. before a `foreach`, before a final `return`, between a setup block and the work that uses it). A wall of code without spacing makes review and edits harder; don't be stingy with vertical whitespace.
 - **Extract repeated branches into private helpers** — if the same `if ($IsWindows -or ...)` / `elseif ($IsMacOS -or $IsLinux)` (or any other repeating decision) appears in two or more functions, lift it into a small private helper (e.g. `Get-AzDevOpsPlatform` returning `'Windows'`/`'Posix'`, or `Get-AzDevOpsCronLine` building the cron string). Same rule for bash: if two functions repeat the same `case "$OSTYPE"` block, extract it into `_bashcut_os` in `.bash_commons` or the file's local helper. Private helpers can use unapproved verbs since they aren't user-facing — readability of the public surface is what matters. Apply this proactively when implementing parallel `Register-/Unregister-` style pairs.
+- **Never `return` a function call directly** — capture the call's result in a named local variable on its own line, then `return $thatVariable`. This applies to both PowerShell and bash. **Bad:** `return Get-Something -Param $x` / `return Read-AzDevOpsJsonCache -Path $p ...`. **Good:**
+  ```powershell
+  $result = Get-Something -Param $x
+  return $result
+  ```
+  Reasons: a named local makes the value inspectable in a debugger / `Set-PSBreakpoint`, surfaces the type at the assignment site, gives a single explicit exit point, and makes refactoring (logging, transforming, validating before return) a one-line edit instead of restructuring the return statement. Applies to pipeline expressions too — assign `$rows = $raw | ForEach-Object { … }` then `return $rows`. Allowed exceptions: trivial value literals (`return $null`, `return $true`, `return ''`), and explicit `return` of an already-named variable.
+- **Multi-line `if`/`elseif`/`else` blocks always — no inline shorthand** — every branch body lives on its own line with the body indented; never collapse a conditional to `if ($cond) { x } else { y }` on a single line. The `} else {` / `} elseif (...) {` joiners stay on the same line (existing project K&R style). Applies even when the conditional is the right-hand side of an assignment or a hashtable property value. **Bad:**
+  ```powershell
+  $key  = if ($null -ne $item.Parent) { $item.Parent } else { 0 }
+  Id    = if ($f.'System.Id') { [int]$f.'System.Id' } else { [int]$Raw.id }
+  ```
+  **Good:**
+  ```powershell
+  $key = if ($null -ne $item.Parent) {
+      $item.Parent
+  } else {
+      0
+  }
+
+  Id = if ($f.'System.Id') {
+      [int]$f.'System.Id'
+  } else {
+      [int]$Raw.id
+  }
+  ```
+  Reasons: each branch gets its own breakpoint line, adding a second statement to one branch is a one-line diff instead of restructuring, and the visual weight of the conditional matches its semantic weight. Same rule for bash — never compress `if condition; then x; else y; fi` to a single line; expand each branch to its own line.
+- **Name your magic strings, codepoints, and literal values** — never inline `[char]0x1F4E6`, raw escape sequences, or string literals whose intent isn't obvious at the call site. Hoist them into named locals (or `$script:`-scoped constants when reused across functions) whose names describe purpose. **Bad:**
+  ```powershell
+  switch ($Type) {
+      'Epic'       { return "$([char]0x1F4E6)" }
+      'Feature'    { return "$([char]0x1F3AF)" }
+      'User Story' { return "$([char]0x1F4DD)" }
+  }
+  ```
+  **Good:**
+  ```powershell
+  $iconEpic    = "$([char]0x1F4E6)"   # package
+  $iconFeature = "$([char]0x1F3AF)"   # bullseye
+  $iconStory   = "$([char]0x1F4DD)"   # memo
+
+  switch ($Type) {
+      'Epic' {
+          return $iconEpic
+      }
+      ...
+  }
+  ```
+  Reasons: a `0x1F4E6` literal tells the reader nothing; `$iconEpic` tells them everything. The named local is also the single point of change if the glyph needs swapping. Same rule for bash — define `local icon_epic=$'\xf0\x9f\x93\xa6'` (or assign once at the top of the function) rather than scattering raw bytes through a `case` statement. The em-dash `[char]0x2014` and the four-space tree indent `'    '` are likewise candidates for naming when they appear in two or more places.
+- **Switch branches expand across multiple lines, with breathing room between them** — no `'Epic' { return $x }` one-liners. Each `case` opens on its own line, the body is indented on the next line, the closing `}` lives on its own line, and a blank line separates branches. Same rationale as the multi-line `if`/`else` rule: per-branch breakpoints, one-line diff to add a second statement, and visual weight that matches the branch's semantic weight. **Bad:**
+  ```powershell
+  switch ($Type) {
+      'Epic'    { return $iconEpic }
+      'Feature' { return $iconFeature }
+      default   { return '*' }
+  }
+  ```
+  **Good:**
+  ```powershell
+  switch ($Type) {
+      'Epic' {
+          return $iconEpic
+      }
+
+      'Feature' {
+          return $iconFeature
+      }
+
+      default {
+          return $iconUnknown
+      }
+  }
+  ```
+  Same rule for bash `case ... esac` — never compress a case arm to `pattern) cmd ;;` on one line; expand to a multi-line block with a blank line between arms.
 
 ## Project Structure
 

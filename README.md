@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), and a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`). Future commands in this batch will add items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), and an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`). Future commands in this batch will add items you've been mentioned in and an interactive new-user-story creator with parent-feature and iteration pickers.
 
 ### Prerequisites
 
@@ -201,7 +201,9 @@ Get-AzDevOpsAssigned -State Active,New     # filter to multiple states
 Get-AzDevOpsAssigned | Format-Table -AutoSize
 
 Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
+
+Show-AzDevOpsTree                          # print the project's Epic -> Feature -> User Story tree
 ```
 
-If the cache is older than 6 hours, `Get-AzDevOpsAssigned` prints a one-line `WARNING stale (last sync: ...)` notice above the table and still returns the cached rows.
+If the cache is older than 6 hours, `Get-AzDevOpsAssigned` and `Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 

@@ -445,7 +445,10 @@ function Get-AzDevOpsSyncDatasets {
             Name  = 'hierarchy'
             Label = 'Epic/Feature/Story hierarchy in @Project'
             Path  = $Paths.Hierarchy
-            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItemLinks Where [Source].[System.TeamProject] = @Project AND [Source].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [Target].[System.WorkItemType] IN ('Epic', 'Feature', 'User Story') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' Mode (MustContain)"
+            # Flat work-items query (not link-mode): az boards query resolves
+            # System.Parent + the rest of the fields for each item in one shot,
+            # giving Show-AzDevOpsTree everything it needs without re-calling az.
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.TeamProject] = @Project AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story')"
         }
     )
 }
@@ -743,23 +746,43 @@ function ConvertFrom-AzDevOpsAssignedItem {
 }
 
 
-function Read-AzDevOpsAssignedCache {
-    $paths = Get-AzDevOpsCachePaths
-    if (-not (Test-Path -LiteralPath $paths.Dir) -or -not (Test-Path -LiteralPath $paths.Assigned)) {
-        Write-Host "No assigned-items cache at $($paths.Assigned)." -ForegroundColor Yellow
+function Read-AzDevOpsJsonCache {
+    # Shared shape for every cache reader: missing-cache hint, ConvertFrom-Json
+    # with try/catch, then map each row through a per-dataset converter. Each
+    # caller supplies its own $Path, a short $Description for the hint line,
+    # and a scriptblock that turns one parsed row into a typed PSCustomObject.
+    param(
+        [Parameter(Mandatory)] [string]      $Path,
+        [Parameter(Mandatory)] [string]      $Description,
+        [Parameter(Mandatory)] [scriptblock] $Converter
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Host "No $Description cache at $Path." -ForegroundColor Yellow
         Write-Host "  Run: Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
         Write-Host "  Run: Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
         return $null
     }
 
     try {
-        $raw = Get-Content -LiteralPath $paths.Assigned -Raw | ConvertFrom-Json
+        $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     } catch {
-        Write-Host "Could not parse $($paths.Assigned): $_" -ForegroundColor Red
+        Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
         return $null
     }
 
-    return @($raw | ForEach-Object { ConvertFrom-AzDevOpsAssignedItem -Raw $_ })
+    $items = @($raw | ForEach-Object { & $Converter $_ })
+    return $items
+}
+
+
+function Read-AzDevOpsAssignedCache {
+    $paths = Get-AzDevOpsCachePaths
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Assigned `
+        -Description 'assigned-items' `
+        -Converter   { param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r }
+    return $items
 }
 
 
@@ -826,4 +849,167 @@ function Open-AzDevOpsAssigned {
 
     Write-Host "Opening $url" -ForegroundColor Cyan
     Start-Process $url
+}
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy tree view
+#
+# Public function:
+#   Show-AzDevOpsTree   - prints the project's Epic/Feature/User Story tree
+#                          from the cached hierarchy.json (no `az` calls)
+#
+# Reads $HOME/.bashcuts-cache/azure-devops/hierarchy.json (built by
+# Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
+# item carries its parent link directly - no follow-up resolution needed.
+# ---------------------------------------------------------------------------
+
+function ConvertFrom-AzDevOpsHierarchyItem {
+    param([Parameter(Mandatory)] $Raw)
+
+    $f = $Raw.fields
+
+    $parent = if ($null -ne $f.'System.Parent' -and "$($f.'System.Parent')" -ne '') {
+        [int]$f.'System.Parent'
+    } else {
+        $null
+    }
+
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    } else {
+        [int]$Raw.id
+    }
+
+    $item = [PSCustomObject]@{
+        Id     = $id
+        Type   = $f.'System.WorkItemType'
+        State  = $f.'System.State'
+        Title  = $f.'System.Title'
+        Parent = $parent
+    }
+    return $item
+}
+
+
+function Read-AzDevOpsHierarchyCache {
+    $paths = Get-AzDevOpsCachePaths
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Hierarchy `
+        -Description 'hierarchy' `
+        -Converter   { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
+    return $items
+}
+
+
+function Get-AzDevOpsTreeIndent {
+    param([Parameter(Mandatory)] [int] $Depth)
+
+    $indentUnit = '    '   # 4 spaces per tree level
+    $indent     = $indentUnit * $Depth
+    return $indent
+}
+
+
+function Get-AzDevOpsTreeIcon {
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $iconEpic    = "$([char]0x1F4E6)"   # package
+    $iconFeature = "$([char]0x1F3AF)"   # bullseye
+    $iconStory   = "$([char]0x1F4DD)"   # memo
+    $iconUnknown = '*'
+
+    switch ($Type) {
+        'Epic' {
+            return $iconEpic
+        }
+
+        'Feature' {
+            return $iconFeature
+        }
+
+        'User Story' {
+            return $iconStory
+        }
+
+        default {
+            return $iconUnknown
+        }
+    }
+}
+
+
+function Format-AzDevOpsTreeNode {
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Item,
+        [Parameter(Mandatory)] [int] $Depth
+    )
+
+    $indent    = Get-AzDevOpsTreeIndent -Depth $Depth
+    $icon      = Get-AzDevOpsTreeIcon -Type $Item.Type
+    $separator = "$([char]0x2014)"   # em-dash
+
+    # User Story lines drop the type label per the issue spec; epics + features
+    # keep it so '📦 Epic 1234' / '🎯 Feature 1240' read clearly.
+    if ($Item.Type -eq 'User Story') {
+        return "$indent$icon $($Item.Id) $separator $($Item.Title) [$($Item.State)]"
+    }
+
+    return "$indent$icon $($Item.Type) $($Item.Id) $separator $($Item.Title) [$($Item.State)]"
+}
+
+
+function Show-AzDevOpsTree {
+    [CmdletBinding()]
+    param()
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    $cacheAge = Get-AzDevOpsCacheAge
+    if ($cacheAge -and $cacheAge.IsStale) {
+        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
+    }
+
+    $byParent = @{}
+    foreach ($item in $items) {
+        $key = if ($null -ne $item.Parent) {
+            $item.Parent
+        } else {
+            0
+        }
+
+        if (-not $byParent.ContainsKey($key)) {
+            $byParent[$key] = @()
+        }
+        $byParent[$key] += $item
+    }
+
+    $epics = @($items | Where-Object { $_.Type -eq 'Epic' } | Sort-Object Id)
+    if ($epics.Count -eq 0) {
+        Write-Host "(no epics in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
+    foreach ($epic in $epics) {
+        Write-Output (Format-AzDevOpsTreeNode -Item $epic -Depth 0)
+
+        $children = @($byParent[$epic.Id])
+        $features = @($children | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
+
+        if ($features.Count -eq 0) {
+            $featuresIndent = Get-AzDevOpsTreeIndent -Depth 1
+            Write-Output "$featuresIndent(no features)"
+            continue
+        }
+
+        foreach ($feature in $features) {
+            Write-Output (Format-AzDevOpsTreeNode -Item $feature -Depth 1)
+
+            $stories = @($byParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
+            foreach ($story in $stories) {
+                Write-Output (Format-AzDevOpsTreeNode -Item $story -Depth 2)
+            }
+        }
+    }
 }
