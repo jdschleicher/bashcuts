@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), and an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`). A future command in this batch will add an interactive new-user-story creator with parent-feature and iteration pickers.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`), and an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`New-AzDevOpsUserStory`).
 
 ### Prerequisites
 
@@ -214,4 +214,31 @@ Show-AzDevOpsTree                          # print the project's Epic -> Feature
 ```
 
 If the cache is older than 6 hours, `Get-AzDevOpsAssigned`, `Get-AzDevOpsMentions`, and `Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+
+`Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run Sync-AzDevOpsCache to make this instant)" notice.
+
+### Creating a new User Story
+
+`New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers a numbered picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. After it creates the story it links the chosen parent and opens the new work item in your browser.
+
+```powershell
+New-AzDevOpsUserStory                       # full interactive walk-through
+```
+
+Every prompt is skippable via a parameter, so the function works non-interactively in a script:
+
+```powershell
+New-AzDevOpsUserStory `
+    -Title              "Add new dashboard widget" `
+    -Description        "Surface deploy frequency on the team home page." `
+    -Priority           2 `
+    -StoryPoints        3 `
+    -AcceptanceCriteria "- Widget renders for all team members`n- Updates within 60s of new deploy" `
+    -FeatureId          1240 `
+    -Iteration          "My Project\Sprint 42" `
+    -Area               "My Project\My Team" `
+    -NoOpen
+```
+
+`-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts. The existing `az-create-userstory` in `pow_az_cli.ps1` is left in place for users who prefer the original flow.
 

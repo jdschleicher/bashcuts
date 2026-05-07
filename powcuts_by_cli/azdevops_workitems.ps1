@@ -285,12 +285,14 @@ function Connect-AzDevOps {
 function Get-AzDevOpsCachePaths {
     $cacheDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
     return [PSCustomObject]@{
-        Dir       = $cacheDir
-        Assigned  = Join-Path $cacheDir 'assigned.json'
-        Mentions  = Join-Path $cacheDir 'mentions.json'
-        Hierarchy = Join-Path $cacheDir 'hierarchy.json'
-        LastSync  = Join-Path $cacheDir 'last-sync.json'
-        Log       = Join-Path $cacheDir 'sync.log'
+        Dir        = $cacheDir
+        Assigned   = Join-Path $cacheDir 'assigned.json'
+        Mentions   = Join-Path $cacheDir 'mentions.json'
+        Hierarchy  = Join-Path $cacheDir 'hierarchy.json'
+        Iterations = Join-Path $cacheDir 'iterations.json'
+        Areas      = Join-Path $cacheDir 'areas.json'
+        LastSync   = Join-Path $cacheDir 'last-sync.json'
+        Log        = Join-Path $cacheDir 'sync.log'
     }
 }
 
@@ -331,15 +333,16 @@ function Write-AzDevOpsSyncLog {
 }
 
 
-function Invoke-AzDevOpsBoardsQuery {
-    param([Parameter(Mandatory)] [string] $Wiql)
+function Invoke-AzDevOpsAzJson {
+    # Generic wrapper around `az ... --output json` that captures stdout JSON
+    # and stderr text separately. Used by Invoke-AzDevOpsBoardsQuery (WIQL) and
+    # the iteration/area classification list calls so both paths share one
+    # stderr-to-tempfile pattern instead of repeating it.
+    param([Parameter(Mandatory)] [string[]] $ArgList)
 
-    # Redirecting stderr to a temp file (rather than $null or 2>&1) lets us
-    # keep stdout JSON parseable while still preserving the az error text for
-    # callers to surface to the user / log on failure.
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
-        $json = az boards query --wiql $Wiql --output json 2>$stderrFile
+        $json = & az @ArgList --output json 2>$stderrFile
         $exit = $LASTEXITCODE
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
             (Get-Content -LiteralPath $stderrFile -Raw)
@@ -355,6 +358,14 @@ function Invoke-AzDevOpsBoardsQuery {
         Error    = $stderr
         ExitCode = $exit
     }
+}
+
+
+function Invoke-AzDevOpsBoardsQuery {
+    param([Parameter(Mandatory)] [string] $Wiql)
+
+    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'query', '--wiql', $Wiql)
+    return $result
 }
 
 
@@ -498,6 +509,76 @@ function Invoke-AzDevOpsDatasetSync {
 }
 
 
+function Measure-AzDevOpsClassificationNodes {
+    # Recursively counts nodes in an iteration / area-path tree returned by
+    # `az boards iteration project list` / `az boards area project list`. Used
+    # for the classification-dataset row count so the sync prints something
+    # meaningful per dataset.
+    param($Node)
+
+    if ($null -eq $Node) { return 0 }
+
+    $count = 1
+    if ($Node.children) {
+        foreach ($child in $Node.children) {
+            $count += Measure-AzDevOpsClassificationNodes -Node $child
+        }
+    }
+    return $count
+}
+
+
+function Invoke-AzDevOpsClassificationDatasetSync {
+    # Parallel of Invoke-AzDevOpsDatasetSync for non-WIQL data: project
+    # iteration tree and area-path tree. Both share the same stderr/parse/
+    # write/log scaffolding via Invoke-AzDevOpsAzJson + the existing
+    # Get-AzDevOpsFirstStderrLine / Write-AzDevOpsSyncStderr / Write-AzDevOpsCacheFile
+    # helpers, so the only difference is the row-count strategy (tree depth
+    # vs flat row count).
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    $azKind = $Kind.ToLower()
+    $label  = "Project ${azKind}s (tree)"
+    Write-Host "-> Querying $Name ($label)..." -ForegroundColor Cyan
+
+    $sw      = [System.Diagnostics.Stopwatch]::StartNew()
+    $result  = Invoke-AzDevOpsAzJson -ArgList @('boards', $azKind, 'project', 'list', '--depth', '5')
+    $sw.Stop()
+    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
+
+    if ($result.ExitCode -ne 0) {
+        $firstLine = Get-AzDevOpsFirstStderrLine -Stderr $result.Error
+        if (-not $firstLine) { $firstLine = "az exited with code $($result.ExitCode)" }
+
+        Write-Host "  X $Name - $firstLine (in $elapsed)" -ForegroundColor Red
+        Write-AzDevOpsSyncStderr -DatasetName $Name -ExitCode $result.ExitCode -Elapsed $elapsed -Stderr $result.Error
+
+        return New-AzDevOpsDatasetStatus -Status 'error' -Message $result.Error -Elapsed $elapsed
+    }
+
+    try {
+        $parsed = $result.Json | ConvertFrom-Json
+    } catch {
+        $msg = $_.Exception.Message
+        Write-Host "  X $Name - parse failed: $msg (in $elapsed)" -ForegroundColor Red
+        Write-AzDevOpsSyncLog "ERROR $Name parse failed (elapsed=$elapsed): $msg"
+        return New-AzDevOpsDatasetStatus -Status 'error' -Message "parse failed: $msg" -Elapsed $elapsed
+    }
+
+    $count  = Measure-AzDevOpsClassificationNodes -Node $parsed
+    $pretty = $parsed | ConvertTo-Json -Depth 20
+    Write-AzDevOpsCacheFile -Path $Path -Content $pretty
+    Write-Host "  OK  $Name - $count nodes in $elapsed" -ForegroundColor Green
+    Write-AzDevOpsSyncLog "$Name wrote $count nodes in $elapsed"
+
+    return New-AzDevOpsDatasetStatus -Status 'ok' -Rows $count -Elapsed $elapsed
+}
+
+
 function Sync-AzDevOpsCache {
     if (-not (Test-AzDevOpsAuth)) {
         Write-Host "Sync-AzDevOpsCache aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
@@ -524,6 +605,22 @@ function Sync-AzDevOpsCache {
         }
     }
 
+    $classificationDatasets = @(
+        @{ Name = 'iterations'; Kind = 'Iteration'; Path = $paths.Iterations },
+        @{ Name = 'areas';      Kind = 'Area';      Path = $paths.Areas }
+    )
+
+    foreach ($cd in $classificationDatasets) {
+        $status = Invoke-AzDevOpsClassificationDatasetSync @cd
+        $statuses[$cd.Name] = $status
+
+        if ($status.Status -eq 'ok') {
+            $counts[$cd.Name] = $status.Rows
+        } else {
+            $errored++
+        }
+    }
+
     $lastSync = [PSCustomObject]@{
         Timestamp = (Get-Date).ToString('o')
         Counts    = $counts
@@ -532,10 +629,12 @@ function Sync-AzDevOpsCache {
     Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
     Write-AzDevOpsSyncLog 'sync complete'
 
+    $totalDatasets = $datasets.Count + $classificationDatasets.Count
+
     Write-Host ""
     Write-Host "Cache: $($paths.Dir)" -ForegroundColor Cyan
     if ($errored -gt 0) {
-        Write-Host "Partial sync - $errored of $($datasets.Count) dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
+        Write-Host "Partial sync - $errored of $totalDatasets dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
     }
 }
 
@@ -1241,4 +1340,511 @@ function Show-AzDevOpsTree {
             }
         }
     }
+}
+
+
+# ---------------------------------------------------------------------------
+# Interactive new-user-story creator
+#
+# Public function:
+#   New-AzDevOpsUserStory   - prompts for title/description/priority/SP/AC,
+#                              then walks parent-Feature / iteration / area
+#                              pickers, calls `az boards work-item create`,
+#                              links the chosen parent, and opens the new
+#                              story in the browser.
+#
+# All prompts are skippable via parameters so the function works
+# non-interactively in scripts. The existing `az-create-userstory` in
+# pow_az_cli.ps1 is left untouched (parallel coexistence).
+# ---------------------------------------------------------------------------
+
+function Read-AzDevOpsClassificationCache {
+    # Reads iterations.json or areas.json from the cache. Returns the parsed
+    # tree root, or $null when the cache file is missing / unparseable so
+    # callers can fall back to a live `az` fetch.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $paths    = Get-AzDevOpsCachePaths
+    $cachePath = if ($Kind -eq 'Iteration') {
+        $paths.Iterations
+    } else {
+        $paths.Areas
+    }
+
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return $null
+    }
+
+    try {
+        $tree = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+        return $tree
+    } catch {
+        return $null
+    }
+}
+
+
+function Invoke-AzDevOpsClassificationLive {
+    # Fetches the iteration / area tree directly from `az` when the cache
+    # doesn't have it yet. Used as a fallback so the new-story flow keeps
+    # working before the user runs Sync-AzDevOpsCache after this update.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $azKind = $Kind.ToLower()
+    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', $azKind, 'project', 'list', '--depth', '5')
+    if ($result.ExitCode -ne 0) {
+        return $null
+    }
+
+    try {
+        $tree = $result.Json | ConvertFrom-Json
+        return $tree
+    } catch {
+        return $null
+    }
+}
+
+
+function ConvertTo-AzDevOpsWorkItemPath {
+    # Converts an `az boards iteration/area project list` API path to the
+    # IterationPath / AreaPath form used by WIQL and `az boards work-item
+    # create`. The API returns paths like '\MyProject\Iteration\Sprint 42'
+    # whereas work-items want 'MyProject\Sprint 42' (and 'MyProject\TeamA\
+    # Backend' for areas). The classification root node ('\MyProject\Iteration')
+    # has no work-item-path equivalent, so we return $null for it - callers
+    # filter $null out of the picker list.
+    param(
+        [Parameter(Mandatory)] [string] $ApiPath,
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind
+    )
+
+    $pattern = "^\\([^\\]+)\\$Kind\\"
+    if ($ApiPath -match $pattern) {
+        $converted = $ApiPath -replace $pattern, '$1\'
+        return $converted
+    }
+
+    return $null
+}
+
+
+function ConvertTo-AzDevOpsClassificationPaths {
+    # Flattens the tree returned by Read-AzDevOpsClassificationCache /
+    # Invoke-AzDevOpsClassificationLive into a sorted, deduplicated array of
+    # IterationPath / AreaPath strings ready for the picker.
+    param(
+        [Parameter(Mandatory)] $Root,
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind
+    )
+
+    if ($null -eq $Root) {
+        return @()
+    }
+
+    $collected = New-Object System.Collections.Generic.List[string]
+    $stack     = New-Object System.Collections.Stack
+    $stack.Push($Root)
+
+    while ($stack.Count -gt 0) {
+        $node = $stack.Pop()
+        if ($null -eq $node) { continue }
+
+        if ($node.path) {
+            $converted = ConvertTo-AzDevOpsWorkItemPath -ApiPath $node.path -Kind $Kind
+            if ($converted) {
+                $collected.Add($converted)
+            }
+        }
+
+        if ($node.children) {
+            foreach ($child in $node.children) {
+                $stack.Push($child)
+            }
+        }
+    }
+
+    $unique = $collected | Sort-Object -Unique
+    return ,@($unique)
+}
+
+
+function Get-AzDevOpsClassificationPaths {
+    # Single entry point for picker consumers: read from cache first, fall
+    # back to live `az` with a one-line "(run Sync-AzDevOpsCache to make this
+    # instant)" notice so the function stays usable before the user re-syncs.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $tree = Read-AzDevOpsClassificationCache -Kind $Kind
+    if ($null -eq $tree) {
+        $azKind = $Kind.ToLower()
+        Write-Host "(fetching ${azKind}s live - run Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
+        $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
+    }
+
+    $paths = ConvertTo-AzDevOpsClassificationPaths -Root $tree -Kind $Kind
+    return $paths
+}
+
+
+function Read-AzDevOpsPriority {
+    while ($true) {
+        $resp = Read-Host 'Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH'
+        if ($resp -match '^[1-4]$') {
+            return [int]$resp
+        }
+        Write-Host "  Please enter 1, 2, 3, or 4." -ForegroundColor Yellow
+    }
+}
+
+
+function Read-AzDevOpsStoryPoints {
+    $val = 0
+    while ($true) {
+        $resp = Read-Host 'Story points? (integer)'
+        if ([int]::TryParse($resp, [ref]$val) -and $val -ge 0) {
+            return $val
+        }
+        Write-Host "  Please enter a non-negative integer." -ForegroundColor Yellow
+    }
+}
+
+
+function Read-AzDevOpsAcceptanceCriteria {
+    # Mirrors the AC loop pattern from the existing az-create-userstory:
+    # one initial AC, then loop on Y/N until N. Joins additional ACs with
+    # '<br/><br/>' so they render as separate lines in the work-item editor.
+    $first = Read-Host 'Acceptance criterion #1'
+    $dash  = '-'
+    $break = '<br/><br/>'
+    $ac    = "$dash $first"
+
+    do {
+        $resp = Read-Host 'More AC (Y/N)?'
+        if ($resp -eq 'y') {
+            $next = Read-Host 'Enter additional AC'
+            $ac   = "$ac $break $dash $next"
+        }
+    } until ($resp -eq 'n')
+
+    return $ac
+}
+
+
+function Read-AzDevOpsFeaturePick {
+    # Lists active Features from hierarchy.json, prompts for a 1-based index
+    # (or 0 for "no parent - orphan"). Returns the chosen Feature Id, or 0
+    # for orphan.
+    param([Parameter(Mandatory)] $Hierarchy)
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $features     = @($Hierarchy |
+        Where-Object { $_.Type -eq 'Feature' -and $_.State -notin $closedStates } |
+        Sort-Object Id)
+
+    if ($features.Count -eq 0) {
+        Write-Host "(no active Features in hierarchy.json - story will be orphaned)" -ForegroundColor Yellow
+        return 0
+    }
+
+    Write-Host ""
+    Write-Host "Active Features:" -ForegroundColor Cyan
+    Write-Host "  0. (no parent - orphan story)"
+    for ($i = 0; $i -lt $features.Count; $i++) {
+        $f     = $features[$i]
+        $title = Format-AzDevOpsTruncatedTitle -Title $f.Title
+        Write-Host ("  {0}. {1} - {2} [{3}]" -f ($i + 1), $f.Id, $title, $f.State)
+    }
+
+    $idx = 0
+    while ($true) {
+        $resp = Read-Host "Pick a parent Feature (0 for no parent)"
+        if (-not [int]::TryParse($resp, [ref]$idx)) {
+            Write-Host "  Please enter a number." -ForegroundColor Yellow
+            continue
+        }
+
+        if ($idx -eq 0) {
+            return 0
+        }
+
+        if ($idx -ge 1 -and $idx -le $features.Count) {
+            return $features[$idx - 1].Id
+        }
+
+        Write-Host "  Please enter 0..$($features.Count)." -ForegroundColor Yellow
+    }
+}
+
+
+function Read-AzDevOpsClassificationPick {
+    # Numbered picker shared by iteration + area selection. Empty input
+    # selects the supplied default (typically $env:AZ_ITERATION /
+    # $env:AZ_AREA) when one is available.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
+        [Parameter(Mandatory)] [string[]] $Paths,
+        [string] $Default
+    )
+
+    Write-Host ""
+    Write-Host "Available ${Kind}s:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $Paths.Count; $i++) {
+        $marker = if ($Default -and $Paths[$i] -eq $Default) {
+            ' (default)'
+        } else {
+            ''
+        }
+        Write-Host ("  {0}. {1}{2}" -f ($i + 1), $Paths[$i], $marker)
+    }
+
+    $defaultPrompt = if ($Default) {
+        " (Enter for default '$Default')"
+    } else {
+        ''
+    }
+
+    $idx = 0
+    while ($true) {
+        $resp = Read-Host "Pick $Kind$defaultPrompt"
+        if (-not $resp -and $Default) {
+            return $Default
+        }
+
+        if (-not [int]::TryParse($resp, [ref]$idx)) {
+            Write-Host "  Please enter a number." -ForegroundColor Yellow
+            continue
+        }
+
+        if ($idx -ge 1 -and $idx -le $Paths.Count) {
+            return $Paths[$idx - 1]
+        }
+
+        Write-Host "  Please enter 1..$($Paths.Count)." -ForegroundColor Yellow
+    }
+}
+
+
+function Read-AzDevOpsIterationPick {
+    $iterationPaths = Get-AzDevOpsClassificationPaths -Kind 'Iteration'
+    if ($iterationPaths.Count -eq 0) {
+        Write-Host "(no iterations available - falling back to `$env:AZ_ITERATION='$env:AZ_ITERATION')" -ForegroundColor Yellow
+        return $env:AZ_ITERATION
+    }
+
+    $picked = Read-AzDevOpsClassificationPick -Kind 'Iteration' -Paths $iterationPaths -Default $env:AZ_ITERATION
+    return $picked
+}
+
+
+function Read-AzDevOpsAreaPick {
+    $areaPaths = Get-AzDevOpsClassificationPaths -Kind 'Area'
+    if ($areaPaths.Count -eq 0) {
+        Write-Host "(no areas available - falling back to `$env:AZ_AREA='$env:AZ_AREA')" -ForegroundColor Yellow
+        return $env:AZ_AREA
+    }
+
+    $picked = Read-AzDevOpsClassificationPick -Kind 'Area' -Paths $areaPaths -Default $env:AZ_AREA
+    return $picked
+}
+
+
+function Invoke-AzDevOpsWorkItemCreate {
+    # Wraps `az boards work-item create --type 'User Story' ...` so the
+    # orchestrator can react to a non-zero exit cleanly. Returns a result
+    # object with Ok / Error / Id / Url so the caller can decide whether to
+    # attempt the parent-link step and what URL to echo / open.
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [string] $Description,
+        [Parameter(Mandatory)] [int]    $Priority,
+        [Parameter(Mandatory)] [int]    $StoryPoints,
+        [string] $AcceptanceCriteria,
+        [Parameter(Mandatory)] [string] $Iteration,
+        [Parameter(Mandatory)] [string] $Area
+    )
+
+    $argList = @(
+        'boards', 'work-item', 'create',
+        '--type',        'User Story',
+        '--title',       $Title,
+        '--description', $Description,
+        '--assigned-to', $env:AZ_USER_EMAIL,
+        '--project',     $env:AZ_PROJECT,
+        '--area',        $Area,
+        '--iteration',   $Iteration,
+        '--fields',
+            "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints",
+            "Microsoft.VSTS.Common.Priority=$Priority",
+            "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
+    )
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+
+    if ($result.ExitCode -ne 0) {
+        return [PSCustomObject]@{
+            Ok    = $false
+            Error = $result.Error
+            Id    = 0
+            Url   = $null
+        }
+    }
+
+    try {
+        $created = $result.Json | ConvertFrom-Json
+    } catch {
+        return [PSCustomObject]@{
+            Ok    = $false
+            Error = "parse failed: $($_.Exception.Message)"
+            Id    = 0
+            Url   = $null
+        }
+    }
+
+    $newId = [int]$created.id
+
+    $url = if ($env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
+        $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+        $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+        "$org/$projectEnc/_workitems/edit/$newId"
+    } else {
+        $null
+    }
+
+    return [PSCustomObject]@{
+        Ok    = $true
+        Error = $null
+        Id    = $newId
+        Url   = $url
+    }
+}
+
+
+function Invoke-AzDevOpsParentLink {
+    # `az boards work-item relation add --relation-type parent --id <new>
+    # --target-id <feature>` wrapper. Failure here doesn't undo the create -
+    # the orchestrator surfaces both the orphaned new-id and the az error so
+    # the user can re-link manually.
+    param(
+        [Parameter(Mandatory)] [int] $Id,
+        [Parameter(Mandatory)] [int] $ParentId
+    )
+
+    $result = Invoke-AzDevOpsAzJson -ArgList @(
+        'boards', 'work-item', 'relation', 'add',
+        '--id',            "$Id",
+        '--relation-type', 'parent',
+        '--target-id',     "$ParentId"
+    )
+
+    if ($result.ExitCode -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Error = $result.Error }
+    }
+
+    return [PSCustomObject]@{ Ok = $true; Error = $null }
+}
+
+
+function New-AzDevOpsUserStory {
+    [CmdletBinding()]
+    param(
+        [string] $Title,
+        [string] $Description,
+        [int]    $Priority    = -1,
+        [int]    $StoryPoints = -1,
+        [string] $AcceptanceCriteria,
+        [int]    $FeatureId   = -1,
+        [string] $Iteration,
+        [string] $Area,
+        [switch] $NoOpen
+    )
+
+    if (-not (Test-AzDevOpsAuth)) {
+        Write-Host "New-AzDevOpsUserStory aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+        return
+    }
+
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return
+    }
+
+    if (-not $Title) {
+        $Title = Read-Host 'What is the title of the User Story?'
+    }
+    if (-not $Title) {
+        Write-Host "Title is required - aborting." -ForegroundColor Red
+        return
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('Description')) {
+        $Description = Read-Host 'What is the description?'
+    }
+
+    if ($Priority -lt 1 -or $Priority -gt 4) {
+        $Priority = Read-AzDevOpsPriority
+    }
+
+    if ($StoryPoints -lt 0) {
+        $StoryPoints = Read-AzDevOpsStoryPoints
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
+        $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
+    }
+
+    if ($FeatureId -lt 0) {
+        $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy
+    }
+
+    if (-not $Iteration) {
+        $Iteration = Read-AzDevOpsIterationPick
+    }
+
+    if (-not $Area) {
+        $Area = Read-AzDevOpsAreaPick
+    }
+
+    Write-Host ""
+    Write-Host "Creating User Story..." -ForegroundColor Cyan
+    $createResult = Invoke-AzDevOpsWorkItemCreate `
+        -Title              $Title `
+        -Description        $Description `
+        -Priority           $Priority `
+        -StoryPoints        $StoryPoints `
+        -AcceptanceCriteria $AcceptanceCriteria `
+        -Iteration          $Iteration `
+        -Area               $Area
+
+    if (-not $createResult.Ok) {
+        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
+        Write-Host "  $($createResult.Error)" -ForegroundColor Red
+        return
+    }
+
+    $newId  = $createResult.Id
+    $newUrl = $createResult.Url
+    Write-Host "OK Created User Story $newId" -ForegroundColor Green
+
+    if ($FeatureId -gt 0) {
+        Write-Host "Linking story $newId to parent Feature $FeatureId..." -ForegroundColor Cyan
+        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $FeatureId
+
+        if (-not $linkResult.Ok) {
+            Write-Host "STEP FAILED: az boards work-item relation add (story $newId is orphaned, fix manually)" -ForegroundColor Red
+            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
+        } else {
+            Write-Host "OK Linked $newId -> Feature $FeatureId" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "(no parent linked - orphan story)" -ForegroundColor Yellow
+    }
+
+    if ($newUrl) {
+        Write-Host "URL: $newUrl" -ForegroundColor Cyan
+        if (-not $NoOpen) {
+            Start-Process $newUrl
+        }
+    }
+
+    return $newId
 }
