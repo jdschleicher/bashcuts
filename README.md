@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`), and an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`New-AzDevOpsUserStory`).
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`New-AzDevOpsUserStory`), and a per-org field-schema config (`Initialize-AzDevOpsSchema`, `Get-AzDevOpsSchema`, `Edit-AzDevOpsSchema`, `Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
@@ -241,4 +241,43 @@ New-AzDevOpsUserStory `
 ```
 
 `-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts. The existing `az-create-userstory` in `pow_az_cli.ps1` is left in place for users who prefer the original flow.
+
+### Per-org field-schema config
+
+Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `New-AzDevOpsUserStory`, `Get-AzDevOpsAssigned`, `Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
+
+The schema lives at `$HOME/.bashcuts/azure-devops/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
+
+```powershell
+Initialize-AzDevOpsSchema     # introspect your org via `az boards work-item-type show`
+                              #   and write a starter schema. Refine afterward.
+Get-AzDevOpsSchema            # print summary table of every required/optional field
+Get-AzDevOpsSchema -PassThru  # return objects (pipeable / scriptable)
+Edit-AzDevOpsSchema           # open the schema in $env:EDITOR / code / notepad / nano
+                              #   (creates a stub if the file doesn't exist yet)
+Test-AzDevOpsSchema           # validate the JSON, that every ref still exists in the
+                              #   org, and that picklist options are a subset of
+                              #   the org's allowedValues. Verdict: VALID / STALE /
+                              #   INVALID with a list of any unknown refs / option
+                              #   mismatches.
+```
+
+Schema file format (one entry per work-item type, each with `required` and `optional` field arrays):
+
+```json
+{
+  "User Story": {
+    "required": [
+      { "name": "Customer Impact", "ref": "Custom.CustomerImpact", "type": "string" },
+      { "name": "Compliance Risk", "ref": "Custom.ComplianceRisk", "type": "picklist",
+        "options": ["Low","Medium","High"] }
+    ],
+    "optional": [
+      { "name": "Epic Owner Name", "ref": "Custom.EpicOwnerName", "type": "string" }
+    ]
+  }
+}
+```
+
+Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline`. Unknown types are treated as `string` with a warning from `Test-AzDevOpsSchema`.
 
