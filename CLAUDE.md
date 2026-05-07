@@ -96,6 +96,53 @@ o-sfdx   o-git   o-gh   o-az   o-cci
   }
   ```
   Reasons: each branch gets its own breakpoint line, adding a second statement to one branch is a one-line diff instead of restructuring, and the visual weight of the conditional matches its semantic weight. Same rule for bash — never compress `if condition; then x; else y; fi` to a single line; expand each branch to its own line.
+- **Name your magic strings, codepoints, and literal values** — never inline `[char]0x1F4E6`, raw escape sequences, or string literals whose intent isn't obvious at the call site. Hoist them into named locals (or `$script:`-scoped constants when reused across functions) whose names describe purpose. **Bad:**
+  ```powershell
+  switch ($Type) {
+      'Epic'       { return "$([char]0x1F4E6)" }
+      'Feature'    { return "$([char]0x1F3AF)" }
+      'User Story' { return "$([char]0x1F4DD)" }
+  }
+  ```
+  **Good:**
+  ```powershell
+  $iconEpic    = "$([char]0x1F4E6)"   # package
+  $iconFeature = "$([char]0x1F3AF)"   # bullseye
+  $iconStory   = "$([char]0x1F4DD)"   # memo
+
+  switch ($Type) {
+      'Epic' {
+          return $iconEpic
+      }
+      ...
+  }
+  ```
+  Reasons: a `0x1F4E6` literal tells the reader nothing; `$iconEpic` tells them everything. The named local is also the single point of change if the glyph needs swapping. Same rule for bash — define `local icon_epic=$'\xf0\x9f\x93\xa6'` (or assign once at the top of the function) rather than scattering raw bytes through a `case` statement. The em-dash `[char]0x2014` and the four-space tree indent `'    '` are likewise candidates for naming when they appear in two or more places.
+- **Switch branches expand across multiple lines, with breathing room between them** — no `'Epic' { return $x }` one-liners. Each `case` opens on its own line, the body is indented on the next line, the closing `}` lives on its own line, and a blank line separates branches. Same rationale as the multi-line `if`/`else` rule: per-branch breakpoints, one-line diff to add a second statement, and visual weight that matches the branch's semantic weight. **Bad:**
+  ```powershell
+  switch ($Type) {
+      'Epic'    { return $iconEpic }
+      'Feature' { return $iconFeature }
+      default   { return '*' }
+  }
+  ```
+  **Good:**
+  ```powershell
+  switch ($Type) {
+      'Epic' {
+          return $iconEpic
+      }
+
+      'Feature' {
+          return $iconFeature
+      }
+
+      default {
+          return $iconUnknown
+      }
+  }
+  ```
+  Same rule for bash `case ... esac` — never compress a case arm to `pattern) cmd ;;` on one line; expand to a multi-line block with a blank line between arms.
 
 ## Project Structure
 

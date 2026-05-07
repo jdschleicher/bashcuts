@@ -905,11 +905,27 @@ function Read-AzDevOpsHierarchyCache {
 function Get-AzDevOpsTreeIcon {
     param([Parameter(Mandatory)] [string] $Type)
 
+    $iconEpic    = "$([char]0x1F4E6)"   # package
+    $iconFeature = "$([char]0x1F3AF)"   # bullseye
+    $iconStory   = "$([char]0x1F4DD)"   # memo
+    $iconUnknown = '*'
+
     switch ($Type) {
-        'Epic'       { return "$([char]0x1F4E6)" }   # package
-        'Feature'    { return "$([char]0x1F3AF)" }   # bullseye
-        'User Story' { return "$([char]0x1F4DD)" }   # memo
-        default      { return '*' }
+        'Epic' {
+            return $iconEpic
+        }
+
+        'Feature' {
+            return $iconFeature
+        }
+
+        'User Story' {
+            return $iconStory
+        }
+
+        default {
+            return $iconUnknown
+        }
     }
 }
 
