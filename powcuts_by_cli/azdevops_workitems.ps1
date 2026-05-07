@@ -1856,3 +1856,564 @@ function New-AzDevOpsUserStory {
 
     return $newId
 }
+
+
+# ---------------------------------------------------------------------------
+# Local field-schema config
+#
+# Schema directory: $HOME/.bashcuts/azure-devops/   (separate from the
+#                   auto-managed $HOME/.bashcuts-cache/ tree)
+# Schema file:      schema-<orgslug>.json           (per-org keyed off
+#                   $env:AZ_DEVOPS_ORG; falls back to schema.json when unset)
+#
+# Public functions:
+#   Get-AzDevOpsSchema          - print summary table of the configured
+#                                  required/optional/custom fields per
+#                                  work-item type. -PassThru returns objects.
+#   Edit-AzDevOpsSchema         - open the schema file in $env:EDITOR /
+#                                  code / notepad / nano. Creates a stub
+#                                  if the file does not exist.
+#   Initialize-AzDevOpsSchema   - introspect the org via
+#                                  `az boards work-item-type show` and
+#                                  write a starter schema. User refines
+#                                  afterward via Edit-AzDevOpsSchema.
+#   Test-AzDevOpsSchema         - validate JSON parses, every ref still
+#                                  exists in the org, and picklist options
+#                                  are a subset of allowedValues. Verdict:
+#                                  VALID / STALE / INVALID.
+#
+# Internal integration point (consumed by future schema-aware updates to
+# New-AzDevOpsUserStory, Get-AzDevOpsAssigned, Show-AzDevOpsTree, etc.):
+#   Get-AzDevOpsSchemaForType   - returns the parsed schema entry for one
+#                                  work-item type, or $null if no schema
+#                                  is configured / type not present.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsSchemaValidTypes {
+    return @('string', 'int', 'picklist', 'bool', 'date', 'multiline')
+}
+
+
+function Get-AzDevOpsSchemaWorkItemTypes {
+    # Standard process-template work-item types Initialize-AzDevOpsSchema
+    # introspects. Types not present in the org's process are skipped with
+    # a warning rather than failing the whole introspection.
+    return @('Epic', 'Feature', 'User Story', 'Bug', 'Task')
+}
+
+
+function Get-AzDevOpsSchemaSystemRefs {
+    # Reference names that ship with every Azure DevOps process template
+    # (Agile / Scrum / CMMI). Initialize-AzDevOpsSchema filters these out
+    # so the produced schema only carries org-specific fields.
+    return @(
+        'System.Id', 'System.Title', 'System.Description', 'System.State',
+        'System.Reason', 'System.AssignedTo', 'System.AreaPath',
+        'System.IterationPath', 'System.WorkItemType', 'System.History',
+        'System.Tags', 'System.CreatedBy', 'System.CreatedDate',
+        'System.ChangedBy', 'System.ChangedDate', 'System.Parent',
+        'System.Rev', 'System.AuthorizedDate', 'System.RevisedDate',
+        'System.AuthorizedAs', 'System.IterationId', 'System.AreaId',
+        'System.NodeName', 'System.TeamProject', 'System.BoardColumn',
+        'System.BoardColumnDone', 'System.BoardLane', 'System.CommentCount',
+        'System.PersonId', 'System.Watermark',
+        'Microsoft.VSTS.Common.Priority',
+        'Microsoft.VSTS.Common.AcceptanceCriteria',
+        'Microsoft.VSTS.Scheduling.StoryPoints',
+        'Microsoft.VSTS.Common.ActivatedBy',
+        'Microsoft.VSTS.Common.ActivatedDate',
+        'Microsoft.VSTS.Common.ResolvedBy',
+        'Microsoft.VSTS.Common.ResolvedDate',
+        'Microsoft.VSTS.Common.ResolvedReason',
+        'Microsoft.VSTS.Common.ClosedBy',
+        'Microsoft.VSTS.Common.ClosedDate',
+        'Microsoft.VSTS.Common.StateChangeDate',
+        'Microsoft.VSTS.Common.Risk',
+        'Microsoft.VSTS.Common.Severity',
+        'Microsoft.VSTS.Common.StackRank',
+        'Microsoft.VSTS.Common.ValueArea',
+        'Microsoft.VSTS.Common.BusinessValue',
+        'Microsoft.VSTS.Common.TimeCriticality',
+        'Microsoft.VSTS.Scheduling.Effort',
+        'Microsoft.VSTS.Scheduling.RemainingWork',
+        'Microsoft.VSTS.Scheduling.OriginalEstimate',
+        'Microsoft.VSTS.Scheduling.CompletedWork',
+        'Microsoft.VSTS.Scheduling.StartDate',
+        'Microsoft.VSTS.Scheduling.TargetDate'
+    )
+}
+
+
+function Get-AzDevOpsSchemaOrgSlug {
+    # Per-org keying: the path-tail segment of $env:AZ_DEVOPS_ORG, lowercased
+    # and reduced to [a-z0-9-]. Returns $null when the env var is unset, so
+    # Get-AzDevOpsSchemaPaths can fall back to the unsuffixed schema.json.
+    if (-not $env:AZ_DEVOPS_ORG) {
+        return $null
+    }
+
+    $segment = ($env:AZ_DEVOPS_ORG.TrimEnd('/') -split '/')[-1]
+    if (-not $segment) {
+        return $null
+    }
+
+    $slug = ($segment.ToLower() -replace '[^a-z0-9-]', '-').Trim('-')
+    if (-not $slug) {
+        return $null
+    }
+
+    return $slug
+}
+
+
+function Get-AzDevOpsSchemaPaths {
+    $configDir = Join-Path (Join-Path $HOME '.bashcuts') 'azure-devops'
+    $slug      = Get-AzDevOpsSchemaOrgSlug
+
+    $fileName = if ($slug) {
+        "schema-$slug.json"
+    } else {
+        'schema.json'
+    }
+
+    return [PSCustomObject]@{
+        Dir  = $configDir
+        File = Join-Path $configDir $fileName
+        Slug = $slug
+    }
+}
+
+
+function Initialize-AzDevOpsSchemaDir {
+    # Creates $HOME/.bashcuts/azure-devops with 0700 on Unix. Windows gets
+    # default NTFS ACLs inherited from %USERPROFILE%, which are user-only
+    # for files created under $HOME.
+    $paths = Get-AzDevOpsSchemaPaths
+
+    if (-not (Test-Path -LiteralPath $paths.Dir)) {
+        New-Item -ItemType Directory -Path $paths.Dir -Force | Out-Null
+    }
+
+    if ($IsMacOS -or $IsLinux) {
+        & chmod 700 $paths.Dir 2>$null
+    }
+
+    return $paths
+}
+
+
+function Write-AzDevOpsSchemaFile {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] $Schema
+    )
+
+    $json = $Schema | ConvertTo-Json -Depth 6
+    $tmp  = "$Path.tmp"
+    Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+
+function Read-AzDevOpsSchemaFile {
+    # Returns the parsed schema object, or $null when the file is missing
+    # or unparseable. Used by Get-AzDevOpsSchema, Get-AzDevOpsSchemaForType,
+    # and Test-AzDevOpsSchema.
+    $paths = Get-AzDevOpsSchemaPaths
+    if (-not (Test-Path -LiteralPath $paths.File)) {
+        return $null
+    }
+
+    try {
+        $raw    = Get-Content -LiteralPath $paths.File -Raw
+        $schema = $raw | ConvertFrom-Json
+        return $schema
+    } catch {
+        Write-Host "Could not parse schema at $($paths.File): $_" -ForegroundColor Red
+        return $null
+    }
+}
+
+
+function Get-AzDevOpsSchemaForType {
+    # Internal integration point for schema-aware consumers (New-AzDevOpsUserStory,
+    # the read commands, the tree). Returns the parsed { required = ..., optional = ... }
+    # entry for one work-item type, or $null when no schema is configured / the
+    # type is not present.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $schema = Read-AzDevOpsSchemaFile
+    if ($null -eq $schema) {
+        return $null
+    }
+
+    $prop = $schema.PSObject.Properties[$Type]
+    if ($null -eq $prop) {
+        return $null
+    }
+
+    $entry = $prop.Value
+    return $entry
+}
+
+
+function New-AzDevOpsSchemaStub {
+    # Empty starter schema used by Edit-AzDevOpsSchema when no file exists
+    # yet and the user just wants to hand-edit one in. Initialize-AzDevOpsSchema
+    # produces a richer file by introspecting the org.
+    return [ordered]@{
+        'User Story' = [ordered]@{
+            required = @()
+            optional = @()
+        }
+
+        'Feature' = [ordered]@{
+            required = @()
+            optional = @()
+        }
+
+        'Bug' = [ordered]@{
+            required = @()
+            optional = @()
+        }
+    }
+}
+
+
+function ConvertFrom-AzDevOpsSchemaToRows {
+    # Flattens the nested schema into one PSCustomObject per field, suitable
+    # for a Format-Table summary or PassThru consumption.
+    param([Parameter(Mandatory)] $Schema)
+
+    $rows = New-Object System.Collections.Generic.List[PSCustomObject]
+
+    foreach ($prop in $Schema.PSObject.Properties) {
+        $wiType = $prop.Name
+        $entry  = $prop.Value
+
+        foreach ($section in @('required', 'optional')) {
+            $sectionList = $entry.$section
+            if (-not $sectionList) { continue }
+
+            foreach ($f in $sectionList) {
+                $optionsText = if ($f.type -eq 'picklist' -and $f.options) {
+                    ($f.options -join ', ')
+                } else {
+                    ''
+                }
+
+                $row = [PSCustomObject]@{
+                    WorkItemType = $wiType
+                    Field        = $f.name
+                    Ref          = $f.ref
+                    Required     = ($section -eq 'required')
+                    FieldType    = $f.type
+                    Options      = $optionsText
+                }
+                $rows.Add($row)
+            }
+        }
+    }
+
+    $result = ,@($rows)
+    return $result
+}
+
+
+function Get-AzDevOpsSchema {
+    [CmdletBinding()]
+    param([switch] $PassThru)
+
+    $schema = Read-AzDevOpsSchemaFile
+    if ($null -eq $schema) {
+        $paths = Get-AzDevOpsSchemaPaths
+        Write-Host "No schema configured at $($paths.File)." -ForegroundColor Yellow
+        Write-Host "  Run: Initialize-AzDevOpsSchema   # populate from your org's work-item types" -ForegroundColor Yellow
+        Write-Host "  Or:  Edit-AzDevOpsSchema         # create + hand-edit a stub" -ForegroundColor Yellow
+        return
+    }
+
+    $rows = ConvertFrom-AzDevOpsSchemaToRows -Schema $schema
+
+    if ($PassThru) {
+        return $rows
+    }
+
+    $rows | Format-Table -AutoSize | Out-Host
+}
+
+
+function Resolve-AzDevOpsEditor {
+    # Editor fallback chain: $env:EDITOR -> `code` (when on PATH) -> notepad
+    # on Windows, nano on macOS / Linux. Honors EDITOR strings that include
+    # arguments (e.g. 'code --wait').
+    if ($env:EDITOR) {
+        return $env:EDITOR
+    }
+
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        return 'code'
+    }
+
+    if ($IsWindows -or ($env:OS -eq 'Windows_NT')) {
+        return 'notepad'
+    }
+
+    return 'nano'
+}
+
+
+function Edit-AzDevOpsSchema {
+    [CmdletBinding()]
+    param()
+
+    $paths = Initialize-AzDevOpsSchemaDir
+
+    if (-not (Test-Path -LiteralPath $paths.File)) {
+        $stub = New-AzDevOpsSchemaStub
+        Write-AzDevOpsSchemaFile -Path $paths.File -Schema $stub
+        Write-Host "Created stub schema at $($paths.File)." -ForegroundColor Cyan
+        Write-Host "  Edit and run Test-AzDevOpsSchema to validate against your org." -ForegroundColor Cyan
+    }
+
+    $editor       = Resolve-AzDevOpsEditor
+    $editorTokens = @($editor -split '\s+' | Where-Object { $_ })
+
+    if ($editorTokens.Count -eq 0) {
+        Write-Host "No editor resolved (EDITOR / code / notepad / nano all unavailable)." -ForegroundColor Red
+        return
+    }
+
+    $cmd = $editorTokens[0]
+
+    $extraArgs = if ($editorTokens.Count -gt 1) {
+        $editorTokens[1..($editorTokens.Count - 1)]
+    } else {
+        @()
+    }
+
+    Write-Host "Opening $($paths.File) in '$editor'..." -ForegroundColor Cyan
+    & $cmd @extraArgs $paths.File
+}
+
+
+function Invoke-AzDevOpsWorkItemTypeShow {
+    # Wraps `az boards work-item-type show --type <T>`. Returns Ok / Error /
+    # Type so callers can react to a missing type (org's process doesn't have
+    # one of the standards) without taking down the whole flow.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'work-item-type', 'show', '--type', $Type)
+    if ($result.ExitCode -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Error = $result.Error; Type = $null }
+    }
+
+    try {
+        $parsed = $result.Json | ConvertFrom-Json
+        return [PSCustomObject]@{ Ok = $true; Error = $null; Type = $parsed }
+    } catch {
+        $msg = "parse failed: $($_.Exception.Message)"
+        return [PSCustomObject]@{ Ok = $false; Error = $msg; Type = $null }
+    }
+}
+
+
+function ConvertTo-AzDevOpsSchemaFieldEntry {
+    # Maps one fieldInstances[] element to our { name, ref, type, options? }
+    # shape. Type defaults to 'string' since `az boards work-item-type show`
+    # doesn't surface the underlying field type; presence of allowedValues
+    # promotes it to 'picklist'. Users refine via Edit-AzDevOpsSchema.
+    param([Parameter(Mandatory)] $FieldInstance)
+
+    $name = $FieldInstance.field.name
+    $ref  = $FieldInstance.field.referenceName
+
+    $allowed = @()
+    if ($FieldInstance.allowedValues) {
+        $allowed = @($FieldInstance.allowedValues)
+    }
+
+    $type = if ($allowed.Count -gt 0) {
+        'picklist'
+    } else {
+        'string'
+    }
+
+    $entry = [ordered]@{
+        name = $name
+        ref  = $ref
+        type = $type
+    }
+
+    if ($type -eq 'picklist') {
+        $entry.options = $allowed
+    }
+
+    return $entry
+}
+
+
+function Initialize-AzDevOpsSchema {
+    [CmdletBinding()]
+    param()
+
+    if (-not (Test-AzDevOpsAuth)) {
+        Write-Host "Initialize-AzDevOpsSchema aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+        return
+    }
+
+    $paths     = Initialize-AzDevOpsSchemaDir
+    $knownRefs = Get-AzDevOpsSchemaSystemRefs
+    $wiTypes   = Get-AzDevOpsSchemaWorkItemTypes
+
+    $schema = [ordered]@{}
+
+    foreach ($wiType in $wiTypes) {
+        Write-Host "-> Introspecting '$wiType'..." -ForegroundColor Cyan
+
+        $showResult = Invoke-AzDevOpsWorkItemTypeShow -Type $wiType
+        if (-not $showResult.Ok) {
+            $firstLine = Get-AzDevOpsFirstStderrLine -Stderr $showResult.Error
+            if (-not $firstLine) { $firstLine = '(unknown az error)' }
+            Write-Host "  ! skipped '$wiType': $firstLine" -ForegroundColor Yellow
+            continue
+        }
+
+        $required = @()
+        $optional = @()
+
+        $fieldInstances = @($showResult.Type.fieldInstances)
+        foreach ($fi in $fieldInstances) {
+            if (-not $fi.field) { continue }
+            if ($fi.field.referenceName -in $knownRefs) { continue }
+
+            $entry = ConvertTo-AzDevOpsSchemaFieldEntry -FieldInstance $fi
+
+            if ($fi.alwaysRequired) {
+                $required += $entry
+            } else {
+                $optional += $entry
+            }
+        }
+
+        $schema[$wiType] = [ordered]@{
+            required = $required
+            optional = $optional
+        }
+
+        Write-Host "  OK  '$wiType' - $($required.Count) required, $($optional.Count) optional custom field(s)" -ForegroundColor Green
+    }
+
+    Write-AzDevOpsSchemaFile -Path $paths.File -Schema $schema
+
+    Write-Host ""
+    Write-Host "Wrote $($paths.File)" -ForegroundColor Cyan
+    Write-Host "Refine field types and picklist options via Edit-AzDevOpsSchema, then run Test-AzDevOpsSchema." -ForegroundColor Cyan
+}
+
+
+function Test-AzDevOpsSchema {
+    [CmdletBinding()]
+    param()
+
+    $paths = Get-AzDevOpsSchemaPaths
+    if (-not (Test-Path -LiteralPath $paths.File)) {
+        Write-Host "No schema configured at $($paths.File). Run Initialize-AzDevOpsSchema." -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        $raw    = Get-Content -LiteralPath $paths.File -Raw
+        $schema = $raw | ConvertFrom-Json
+    } catch {
+        Write-Host "INVALID - JSON parse failed: $_" -ForegroundColor Red
+        return
+    }
+
+    if (-not (Test-AzDevOpsAuth)) {
+        Write-Host "Cannot validate refs - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+        return
+    }
+
+    $validTypes         = Get-AzDevOpsSchemaValidTypes
+    $unknownRefs        = New-Object System.Collections.Generic.List[string]
+    $picklistMismatches = New-Object System.Collections.Generic.List[string]
+    $unknownTypes       = New-Object System.Collections.Generic.List[string]
+
+    foreach ($wiTypeProp in $schema.PSObject.Properties) {
+        $wiType = $wiTypeProp.Name
+        $entry  = $wiTypeProp.Value
+
+        $showResult = Invoke-AzDevOpsWorkItemTypeShow -Type $wiType
+        if (-not $showResult.Ok) {
+            Write-Host "  ! could not introspect '$wiType' - skipping ref check" -ForegroundColor Yellow
+            continue
+        }
+
+        $orgFields = @{}
+        foreach ($fi in @($showResult.Type.fieldInstances)) {
+            if ($fi.field -and $fi.field.referenceName) {
+                $orgFields[$fi.field.referenceName] = $fi
+            }
+        }
+
+        foreach ($section in @('required', 'optional')) {
+            $sectionList = $entry.$section
+            if (-not $sectionList) { continue }
+
+            foreach ($f in $sectionList) {
+                if ($f.type -and ($f.type -notin $validTypes)) {
+                    $unknownTypes.Add("$wiType.$($f.ref) (type='$($f.type)')")
+                }
+
+                if (-not $orgFields.ContainsKey($f.ref)) {
+                    $unknownRefs.Add("$wiType.$($f.ref)")
+                    continue
+                }
+
+                if ($f.type -eq 'picklist' -and $f.options) {
+                    $allowed = @($orgFields[$f.ref].allowedValues)
+                    foreach ($opt in $f.options) {
+                        if ($opt -notin $allowed) {
+                            $picklistMismatches.Add("$wiType.$($f.ref) option '$opt' not in org allowedValues")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if ($unknownTypes.Count -gt 0) {
+        Write-Host "  ! Unknown field types (treated as 'string'):" -ForegroundColor Yellow
+        foreach ($t in $unknownTypes) {
+            Write-Host "    - $t"
+        }
+    }
+
+    if ($unknownRefs.Count -eq 0 -and $picklistMismatches.Count -eq 0) {
+        Write-Host "VALID - schema parses, all refs exist, picklist options check out" -ForegroundColor Green
+        return
+    }
+
+    if ($picklistMismatches.Count -eq 0) {
+        Write-Host "STALE - unknown refs in $($paths.File):" -ForegroundColor Yellow
+        foreach ($r in $unknownRefs) {
+            Write-Host "  - $r"
+        }
+        return
+    }
+
+    Write-Host "INVALID - schema does not match org:" -ForegroundColor Red
+    if ($unknownRefs.Count -gt 0) {
+        Write-Host "  Unknown refs:"
+        foreach ($r in $unknownRefs) {
+            Write-Host "    - $r"
+        }
+    }
+    if ($picklistMismatches.Count -gt 0) {
+        Write-Host "  Picklist option mismatches:"
+        foreach ($m in $picklistMismatches) {
+            Write-Host "    - $m"
+        }
+    }
+}
