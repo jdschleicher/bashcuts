@@ -868,19 +868,27 @@ function ConvertFrom-AzDevOpsHierarchyItem {
     param([Parameter(Mandatory)] $Raw)
 
     $f = $Raw.fields
+
     $parent = if ($null -ne $f.'System.Parent' -and "$($f.'System.Parent')" -ne '') {
         [int]$f.'System.Parent'
     } else {
         $null
     }
 
-    return [PSCustomObject]@{
-        Id     = if ($f.'System.Id') { [int]$f.'System.Id' } else { [int]$Raw.id }
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    } else {
+        [int]$Raw.id
+    }
+
+    $item = [PSCustomObject]@{
+        Id     = $id
         Type   = $f.'System.WorkItemType'
         State  = $f.'System.State'
         Title  = $f.'System.Title'
         Parent = $parent
     }
+    return $item
 }
 
 
@@ -938,8 +946,15 @@ function Show-AzDevOpsTree {
 
     $byParent = @{}
     foreach ($item in $items) {
-        $key = if ($null -ne $item.Parent) { $item.Parent } else { 0 }
-        if (-not $byParent.ContainsKey($key)) { $byParent[$key] = @() }
+        $key = if ($null -ne $item.Parent) {
+            $item.Parent
+        } else {
+            0
+        }
+
+        if (-not $byParent.ContainsKey($key)) {
+            $byParent[$key] = @()
+        }
         $byParent[$key] += $item
     }
 

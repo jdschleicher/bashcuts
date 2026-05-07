@@ -76,6 +76,26 @@ o-sfdx   o-git   o-gh   o-az   o-cci
   return $result
   ```
   Reasons: a named local makes the value inspectable in a debugger / `Set-PSBreakpoint`, surfaces the type at the assignment site, gives a single explicit exit point, and makes refactoring (logging, transforming, validating before return) a one-line edit instead of restructuring the return statement. Applies to pipeline expressions too — assign `$rows = $raw | ForEach-Object { … }` then `return $rows`. Allowed exceptions: trivial value literals (`return $null`, `return $true`, `return ''`), and explicit `return` of an already-named variable.
+- **Multi-line `if`/`elseif`/`else` blocks always — no inline shorthand** — every branch body lives on its own line with the body indented; never collapse a conditional to `if ($cond) { x } else { y }` on a single line. The `} else {` / `} elseif (...) {` joiners stay on the same line (existing project K&R style). Applies even when the conditional is the right-hand side of an assignment or a hashtable property value. **Bad:**
+  ```powershell
+  $key  = if ($null -ne $item.Parent) { $item.Parent } else { 0 }
+  Id    = if ($f.'System.Id') { [int]$f.'System.Id' } else { [int]$Raw.id }
+  ```
+  **Good:**
+  ```powershell
+  $key = if ($null -ne $item.Parent) {
+      $item.Parent
+  } else {
+      0
+  }
+
+  Id = if ($f.'System.Id') {
+      [int]$f.'System.Id'
+  } else {
+      [int]$Raw.id
+  }
+  ```
+  Reasons: each branch gets its own breakpoint line, adding a second statement to one branch is a one-line diff instead of restructuring, and the visual weight of the conditional matches its semantic weight. Same rule for bash — never compress `if condition; then x; else y; fi` to a single line; expand each branch to its own line.
 
 ## Project Structure
 
