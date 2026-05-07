@@ -96,6 +96,24 @@ function Test-AzDevOpsAuth {
 }
 
 
+function Assert-AzDevOpsAuthOrAbort {
+    # Standard auth-test-and-abort prologue used by every command that calls
+    # az on the user's behalf (Sync-AzDevOpsCache, New-AzDevOpsUserStory,
+    # Initialize-AzDevOpsSchema, Test-AzDevOpsSchema). Returns $true when
+    # auth is good. On failure, prints the standard "<command> aborted -
+    # Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." line and
+    # returns $false so callers `if (-not (Assert-...)) { return }`.
+    param([Parameter(Mandatory)] [string] $CommandName)
+
+    if (Test-AzDevOpsAuth) {
+        return $true
+    }
+
+    Write-Host "$CommandName aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    return $false
+}
+
+
 # ---------------------------------------------------------------------------
 # Step functions invoked by Connect-AzDevOps. Each owns its print + I/O for
 # one step and returns a [PSCustomObject] with Ok (bool) and FailMessage
@@ -574,8 +592,7 @@ function Measure-AzDevOpsClassificationNodes {
 
 
 function Sync-AzDevOpsCache {
-    if (-not (Test-AzDevOpsAuth)) {
-        Write-Host "Sync-AzDevOpsCache aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Sync-AzDevOpsCache')) {
         return
     }
 
@@ -1753,8 +1770,7 @@ function New-AzDevOpsUserStory {
         [switch] $NoOpen
     )
 
-    if (-not (Test-AzDevOpsAuth)) {
-        Write-Host "New-AzDevOpsUserStory aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'New-AzDevOpsUserStory')) {
         return
     }
 
@@ -1994,7 +2010,7 @@ function Initialize-AzDevOpsSchemaDir {
         New-Item -ItemType Directory -Path $paths.Dir -Force | Out-Null
     }
 
-    if ($IsMacOS -or $IsLinux) {
+    if ((Get-AzDevOpsPlatform) -eq 'Posix') {
         & chmod 700 $paths.Dir 2>$null
     }
 
@@ -2155,7 +2171,7 @@ function Resolve-AzDevOpsEditor {
         return 'code'
     }
 
-    if ($IsWindows -or ($env:OS -eq 'Windows_NT')) {
+    if ((Get-AzDevOpsPlatform) -eq 'Windows') {
         return 'notepad'
     }
 
@@ -2257,8 +2273,7 @@ function Initialize-AzDevOpsSchema {
     [CmdletBinding()]
     param()
 
-    if (-not (Test-AzDevOpsAuth)) {
-        Write-Host "Initialize-AzDevOpsSchema aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Initialize-AzDevOpsSchema')) {
         return
     }
 
@@ -2322,16 +2337,13 @@ function Test-AzDevOpsSchema {
         return
     }
 
-    try {
-        $raw    = Get-Content -LiteralPath $paths.File -Raw
-        $schema = $raw | ConvertFrom-Json
-    } catch {
-        Write-Host "INVALID - JSON parse failed: $_" -ForegroundColor Red
+    $schema = Read-AzDevOpsSchemaFile
+    if ($null -eq $schema) {
+        Write-Host "INVALID - schema could not be loaded (see message above)" -ForegroundColor Red
         return
     }
 
-    if (-not (Test-AzDevOpsAuth)) {
-        Write-Host "Cannot validate refs - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Test-AzDevOpsSchema')) {
         return
     }
 
