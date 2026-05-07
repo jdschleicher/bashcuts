@@ -746,23 +746,41 @@ function ConvertFrom-AzDevOpsAssignedItem {
 }
 
 
-function Read-AzDevOpsAssignedCache {
-    $paths = Get-AzDevOpsCachePaths
-    if (-not (Test-Path -LiteralPath $paths.Dir) -or -not (Test-Path -LiteralPath $paths.Assigned)) {
-        Write-Host "No assigned-items cache at $($paths.Assigned)." -ForegroundColor Yellow
+function Read-AzDevOpsJsonCache {
+    # Shared shape for every cache reader: missing-cache hint, ConvertFrom-Json
+    # with try/catch, then map each row through a per-dataset converter. Each
+    # caller supplies its own $Path, a short $Description for the hint line,
+    # and a scriptblock that turns one parsed row into a typed PSCustomObject.
+    param(
+        [Parameter(Mandatory)] [string]      $Path,
+        [Parameter(Mandatory)] [string]      $Description,
+        [Parameter(Mandatory)] [scriptblock] $Converter
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Host "No $Description cache at $Path." -ForegroundColor Yellow
         Write-Host "  Run: Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
         Write-Host "  Run: Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
         return $null
     }
 
     try {
-        $raw = Get-Content -LiteralPath $paths.Assigned -Raw | ConvertFrom-Json
+        $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     } catch {
-        Write-Host "Could not parse $($paths.Assigned): $_" -ForegroundColor Red
+        Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
         return $null
     }
 
-    return @($raw | ForEach-Object { ConvertFrom-AzDevOpsAssignedItem -Raw $_ })
+    return @($raw | ForEach-Object { & $Converter $_ })
+}
+
+
+function Read-AzDevOpsAssignedCache {
+    $paths = Get-AzDevOpsCachePaths
+    return Read-AzDevOpsJsonCache `
+        -Path        $paths.Assigned `
+        -Description 'assigned-items' `
+        -Converter   { param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r }
 }
 
 
@@ -866,21 +884,10 @@ function ConvertFrom-AzDevOpsHierarchyItem {
 
 function Read-AzDevOpsHierarchyCache {
     $paths = Get-AzDevOpsCachePaths
-    if (-not (Test-Path -LiteralPath $paths.Dir) -or -not (Test-Path -LiteralPath $paths.Hierarchy)) {
-        Write-Host "No hierarchy cache at $($paths.Hierarchy)." -ForegroundColor Yellow
-        Write-Host "  Run: Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
-        Write-Host "  Run: Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
-        return $null
-    }
-
-    try {
-        $raw = Get-Content -LiteralPath $paths.Hierarchy -Raw | ConvertFrom-Json
-    } catch {
-        Write-Host "Could not parse $($paths.Hierarchy): $_" -ForegroundColor Red
-        return $null
-    }
-
-    return @($raw | ForEach-Object { ConvertFrom-AzDevOpsHierarchyItem -Raw $_ })
+    return Read-AzDevOpsJsonCache `
+        -Path        $paths.Hierarchy `
+        -Description 'hierarchy' `
+        -Converter   { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
 }
 
 
