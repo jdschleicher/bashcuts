@@ -439,44 +439,86 @@ function Get-AzDevOpsSyncDatasets {
     # populates the cache shape so downstream commands keep working.
     $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
 
-    return @(
+    $assignedWiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
+    $mentionsWiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
+    # Flat work-items query (not link-mode): az boards query resolves
+    # System.Parent + the rest of the fields for each item in one shot,
+    # giving Show-AzDevOpsTree everything it needs without re-calling az.
+    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.TeamProject] = @Project AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story')"
+
+    $rowCounter  = { param($parsed) @($parsed).Count }
+    $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
+
+    $datasets = @(
         @{
-            Name  = 'assigned'
-            Label = 'System.AssignedTo = @Me'
-            Path  = $Paths.Assigned
-            Wiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
+            Name     = 'assigned'
+            Label    = 'System.AssignedTo = @Me'
+            Path     = $Paths.Assigned
+            Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $assignedWiql }.GetNewClosure()
+            Counter  = $rowCounter
+            RowLabel = 'rows'
         },
         @{
-            Name  = 'mentions'
-            Label = "System.History Contains '$mentionsToken'"
-            Path  = $Paths.Mentions
-            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
+            Name     = 'mentions'
+            Label    = "System.History Contains '$mentionsToken'"
+            Path     = $Paths.Mentions
+            Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $mentionsWiql }.GetNewClosure()
+            Counter  = $rowCounter
+            RowLabel = 'rows'
         },
         @{
-            Name  = 'hierarchy'
-            Label = 'Epic/Feature/Story hierarchy in @Project'
-            Path  = $Paths.Hierarchy
-            # Flat work-items query (not link-mode): az boards query resolves
-            # System.Parent + the rest of the fields for each item in one shot,
-            # giving Show-AzDevOpsTree everything it needs without re-calling az.
-            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.TeamProject] = @Project AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story')"
+            Name     = 'hierarchy'
+            Label    = 'Epic/Feature/Story hierarchy in @Project'
+            Path     = $Paths.Hierarchy
+            Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $hierarchyWiql }.GetNewClosure()
+            Counter  = $rowCounter
+            RowLabel = 'rows'
+        },
+        @{
+            Name      = 'iterations'
+            Label     = 'Project iterations (tree)'
+            Path      = $Paths.Iterations
+            Fetch     = { Invoke-AzDevOpsAzJson -ArgList @('boards', 'iteration', 'project', 'list', '--depth', '5') }
+            Counter   = $treeCounter
+            RowLabel  = 'nodes'
+            JsonDepth = 20
+        },
+        @{
+            Name      = 'areas'
+            Label     = 'Project areas (tree)'
+            Path      = $Paths.Areas
+            Fetch     = { Invoke-AzDevOpsAzJson -ArgList @('boards', 'area', 'project', 'list', '--depth', '5') }
+            Counter   = $treeCounter
+            RowLabel  = 'nodes'
+            JsonDepth = 20
         }
     )
+
+    return $datasets
 }
 
 
-function Invoke-AzDevOpsDatasetSync {
+function Invoke-AzDevOpsAzDataset {
+    # Single sync helper for any cache dataset that calls az and writes JSON.
+    # Callers supply: a -Fetch scriptblock returning {Json,Error,ExitCode}, a
+    # -Counter scriptblock that turns parsed JSON into a row count, a label
+    # for the count noun (rows / nodes), and the on-disk JSON depth. Replaces
+    # the previously-duplicated WIQL- and classification-specific sync paths
+    # per CLAUDE.md's extract-repeated-branches rule.
     param(
-        [Parameter(Mandatory)] [string] $Name,
-        [Parameter(Mandatory)] [string] $Label,
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [string] $Wiql
+        [Parameter(Mandatory)] [string]      $Name,
+        [Parameter(Mandatory)] [string]      $Label,
+        [Parameter(Mandatory)] [string]      $Path,
+        [Parameter(Mandatory)] [scriptblock] $Fetch,
+        [scriptblock] $Counter   = { param($parsed) @($parsed).Count },
+        [string]      $RowLabel  = 'rows',
+        [int]         $JsonDepth = 10
     )
 
     Write-Host "-> Querying $Name ($Label)..." -ForegroundColor Cyan
 
     $sw      = [System.Diagnostics.Stopwatch]::StartNew()
-    $result  = Invoke-AzDevOpsBoardsQuery -Wiql $Wiql
+    $result  = & $Fetch
     $sw.Stop()
     $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
 
@@ -487,7 +529,8 @@ function Invoke-AzDevOpsDatasetSync {
         Write-Host "  X $Name - $firstLine (in $elapsed)" -ForegroundColor Red
         Write-AzDevOpsSyncStderr -DatasetName $Name -ExitCode $result.ExitCode -Elapsed $elapsed -Stderr $result.Error
 
-        return New-AzDevOpsDatasetStatus -Status 'error' -Message $result.Error -Elapsed $elapsed
+        $errStatus = New-AzDevOpsDatasetStatus -Status 'error' -Message $result.Error -Elapsed $elapsed
+        return $errStatus
     }
 
     try {
@@ -496,16 +539,18 @@ function Invoke-AzDevOpsDatasetSync {
         $msg = $_.Exception.Message
         Write-Host "  X $Name - parse failed: $msg (in $elapsed)" -ForegroundColor Red
         Write-AzDevOpsSyncLog "ERROR $Name parse failed (elapsed=$elapsed): $msg"
-        return New-AzDevOpsDatasetStatus -Status 'error' -Message "parse failed: $msg" -Elapsed $elapsed
+        $parseErrStatus = New-AzDevOpsDatasetStatus -Status 'error' -Message "parse failed: $msg" -Elapsed $elapsed
+        return $parseErrStatus
     }
 
-    $count  = @($parsed).Count
-    $pretty = $parsed | ConvertTo-Json -Depth 10
+    $count  = & $Counter $parsed
+    $pretty = $parsed | ConvertTo-Json -Depth $JsonDepth
     Write-AzDevOpsCacheFile -Path $Path -Content $pretty
-    Write-Host "  OK  $Name - $count rows in $elapsed" -ForegroundColor Green
-    Write-AzDevOpsSyncLog "$Name wrote $count rows in $elapsed"
+    Write-Host "  OK  $Name - $count $RowLabel in $elapsed" -ForegroundColor Green
+    Write-AzDevOpsSyncLog "$Name wrote $count $RowLabel in $elapsed"
 
-    return New-AzDevOpsDatasetStatus -Status 'ok' -Rows $count -Elapsed $elapsed
+    $okStatus = New-AzDevOpsDatasetStatus -Status 'ok' -Rows $count -Elapsed $elapsed
+    return $okStatus
 }
 
 
@@ -528,57 +573,6 @@ function Measure-AzDevOpsClassificationNodes {
 }
 
 
-function Invoke-AzDevOpsClassificationDatasetSync {
-    # Parallel of Invoke-AzDevOpsDatasetSync for non-WIQL data: project
-    # iteration tree and area-path tree. Both share the same stderr/parse/
-    # write/log scaffolding via Invoke-AzDevOpsAzJson + the existing
-    # Get-AzDevOpsFirstStderrLine / Write-AzDevOpsSyncStderr / Write-AzDevOpsCacheFile
-    # helpers, so the only difference is the row-count strategy (tree depth
-    # vs flat row count).
-    param(
-        [Parameter(Mandatory)] [string] $Name,
-        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
-        [Parameter(Mandatory)] [string] $Path
-    )
-
-    $azKind = $Kind.ToLower()
-    $label  = "Project ${azKind}s (tree)"
-    Write-Host "-> Querying $Name ($label)..." -ForegroundColor Cyan
-
-    $sw      = [System.Diagnostics.Stopwatch]::StartNew()
-    $result  = Invoke-AzDevOpsAzJson -ArgList @('boards', $azKind, 'project', 'list', '--depth', '5')
-    $sw.Stop()
-    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
-
-    if ($result.ExitCode -ne 0) {
-        $firstLine = Get-AzDevOpsFirstStderrLine -Stderr $result.Error
-        if (-not $firstLine) { $firstLine = "az exited with code $($result.ExitCode)" }
-
-        Write-Host "  X $Name - $firstLine (in $elapsed)" -ForegroundColor Red
-        Write-AzDevOpsSyncStderr -DatasetName $Name -ExitCode $result.ExitCode -Elapsed $elapsed -Stderr $result.Error
-
-        return New-AzDevOpsDatasetStatus -Status 'error' -Message $result.Error -Elapsed $elapsed
-    }
-
-    try {
-        $parsed = $result.Json | ConvertFrom-Json
-    } catch {
-        $msg = $_.Exception.Message
-        Write-Host "  X $Name - parse failed: $msg (in $elapsed)" -ForegroundColor Red
-        Write-AzDevOpsSyncLog "ERROR $Name parse failed (elapsed=$elapsed): $msg"
-        return New-AzDevOpsDatasetStatus -Status 'error' -Message "parse failed: $msg" -Elapsed $elapsed
-    }
-
-    $count  = Measure-AzDevOpsClassificationNodes -Node $parsed
-    $pretty = $parsed | ConvertTo-Json -Depth 20
-    Write-AzDevOpsCacheFile -Path $Path -Content $pretty
-    Write-Host "  OK  $Name - $count nodes in $elapsed" -ForegroundColor Green
-    Write-AzDevOpsSyncLog "$Name wrote $count nodes in $elapsed"
-
-    return New-AzDevOpsDatasetStatus -Status 'ok' -Rows $count -Elapsed $elapsed
-}
-
-
 function Sync-AzDevOpsCache {
     if (-not (Test-AzDevOpsAuth)) {
         Write-Host "Sync-AzDevOpsCache aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
@@ -595,27 +589,11 @@ function Sync-AzDevOpsCache {
     $errored  = 0
 
     foreach ($ds in $datasets) {
-        $status = Invoke-AzDevOpsDatasetSync @ds
+        $status = Invoke-AzDevOpsAzDataset @ds
         $statuses[$ds.Name] = $status
 
         if ($status.Status -eq 'ok') {
             $counts[$ds.Name] = $status.Rows
-        } else {
-            $errored++
-        }
-    }
-
-    $classificationDatasets = @(
-        @{ Name = 'iterations'; Kind = 'Iteration'; Path = $paths.Iterations },
-        @{ Name = 'areas';      Kind = 'Area';      Path = $paths.Areas }
-    )
-
-    foreach ($cd in $classificationDatasets) {
-        $status = Invoke-AzDevOpsClassificationDatasetSync @cd
-        $statuses[$cd.Name] = $status
-
-        if ($status.Status -eq 'ok') {
-            $counts[$cd.Name] = $status.Rows
         } else {
             $errored++
         }
@@ -629,12 +607,10 @@ function Sync-AzDevOpsCache {
     Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
     Write-AzDevOpsSyncLog 'sync complete'
 
-    $totalDatasets = $datasets.Count + $classificationDatasets.Count
-
     Write-Host ""
     Write-Host "Cache: $($paths.Dir)" -ForegroundColor Cyan
     if ($errored -gt 0) {
-        Write-Host "Partial sync - $errored of $totalDatasets dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
+        Write-Host "Partial sync - $errored of $($datasets.Count) dataset(s) failed. See $($paths.Log)" -ForegroundColor Yellow
     }
 }
 
@@ -1463,8 +1439,9 @@ function ConvertTo-AzDevOpsClassificationPaths {
         }
     }
 
-    $unique = $collected | Sort-Object -Unique
-    return ,@($unique)
+    $unique     = $collected | Sort-Object -Unique
+    $uniqueList = ,@($unique)
+    return $uniqueList
 }
 
 
@@ -1490,7 +1467,8 @@ function Read-AzDevOpsPriority {
     while ($true) {
         $resp = Read-Host 'Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH'
         if ($resp -match '^[1-4]$') {
-            return [int]$resp
+            $priority = [int]$resp
+            return $priority
         }
         Write-Host "  Please enter 1, 2, 3, or 4." -ForegroundColor Yellow
     }
@@ -1510,21 +1488,25 @@ function Read-AzDevOpsStoryPoints {
 
 
 function Read-AzDevOpsAcceptanceCriteria {
-    # Mirrors the AC loop pattern from the existing az-create-userstory:
-    # one initial AC, then loop on Y/N until N. Joins additional ACs with
-    # '<br/><br/>' so they render as separate lines in the work-item editor.
+    # One initial AC, then loop on Y/N. Joins additional ACs with '<br/><br/>'
+    # so they render as separate lines in the work-item editor. The existing
+    # az-create-userstory used `until ($resp -eq 'n')` which loops forever on
+    # any non-'n' reply (empty Enter, 'yes', 'q'); this version exits on
+    # anything that isn't an affirmative yes/y.
     $first = Read-Host 'Acceptance criterion #1'
     $dash  = '-'
     $break = '<br/><br/>'
     $ac    = "$dash $first"
 
-    do {
-        $resp = Read-Host 'More AC (Y/N)?'
-        if ($resp -eq 'y') {
-            $next = Read-Host 'Enter additional AC'
-            $ac   = "$ac $break $dash $next"
+    while ($true) {
+        $resp = Read-Host 'More AC? (Y/N)'
+        if ($resp -notmatch '^(y|yes)$') {
+            break
         }
-    } until ($resp -eq 'n')
+
+        $next = Read-Host 'Enter additional AC'
+        $ac   = "$ac $break $dash $next"
+    }
 
     return $ac
 }
@@ -1568,7 +1550,8 @@ function Read-AzDevOpsFeaturePick {
         }
 
         if ($idx -ge 1 -and $idx -le $features.Count) {
-            return $features[$idx - 1].Id
+            $featureId = $features[$idx - 1].Id
+            return $featureId
         }
 
         Write-Host "  Please enter 0..$($features.Count)." -ForegroundColor Yellow
@@ -1616,7 +1599,8 @@ function Read-AzDevOpsClassificationPick {
         }
 
         if ($idx -ge 1 -and $idx -le $Paths.Count) {
-            return $Paths[$idx - 1]
+            $pickedPath = $Paths[$idx - 1]
+            return $pickedPath
         }
 
         Write-Host "  Please enter 1..$($Paths.Count)." -ForegroundColor Yellow
@@ -1624,26 +1608,37 @@ function Read-AzDevOpsClassificationPick {
 }
 
 
-function Read-AzDevOpsIterationPick {
-    $iterationPaths = Get-AzDevOpsClassificationPaths -Kind 'Iteration'
-    if ($iterationPaths.Count -eq 0) {
-        Write-Host "(no iterations available - falling back to `$env:AZ_ITERATION='$env:AZ_ITERATION')" -ForegroundColor Yellow
-        return $env:AZ_ITERATION
+function Read-AzDevOpsKindPick {
+    # Single iteration / area picker shared by both kinds. Reads the
+    # cache (or falls back to live `az`), then either renders the numbered
+    # menu or - if no paths are available - returns the matching $env:AZ_*
+    # default. Returns $null if both the cache and the env-var default are
+    # empty; callers must guard for that and abort cleanly.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $envName = if ($Kind -eq 'Iteration') {
+        'AZ_ITERATION'
+    } else {
+        'AZ_AREA'
     }
 
-    $picked = Read-AzDevOpsClassificationPick -Kind 'Iteration' -Paths $iterationPaths -Default $env:AZ_ITERATION
-    return $picked
-}
-
-
-function Read-AzDevOpsAreaPick {
-    $areaPaths = Get-AzDevOpsClassificationPaths -Kind 'Area'
-    if ($areaPaths.Count -eq 0) {
-        Write-Host "(no areas available - falling back to `$env:AZ_AREA='$env:AZ_AREA')" -ForegroundColor Yellow
-        return $env:AZ_AREA
+    $envFallback = if ($Kind -eq 'Iteration') {
+        $env:AZ_ITERATION
+    } else {
+        $env:AZ_AREA
     }
 
-    $picked = Read-AzDevOpsClassificationPick -Kind 'Area' -Paths $areaPaths -Default $env:AZ_AREA
+    $paths = Get-AzDevOpsClassificationPaths -Kind $Kind
+    if ($paths.Count -eq 0) {
+        if (-not $envFallback) {
+            Write-Host "(no ${Kind}s available and `$env:$envName is unset)" -ForegroundColor Red
+            return $null
+        }
+        Write-Host "(no ${Kind}s available - falling back to `$env:$envName='$envFallback')" -ForegroundColor Yellow
+        return $envFallback
+    }
+
+    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $envFallback
     return $picked
 }
 
@@ -1763,6 +1758,11 @@ function New-AzDevOpsUserStory {
         return
     }
 
+    if (-not $env:AZ_USER_EMAIL) {
+        Write-Host "New-AzDevOpsUserStory aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+        return
+    }
+
     $hierarchy = Read-AzDevOpsHierarchyCache
     if ($null -eq $hierarchy) {
         return
@@ -1797,11 +1797,19 @@ function New-AzDevOpsUserStory {
     }
 
     if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsIterationPick
+        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+    if (-not $Iteration) {
+        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run Sync-AzDevOpsCache." -ForegroundColor Red
+        return
     }
 
     if (-not $Area) {
-        $Area = Read-AzDevOpsAreaPick
+        $Area = Read-AzDevOpsKindPick -Kind 'Area'
+    }
+    if (-not $Area) {
+        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run Sync-AzDevOpsCache." -ForegroundColor Red
+        return
     }
 
     Write-Host ""
