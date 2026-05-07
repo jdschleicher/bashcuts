@@ -433,7 +433,7 @@ function Get-AzDevOpsSyncDatasets {
             Name  = 'assigned'
             Label = 'System.AssignedTo = @Me'
             Path  = $Paths.Assigned
-            Wiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.AssignedTo] = @Me'
+            Wiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
         },
         @{
             Name  = 'mentions'
@@ -537,18 +537,15 @@ function Sync-AzDevOpsCache {
 }
 
 
-function Get-AzDevOpsCacheStatus {
+function Get-AzDevOpsCacheAge {
     $paths = Get-AzDevOpsCachePaths
-    if (-not (Test-Path -LiteralPath $paths.LastSync)) {
-        Write-Host "No cache yet - run Sync-AzDevOpsCache" -ForegroundColor Yellow
-        return
-    }
+    if (-not (Test-Path -LiteralPath $paths.LastSync)) { return $null }
 
-    $info   = Get-Content -LiteralPath $paths.LastSync -Raw | ConvertFrom-Json
-    $synced = [datetime]$info.Timestamp
-    $age    = (Get-Date) - $synced
+    $info     = Get-Content -LiteralPath $paths.LastSync -Raw | ConvertFrom-Json
+    $synced   = [datetime]$info.Timestamp
+    $age      = (Get-Date) - $synced
 
-    $ageText = if ($age.TotalMinutes -lt 60) {
+    $ageText  = if ($age.TotalMinutes -lt 60) {
         "$([int]$age.TotalMinutes) min ago"
     } elseif ($age.TotalHours -lt 24) {
         "$([math]::Round($age.TotalHours, 1)) hours ago"
@@ -556,20 +553,39 @@ function Get-AzDevOpsCacheStatus {
         "$([int]$age.TotalDays) days ago"
     }
 
-    if ($age.TotalHours -lt 6) {
-        Write-Host "OK fresh - synced $ageText" -ForegroundColor Green
-    } else {
-        Write-Host "STALE - last synced $ageText" -ForegroundColor Yellow
+    return [PSCustomObject]@{
+        Synced   = $synced
+        Age      = $age
+        AgeText  = $ageText
+        IsStale  = ($age.TotalHours -ge 6)
+        Counts   = $info.Counts
+        Datasets = $info.Datasets
+        LogPath  = $paths.Log
+    }
+}
+
+
+function Get-AzDevOpsCacheStatus {
+    $cacheAge = Get-AzDevOpsCacheAge
+    if ($null -eq $cacheAge) {
+        Write-Host "No cache yet - run Sync-AzDevOpsCache" -ForegroundColor Yellow
+        return
     }
 
-    if ($info.Counts) {
-        $info.Counts.PSObject.Properties | ForEach-Object {
+    if ($cacheAge.IsStale) {
+        Write-Host "STALE - last synced $($cacheAge.AgeText)" -ForegroundColor Yellow
+    } else {
+        Write-Host "OK fresh - synced $($cacheAge.AgeText)" -ForegroundColor Green
+    }
+
+    if ($cacheAge.Counts) {
+        $cacheAge.Counts.PSObject.Properties | ForEach-Object {
             Write-Host "  $($_.Name): $($_.Value) rows"
         }
     }
 
-    if ($info.Datasets) {
-        $errored = @($info.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
+    if ($cacheAge.Datasets) {
+        $errored = @($cacheAge.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
         if ($errored.Count -gt 0) {
             Write-Host ""
             Write-Host "Partial sync - $($errored.Count) dataset(s) errored:" -ForegroundColor Yellow
@@ -578,7 +594,7 @@ function Get-AzDevOpsCacheStatus {
                 if (-not $msg) { $msg = '(no error text)' }
                 Write-Host "  X $($e.Name): $msg" -ForegroundColor Red
             }
-            Write-Host "  See $($paths.Log) for full az stderr" -ForegroundColor Yellow
+            Write-Host "  See $($cacheAge.LogPath) for full az stderr" -ForegroundColor Yellow
         }
     }
 }
@@ -697,4 +713,117 @@ function Unregister-AzDevOpsSyncSchedule {
     }
 
     Write-Host "Unsupported OS for Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
+}
+
+
+# ---------------------------------------------------------------------------
+# Cache consumers - read-only commands that surface cached work items
+#
+# Public functions:
+#   Get-AzDevOpsAssigned   - table of work items assigned to me
+#   Open-AzDevOpsAssigned  - open a single assigned item in the browser
+#
+# Both functions read $HOME/.bashcuts-cache/azure-devops/assigned.json (built
+# by Sync-AzDevOpsCache). They never call `az` directly - if the cache is
+# missing, they print a hint and bail.
+# ---------------------------------------------------------------------------
+
+function ConvertFrom-AzDevOpsAssignedItem {
+    param([Parameter(Mandatory)] $Raw)
+
+    $f = $Raw.fields
+    return [PSCustomObject]@{
+        Id         = if ($f.'System.Id') { [int]$f.'System.Id' } else { [int]$Raw.id }
+        Type       = $f.'System.WorkItemType'
+        State      = $f.'System.State'
+        Title      = $f.'System.Title'
+        Iteration  = $f.'System.IterationPath'
+        AssignedAt = if ($f.'System.ChangedDate') { [datetime]$f.'System.ChangedDate' } else { $null }
+    }
+}
+
+
+function Read-AzDevOpsAssignedCache {
+    $paths = Get-AzDevOpsCachePaths
+    if (-not (Test-Path -LiteralPath $paths.Dir) -or -not (Test-Path -LiteralPath $paths.Assigned)) {
+        Write-Host "No assigned-items cache at $($paths.Assigned)." -ForegroundColor Yellow
+        Write-Host "  Run: Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
+        Write-Host "  Run: Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
+        return $null
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $paths.Assigned -Raw | ConvertFrom-Json
+    } catch {
+        Write-Host "Could not parse $($paths.Assigned): $_" -ForegroundColor Red
+        return $null
+    }
+
+    return @($raw | ForEach-Object { ConvertFrom-AzDevOpsAssignedItem -Raw $_ })
+}
+
+
+function Get-AzDevOpsAssigned {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $items = Read-AzDevOpsAssignedCache
+    if ($null -eq $items) { return }
+
+    $cacheAge = Get-AzDevOpsCacheAge
+    if ($cacheAge -and $cacheAge.IsStale) {
+        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
+    }
+
+    $filtered = if ($State) {
+        $items | Where-Object { $_.State -in $State }
+    } else {
+        $items | Where-Object { $_.State -notin @('Closed', 'Removed') }
+    }
+
+    $titleMaxLen = 80
+
+    return $filtered | Select-Object Id, Type, State,
+        @{ Name = 'Title'; Expression = {
+            if ($_.Title -and $_.Title.Length -gt $titleMaxLen) {
+                $_.Title.Substring(0, $titleMaxLen - 3) + '...'
+            } else {
+                $_.Title
+            }
+        } },
+        Iteration, AssignedAt
+}
+
+
+function Open-AzDevOpsAssigned {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)] [int] $Id
+    )
+
+    $items = Read-AzDevOpsAssignedCache
+    if ($null -eq $items) { return }
+
+    $match = $items | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
+    if (-not $match) {
+        Write-Host "Work item $Id is not in your assigned-items cache." -ForegroundColor Red
+        Write-Host "  Tip: run Get-AzDevOpsAssigned to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+    $url        = "$org/$projectEnc/_workitems/edit/$Id"
+
+    Write-Host "Opening $url" -ForegroundColor Cyan
+    Start-Process $url
 }

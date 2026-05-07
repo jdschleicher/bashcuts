@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Future commands in this batch will add cached lists of items assigned to you, items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), and a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`). Future commands in this batch will add items you've been mentioned in, an Epic→Feature→User Story tree view, and an interactive new-user-story creator with parent-feature and iteration pickers.
 
 ### Prerequisites
 
@@ -189,4 +189,19 @@ Connect-AzDevOps
 This walks through six checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
 
 After `Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
+
+### Day-to-day work-item shortcuts
+
+These read the local cache populated by `Sync-AzDevOpsCache` (and the recurring `Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
+
+```powershell
+Get-AzDevOpsAssigned                       # everything assigned to you (excludes Closed/Removed)
+Get-AzDevOpsAssigned -State Active         # filter to a single state
+Get-AzDevOpsAssigned -State Active,New     # filter to multiple states
+Get-AzDevOpsAssigned | Format-Table -AutoSize
+
+Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
+```
+
+If the cache is older than 6 hours, `Get-AzDevOpsAssigned` prints a one-line `WARNING stale (last sync: ...)` notice above the table and still returns the cached rows.
 
