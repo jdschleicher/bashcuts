@@ -439,7 +439,7 @@ function Get-AzDevOpsSyncDatasets {
             Name  = 'mentions'
             Label = "System.History Contains '$mentionsToken'"
             Path  = $Paths.Mentions
-            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State] From WorkItems Where [System.History] Contains '$mentionsToken'"
+            Wiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
         },
         @{
             Name  = 'hierarchy'
@@ -725,10 +725,12 @@ function Unregister-AzDevOpsSyncSchedule {
 # Public functions:
 #   Get-AzDevOpsAssigned   - table of work items assigned to me
 #   Open-AzDevOpsAssigned  - open a single assigned item in the browser
+#   Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
+#   Open-AzDevOpsMention   - open a single mentioned item in the browser
 #
-# Both functions read $HOME/.bashcuts-cache/azure-devops/assigned.json (built
-# by Sync-AzDevOpsCache). They never call `az` directly - if the cache is
-# missing, they print a hint and bail.
+# All four read $HOME/.bashcuts-cache/azure-devops/{assigned,mentions}.json
+# (built by Sync-AzDevOpsCache). They never call `az` directly - if the cache
+# is missing, they print a hint and bail.
 # ---------------------------------------------------------------------------
 
 function ConvertFrom-AzDevOpsAssignedItem {
@@ -845,6 +847,166 @@ function Open-AzDevOpsAssigned {
 
     $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
     $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+    $url        = "$org/$projectEnc/_workitems/edit/$Id"
+
+    Write-Host "Opening $url" -ForegroundColor Cyan
+    Start-Process $url
+}
+
+
+function Get-AzDevOpsMentionedByDisplayName {
+    # System.ChangedBy lands as either a complex identity object (displayName /
+    # uniqueName), a "Name <email>" string, or $null depending on the az CLI
+    # version + how it serialized the WIQL row. Normalize all three to a single
+    # string the table column can render.
+    param($ChangedBy)
+
+    if ($null -eq $ChangedBy) {
+        return $null
+    }
+
+    if ($ChangedBy -is [string]) {
+        return $ChangedBy
+    }
+
+    if ($ChangedBy.displayName) {
+        return $ChangedBy.displayName
+    }
+
+    if ($ChangedBy.uniqueName) {
+        return $ChangedBy.uniqueName
+    }
+
+    return "$ChangedBy"
+}
+
+
+function ConvertFrom-AzDevOpsMentionItem {
+    param([Parameter(Mandatory)] $Raw)
+
+    $f = $Raw.fields
+
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    } else {
+        [int]$Raw.id
+    }
+
+    $mentionedAt = if ($f.'System.ChangedDate') {
+        [datetime]$f.'System.ChangedDate'
+    } else {
+        $null
+    }
+
+    $mentionedBy = Get-AzDevOpsMentionedByDisplayName -ChangedBy $f.'System.ChangedBy'
+
+    return [PSCustomObject]@{
+        Id          = $id
+        Type        = $f.'System.WorkItemType'
+        State       = $f.'System.State'
+        Title       = $f.'System.Title'
+        MentionedBy = $mentionedBy
+        MentionedAt = $mentionedAt
+    }
+}
+
+
+function Read-AzDevOpsMentionsCache {
+    $paths = Get-AzDevOpsCachePaths
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Mentions `
+        -Description 'mentions' `
+        -Converter   { param($r) ConvertFrom-AzDevOpsMentionItem -Raw $r }
+    return $items
+}
+
+
+function Get-AzDevOpsMentions {
+    [CmdletBinding()]
+    param(
+        [string[]] $State,
+        [datetime] $Since,
+        [switch]   $IncludeAssigned
+    )
+
+    $items = Read-AzDevOpsMentionsCache
+    if ($null -eq $items) { return }
+
+    $cacheAge = Get-AzDevOpsCacheAge
+    if ($cacheAge -and $cacheAge.IsStale) {
+        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
+    }
+
+    if (-not $IncludeAssigned) {
+        $assigned   = Read-AzDevOpsAssignedCache
+        $assignedIds = if ($assigned) {
+            @($assigned | ForEach-Object { $_.Id })
+        } else {
+            @()
+        }
+
+        if ($assignedIds.Count -gt 0) {
+            $items = $items | Where-Object { $_.Id -notin $assignedIds }
+        }
+    }
+
+    $filtered = if ($State) {
+        $items | Where-Object { $_.State -in $State }
+    } else {
+        $items | Where-Object { $_.State -notin @('Closed', 'Removed') }
+    }
+
+    if ($Since) {
+        $filtered = $filtered | Where-Object {
+            $_.MentionedAt -and $_.MentionedAt -ge $Since
+        }
+    }
+
+    $titleMaxLen = 80
+
+    $rows = $filtered | Select-Object Id, Type, State,
+        @{ Name = 'Title'; Expression = {
+            if ($_.Title -and $_.Title.Length -gt $titleMaxLen) {
+                $_.Title.Substring(0, $titleMaxLen - 3) + '...'
+            } else {
+                $_.Title
+            }
+        } },
+        MentionedBy, MentionedAt
+
+    return $rows
+}
+
+
+function Open-AzDevOpsMention {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)] [int] $Id
+    )
+
+    $items = Read-AzDevOpsMentionsCache
+    if ($null -eq $items) { return }
+
+    $match = $items | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
+    if (-not $match) {
+        Write-Host "Work item $Id is not in your mentions cache." -ForegroundColor Red
+        Write-Host "  Tip: run Get-AzDevOpsMentions to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
+        Write-Host "  Or open it directly: $($env:AZ_DEVOPS_ORG)/$($env:AZ_PROJECT)/_workitems/edit/$Id" -ForegroundColor Yellow
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+    # Anchor #discussion would be ideal, but Azure DevOps' web UI uses an
+    # ephemeral comment id (e.g. #comment-12345) that's not stable across
+    # syncs. Open the plain edit URL; the discussion tab is one click away.
     $url        = "$org/$projectEnc/_workitems/edit/$Id"
 
     Write-Host "Opening $url" -ForegroundColor Cyan
