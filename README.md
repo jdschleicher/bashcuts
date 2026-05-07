@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), and an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`). Future commands in this batch will add items you've been mentioned in and an interactive new-user-story creator with parent-feature and iteration pickers.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), and an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`). A future command in this batch will add an interactive new-user-story creator with parent-feature and iteration pickers.
 
 ### Prerequisites
 
@@ -202,8 +202,16 @@ Get-AzDevOpsAssigned | Format-Table -AutoSize
 
 Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
 
+Get-AzDevOpsMentions                                  # work items where you've been @-mentioned (excludes items you're already assigned to)
+Get-AzDevOpsMentions -State Active                    # filter to a single state
+Get-AzDevOpsMentions -Since (Get-Date).AddDays(-7)    # only mentions whose last activity was in the past week
+Get-AzDevOpsMentions -IncludeAssigned                 # also surface mentioned items already assigned to you
+Get-AzDevOpsMentions | Format-Table -AutoSize
+
+Open-AzDevOpsMention 12345                 # open one of your mentioned items in the browser
+
 Show-AzDevOpsTree                          # print the project's Epic -> Feature -> User Story tree
 ```
 
-If the cache is older than 6 hours, `Get-AzDevOpsAssigned` and `Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+If the cache is older than 6 hours, `Get-AzDevOpsAssigned`, `Get-AzDevOpsMentions`, and `Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
