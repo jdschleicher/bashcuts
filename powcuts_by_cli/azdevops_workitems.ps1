@@ -771,16 +771,18 @@ function Read-AzDevOpsJsonCache {
         return $null
     }
 
-    return @($raw | ForEach-Object { & $Converter $_ })
+    $items = @($raw | ForEach-Object { & $Converter $_ })
+    return $items
 }
 
 
 function Read-AzDevOpsAssignedCache {
     $paths = Get-AzDevOpsCachePaths
-    return Read-AzDevOpsJsonCache `
+    $items = Read-AzDevOpsJsonCache `
         -Path        $paths.Assigned `
         -Description 'assigned-items' `
         -Converter   { param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r }
+    return $items
 }
 
 
@@ -884,10 +886,11 @@ function ConvertFrom-AzDevOpsHierarchyItem {
 
 function Read-AzDevOpsHierarchyCache {
     $paths = Get-AzDevOpsCachePaths
-    return Read-AzDevOpsJsonCache `
+    $items = Read-AzDevOpsJsonCache `
         -Path        $paths.Hierarchy `
         -Description 'hierarchy' `
         -Converter   { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
+    return $items
 }
 
 

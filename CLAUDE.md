@@ -70,6 +70,12 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 - **No comments for self-evident code** — only comment where the logic is genuinely non-obvious.
 - **Breathing room** — keep code visually scannable. Two blank lines between top-level function definitions in a `.ps1` or `.<cli>_bashcuts` file. One blank line between logical groups inside a function body (e.g. before a `foreach`, before a final `return`, between a setup block and the work that uses it). A wall of code without spacing makes review and edits harder; don't be stingy with vertical whitespace.
 - **Extract repeated branches into private helpers** — if the same `if ($IsWindows -or ...)` / `elseif ($IsMacOS -or $IsLinux)` (or any other repeating decision) appears in two or more functions, lift it into a small private helper (e.g. `Get-AzDevOpsPlatform` returning `'Windows'`/`'Posix'`, or `Get-AzDevOpsCronLine` building the cron string). Same rule for bash: if two functions repeat the same `case "$OSTYPE"` block, extract it into `_bashcut_os` in `.bash_commons` or the file's local helper. Private helpers can use unapproved verbs since they aren't user-facing — readability of the public surface is what matters. Apply this proactively when implementing parallel `Register-/Unregister-` style pairs.
+- **Never `return` a function call directly** — capture the call's result in a named local variable on its own line, then `return $thatVariable`. This applies to both PowerShell and bash. **Bad:** `return Get-Something -Param $x` / `return Read-AzDevOpsJsonCache -Path $p ...`. **Good:**
+  ```powershell
+  $result = Get-Something -Param $x
+  return $result
+  ```
+  Reasons: a named local makes the value inspectable in a debugger / `Set-PSBreakpoint`, surfaces the type at the assignment site, gives a single explicit exit point, and makes refactoring (logging, transforming, validating before return) a one-line edit instead of restructuring the return statement. Applies to pipeline expressions too — assign `$rows = $raw | ForEach-Object { … }` then `return $rows`. Allowed exceptions: trivial value literals (`return $null`, `return $true`, `return ''`), and explicit `return` of an already-named variable.
 
 ## Project Structure
 
