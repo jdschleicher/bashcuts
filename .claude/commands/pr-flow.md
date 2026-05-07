@@ -14,7 +14,8 @@ You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortc
 3. **Phase 3** — Triple code review (`/code-review` — bash + PowerShell + security in parallel)
 4. **Phase 4** — Docs check (`/docs-check`)
 5. **Phase 5** — Criteria check (`/criteria-check`)
-6. **Phase 6** — PR body ToC (`/pr-body`)
+6. **Phase 5b** — AzDO diagrams check (`/azdevops-diagrams-check`) — runs only when Azure DevOps source files changed
+7. **Phase 6** — PR body ToC (`/pr-body`)
 
 Each phase gates on the previous. If Phase 1 fails, stop.
 
@@ -175,6 +176,16 @@ If no Acceptance Criteria section exists in the linked issue, note it and contin
 
 ---
 
+## Phase 5b — Azure DevOps Diagrams Check
+
+Invoke `/azdevops-diagrams-check`. The skill self-gates: if no Azure DevOps source files changed in this branch (none of `powcuts_by_cli/azdevops_*.ps1`, `powcuts_by_cli/pow_az_cli.ps1`, `bashcuts_by_cli/.az_bashcuts`, or any other file containing `az boards|devops|repos|pipelines`), it exits with `N/A` and Phase 5b is a no-op.
+
+When triggered, the skill compares `docs/azure-devops-diagrams.md` against the current source — function inventory, `az` subcommand coverage — and proposes concrete mermaid edits for each gap. Edits apply on user confirmation.
+
+**Gate:** STALE without applied fixes is **blocking** (the diagram doc misleads readers if it lags the code). DRIFT-only findings (already-edited diagrams that still don't fully match source) are non-blocking but must be summarized so the user can decide.
+
+---
+
 ## Phase 6 — PR Body ToC
 
 Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body navigation hub.
@@ -200,6 +211,7 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 | 🧼 Clean-Code Engineer Review | ✅ APPROVE / ❌ REQUEST CHANGES |
 | Docs Check | ✅ CURRENT / ⚠️ <stale items> |
 | Criteria Check | ✅ PASS / ⏭️ no AC section |
+| AzDO Diagrams Check | ✅ CURRENT / ⏭️ N/A / ⚠️ <stale sections> |
 | PR Body | ✅ Updated |
 
 ### PR
