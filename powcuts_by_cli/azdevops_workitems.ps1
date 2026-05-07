@@ -778,6 +778,131 @@ function Read-AzDevOpsJsonCache {
 }
 
 
+# ---------------------------------------------------------------------------
+# Shared scaffolding for the Get-/Open-AzDevOps{Assigned,Mentions} pairs
+#
+# These private helpers exist because the same blocks were duplicated across
+# the parallel pairs (CLAUDE.md "extract repeated branches" rule):
+#   - stale-cache banner          - Write-AzDevOpsStaleBanner
+#   - default open-ish state filter + explicit -State filter
+#                                  - Select-AzDevOpsActiveItems
+#   - Title truncation projection - Format-AzDevOpsTruncatedTitle
+#   - id lookup w/ standard miss-hint + LASTEXITCODE=1
+#                                  - Find-AzDevOpsCachedWorkItem
+#   - env-var guard + URL build + Start-Process
+#                                  - Open-AzDevOpsWorkItemUrl
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsClosedStates {
+    return @('Closed', 'Removed')
+}
+
+
+function Write-AzDevOpsStaleBanner {
+    $cacheAge = Get-AzDevOpsCacheAge
+    if ($cacheAge -and $cacheAge.IsStale) {
+        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
+    }
+}
+
+
+function Select-AzDevOpsActiveItems {
+    param(
+        [Parameter(Mandatory)] $Items,
+        [string[]] $State
+    )
+
+    $closedStates = Get-AzDevOpsClosedStates
+
+    $filtered = if ($State) {
+        $Items | Where-Object { $_.State -in $State }
+    } else {
+        $Items | Where-Object { $_.State -notin $closedStates }
+    }
+
+    return $filtered
+}
+
+
+function Format-AzDevOpsTruncatedTitle {
+    param([string] $Title)
+
+    $titleMaxLen = 80
+    $ellipsis    = '...'
+
+    if ($Title -and $Title.Length -gt $titleMaxLen) {
+        $truncated = $Title.Substring(0, $titleMaxLen - $ellipsis.Length) + $ellipsis
+        return $truncated
+    }
+
+    return $Title
+}
+
+
+function Get-AzDevOpsTitleColumn {
+    # Returns a Select-Object calculated-property hashtable that renders the
+    # Title column with the standard 80-char ellipsis truncation. Used by
+    # Get-AzDevOpsAssigned and Get-AzDevOpsMentions so the projection lives
+    # in one place.
+    return @{
+        Name       = 'Title'
+        Expression = { Format-AzDevOpsTruncatedTitle -Title $_.Title }
+    }
+}
+
+
+function Find-AzDevOpsCachedWorkItem {
+    # Looks up $Id in $Items. On hit, returns the matched row. On miss,
+    # prints the standard "not in your <description> cache" hint, optionally
+    # echoes a directly-pasteable URL fallback, sets $LASTEXITCODE = 1, and
+    # returns $null. Callers check for $null and return.
+    param(
+        [Parameter(Mandatory)] $Items,
+        [Parameter(Mandatory)] [int]    $Id,
+        [Parameter(Mandatory)] [string] $Description,
+        [Parameter(Mandatory)] [string] $ListCommand,
+        [switch] $IncludeUrlFallback
+    )
+
+    $match = $Items | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
+    if ($match) {
+        return $match
+    }
+
+    Write-Host "Work item $Id is not in your $Description cache." -ForegroundColor Red
+    Write-Host "  Tip: run $ListCommand to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
+
+    if ($IncludeUrlFallback -and $env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
+        $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+        $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+        Write-Host "  Or open it directly: $org/$projectEnc/_workitems/edit/$Id" -ForegroundColor Yellow
+    }
+
+    $global:LASTEXITCODE = 1
+    return $null
+}
+
+
+function Open-AzDevOpsWorkItemUrl {
+    # env-var guard + URL build + Start-Process. Sets $LASTEXITCODE = 1 and
+    # returns when env-vars are missing; otherwise launches the OS browser.
+    param([Parameter(Mandatory)] [int] $Id)
+
+    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+    $url        = "$org/$projectEnc/_workitems/edit/$Id"
+
+    Write-Host "Opening $url" -ForegroundColor Cyan
+    Start-Process $url
+}
+
+
 function Read-AzDevOpsAssignedCache {
     $paths = Get-AzDevOpsCachePaths
     $items = Read-AzDevOpsJsonCache `
@@ -797,28 +922,12 @@ function Get-AzDevOpsAssigned {
     $items = Read-AzDevOpsAssignedCache
     if ($null -eq $items) { return }
 
-    $cacheAge = Get-AzDevOpsCacheAge
-    if ($cacheAge -and $cacheAge.IsStale) {
-        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
-    }
+    Write-AzDevOpsStaleBanner
 
-    $filtered = if ($State) {
-        $items | Where-Object { $_.State -in $State }
-    } else {
-        $items | Where-Object { $_.State -notin @('Closed', 'Removed') }
-    }
+    $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
 
-    $titleMaxLen = 80
-
-    return $filtered | Select-Object Id, Type, State,
-        @{ Name = 'Title'; Expression = {
-            if ($_.Title -and $_.Title.Length -gt $titleMaxLen) {
-                $_.Title.Substring(0, $titleMaxLen - 3) + '...'
-            } else {
-                $_.Title
-            }
-        } },
-        Iteration, AssignedAt
+    $rows = $filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt
+    return $rows
 }
 
 
@@ -831,26 +940,15 @@ function Open-AzDevOpsAssigned {
     $items = Read-AzDevOpsAssignedCache
     if ($null -eq $items) { return }
 
-    $match = $items | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
-    if (-not $match) {
-        Write-Host "Work item $Id is not in your assigned-items cache." -ForegroundColor Red
-        Write-Host "  Tip: run Get-AzDevOpsAssigned to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
-        $global:LASTEXITCODE = 1
-        return
-    }
+    $match = Find-AzDevOpsCachedWorkItem `
+        -Items       $items `
+        -Id          $Id `
+        -Description 'assigned-items' `
+        -ListCommand 'Get-AzDevOpsAssigned' `
+        -IncludeUrlFallback
+    if (-not $match) { return }
 
-    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
-        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
-        $global:LASTEXITCODE = 1
-        return
-    }
-
-    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    $url        = "$org/$projectEnc/_workitems/edit/$Id"
-
-    Write-Host "Opening $url" -ForegroundColor Cyan
-    Start-Process $url
+    Open-AzDevOpsWorkItemUrl -Id $Id
 }
 
 
@@ -932,13 +1030,11 @@ function Get-AzDevOpsMentions {
     $items = Read-AzDevOpsMentionsCache
     if ($null -eq $items) { return }
 
-    $cacheAge = Get-AzDevOpsCacheAge
-    if ($cacheAge -and $cacheAge.IsStale) {
-        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
-    }
+    Write-AzDevOpsStaleBanner
 
     if (-not $IncludeAssigned) {
-        $assigned   = Read-AzDevOpsAssignedCache
+        $assigned = Read-AzDevOpsAssignedCache
+
         $assignedIds = if ($assigned) {
             @($assigned | ForEach-Object { $_.Id })
         } else {
@@ -950,11 +1046,7 @@ function Get-AzDevOpsMentions {
         }
     }
 
-    $filtered = if ($State) {
-        $items | Where-Object { $_.State -in $State }
-    } else {
-        $items | Where-Object { $_.State -notin @('Closed', 'Removed') }
-    }
+    $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
 
     if ($Since) {
         $filtered = $filtered | Where-Object {
@@ -962,23 +1054,16 @@ function Get-AzDevOpsMentions {
         }
     }
 
-    $titleMaxLen = 80
-
-    $rows = $filtered | Select-Object Id, Type, State,
-        @{ Name = 'Title'; Expression = {
-            if ($_.Title -and $_.Title.Length -gt $titleMaxLen) {
-                $_.Title.Substring(0, $titleMaxLen - 3) + '...'
-            } else {
-                $_.Title
-            }
-        } },
-        MentionedBy, MentionedAt
-
+    $rows = $filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt
     return $rows
 }
 
 
 function Open-AzDevOpsMention {
+    # Plain /_workitems/edit/<id> URL only - Azure DevOps' #comment-NNNN
+    # anchor is an ephemeral comment id that isn't stable across syncs, so
+    # there's no reliable way to deep-link into the discussion thread; the
+    # discussion tab is one click away once the work item is open.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)] [int] $Id
@@ -987,30 +1072,15 @@ function Open-AzDevOpsMention {
     $items = Read-AzDevOpsMentionsCache
     if ($null -eq $items) { return }
 
-    $match = $items | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
-    if (-not $match) {
-        Write-Host "Work item $Id is not in your mentions cache." -ForegroundColor Red
-        Write-Host "  Tip: run Get-AzDevOpsMentions to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
-        Write-Host "  Or open it directly: $($env:AZ_DEVOPS_ORG)/$($env:AZ_PROJECT)/_workitems/edit/$Id" -ForegroundColor Yellow
-        $global:LASTEXITCODE = 1
-        return
-    }
+    $match = Find-AzDevOpsCachedWorkItem `
+        -Items       $items `
+        -Id          $Id `
+        -Description 'mentions' `
+        -ListCommand 'Get-AzDevOpsMentions' `
+        -IncludeUrlFallback
+    if (-not $match) { return }
 
-    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
-        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
-        $global:LASTEXITCODE = 1
-        return
-    }
-
-    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    # Anchor #discussion would be ideal, but Azure DevOps' web UI uses an
-    # ephemeral comment id (e.g. #comment-12345) that's not stable across
-    # syncs. Open the plain edit URL; the discussion tab is one click away.
-    $url        = "$org/$projectEnc/_workitems/edit/$Id"
-
-    Write-Host "Opening $url" -ForegroundColor Cyan
-    Start-Process $url
+    Open-AzDevOpsWorkItemUrl -Id $Id
 }
 
 
@@ -1128,10 +1198,7 @@ function Show-AzDevOpsTree {
     $items = Read-AzDevOpsHierarchyCache
     if ($null -eq $items) { return }
 
-    $cacheAge = Get-AzDevOpsCacheAge
-    if ($cacheAge -and $cacheAge.IsStale) {
-        Write-Host "WARNING stale (last sync: $($cacheAge.AgeText))" -ForegroundColor Yellow
-    }
+    Write-AzDevOpsStaleBanner
 
     $byParent = @{}
     foreach ($item in $items) {
