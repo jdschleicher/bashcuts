@@ -936,15 +936,17 @@ function Format-AzDevOpsTreeNode {
         [Parameter(Mandatory)] [int] $Depth
     )
 
-    $indent = '    ' * $Depth
-    $icon   = Get-AzDevOpsTreeIcon -Type $Item.Type
+    $indent    = '    ' * $Depth
+    $icon      = Get-AzDevOpsTreeIcon -Type $Item.Type
+    $separator = "$([char]0x2014)"   # em-dash
 
     # User Story lines drop the type label per the issue spec; epics + features
     # keep it so '📦 Epic 1234' / '🎯 Feature 1240' read clearly.
     if ($Item.Type -eq 'User Story') {
-        return "$indent$icon $($Item.Id) $([char]0x2014) $($Item.Title) [$($Item.State)]"
+        return "$indent$icon $($Item.Id) $separator $($Item.Title) [$($Item.State)]"
     }
-    return "$indent$icon $($Item.Type) $($Item.Id) $([char]0x2014) $($Item.Title) [$($Item.State)]"
+
+    return "$indent$icon $($Item.Type) $($Item.Id) $separator $($Item.Title) [$($Item.State)]"
 }
 
 
