@@ -902,6 +902,15 @@ function Read-AzDevOpsHierarchyCache {
 }
 
 
+function Get-AzDevOpsTreeIndent {
+    param([Parameter(Mandatory)] [int] $Depth)
+
+    $indentUnit = '    '   # 4 spaces per tree level
+    $indent     = $indentUnit * $Depth
+    return $indent
+}
+
+
 function Get-AzDevOpsTreeIcon {
     param([Parameter(Mandatory)] [string] $Type)
 
@@ -936,7 +945,7 @@ function Format-AzDevOpsTreeNode {
         [Parameter(Mandatory)] [int] $Depth
     )
 
-    $indent    = '    ' * $Depth
+    $indent    = Get-AzDevOpsTreeIndent -Depth $Depth
     $icon      = Get-AzDevOpsTreeIcon -Type $Item.Type
     $separator = "$([char]0x2014)"   # em-dash
 
@@ -989,7 +998,8 @@ function Show-AzDevOpsTree {
         $features = @($children | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
 
         if ($features.Count -eq 0) {
-            Write-Output '    (no features)'
+            $featuresIndent = Get-AzDevOpsTreeIndent -Depth 1
+            Write-Output "$featuresIndent(no features)"
             continue
         }
 
