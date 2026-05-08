@@ -223,6 +223,7 @@ sequenceDiagram
     participant Banner as Write-AzDevOpsStaleBanner
     participant Filter as Select-AzDevOpsActiveItems
     participant Title as Format-AzDevOpsTruncatedTitle
+    participant Show as Show-AzDevOpsRows
     participant Cache as assigned.json
 
     User->>GetA: az-Get-AzDevOpsAssigned -State Active
@@ -240,7 +241,8 @@ sequenceDiagram
     Filter-->>GetA: filtered[]
     GetA->>Title: title-column projection
     Title-->>GetA: rows
-    GetA-->>User: table rows
+    GetA->>Show: -PassThru (Out-GridView on Windows<br/>or Format-Table fallback)
+    Show-->>User: selected rows / rendered table
 ```
 
 Open-by-id flow re-uses the same cache + a different last-mile helper:
@@ -268,7 +270,10 @@ flowchart TD
     Read --> Banner[Write-AzDevOpsStaleBanner]
     Banner --> Index["build $byParent hashtable<br/>key = ParentId or 0"]
     Index --> Epics["filter Type='Epic', sort by Id"]
-    Epics --> ForEpic{foreach epic}
+    Epics --> Grid{Test-AzDevOpsGridAvailable?}
+    Grid -- yes --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path)"]
+    RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-GridView"]
+    Grid -- no --> ForEpic{foreach epic}
     ForEpic --> NodeE["Format-AzDevOpsTreeNode -Depth 0<br/>uses Get-AzDevOpsTreeIcon (Epic icon)<br/>+ Get-AzDevOpsTreeIndent"]
     NodeE --> Features["children where Type='Feature'"]
     Features --> NoFeat{any?}
@@ -319,13 +324,13 @@ flowchart TD
     AC -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
     AC -- yes --> Feat{FeatureId >=0?}
     ReadAC --> Feat
-    Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)"]
+    Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>Windows: → Read-AzDevOpsGridPick (Out-GridView)<br/>else: numbered menu"]
     Feat -- yes --> Iter{Iteration param?}
     PickFeat --> Iter
-    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive"]
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>Windows: → Read-AzDevOpsGridPick"]
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
-    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'"]
+    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>Windows: → Read-AzDevOpsGridPick"]
     Area -- yes --> Create
     PickArea --> Create
 
@@ -471,6 +476,13 @@ graph LR
     Indent[Get-AzDevOpsTreeIndent]:::priv
     Icon[Get-AzDevOpsTreeIcon]:::priv
     NodeFmt[Format-AzDevOpsTreeNode]:::priv
+    TreeRows[Get-AzDevOpsTreeRows]:::priv
+
+    %% Grid presentation helpers
+    GridAvail[Test-AzDevOpsGridAvailable]:::priv
+    ShowRows[Show-AzDevOpsRows]:::priv
+    GridPick[Read-AzDevOpsGridPick]:::priv
+    StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
 
     %% NewStory helpers
     ReadCls[Read-AzDevOpsClassificationCache]:::priv
@@ -522,6 +534,7 @@ graph LR
     DSets --> Measure
 
     Status --> Age --> Paths
+    Status --> StatusRows --> ShowRows
     Reg --> Plat
     Reg --> TaskName
     Reg --> Interval
@@ -542,6 +555,7 @@ graph LR
     GetA --> Stale --> Age
     GetA --> SelAct --> Closed
     GetA --> TitleCol --> Trunc
+    GetA --> ShowRows
     OpenA --> ReadA
     OpenA --> Find
     OpenA --> OpenUrl --> Az
@@ -551,6 +565,7 @@ graph LR
     GetM --> Stale
     GetM --> SelAct
     GetM --> TitleCol
+    GetM --> ShowRows
     OpenM --> ReadM
     OpenM --> Find
     OpenM --> OpenUrl
@@ -559,6 +574,9 @@ graph LR
     Tree --> Stale
     Tree --> NodeFmt --> Indent
     NodeFmt --> Icon
+    Tree --> TreeRows --> ShowRows
+    ShowRows --> GridAvail
+    GridPick --> GridAvail
 
     NewS --> TestAuth
     NewS --> ReadH
@@ -571,6 +589,8 @@ graph LR
     ReadCls --> Paths
     PKind --> GetCPaths --> ToCPaths --> ToWIPath
     PFeat --> PCls
+    PFeat --> GridPick
+    PCls --> GridPick
     NewS --> InvCreate --> NewWI --> AzJson
     NewS --> InvLink --> AddRel --> AzJson
 ```
