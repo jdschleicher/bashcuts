@@ -49,6 +49,13 @@ if ($jira_setup -ne $NULL) {
     Write-Host "no jira_automations.ps1"
 }
 
+$azdevops_db = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_db.ps1"
+if ($azdevops_db -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_db.ps1"
+} else {
+    Write-Host "no azdevops_db.ps1"
+}
+
 $azdevops_workitems = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
 if ($azdevops_workitems -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
