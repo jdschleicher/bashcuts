@@ -196,7 +196,7 @@ flowchart TD
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
-        D3["hierarchy<br/>WIQL Epic/Feature/Story flat<br/>+ System.Parent"]
+        D3["hierarchy<br/>WIQL IN GROUP Epic/Feature/Requirement categories<br/>+ System.Parent"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
     end
