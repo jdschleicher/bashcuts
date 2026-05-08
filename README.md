@@ -215,11 +215,13 @@ az-Show-AzDevOpsTree                          # print the project's Epic -> Feat
 
 If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, and `az-Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
+On Windows, every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-AzDevOpsTree`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) opens through `Out-GridView` so you can sort, filter, and click-select rows. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. If `Out-GridView` isn't on your system (PowerShell 7 ships it via a separate module — `Install-Module Microsoft.PowerShell.GraphicalTools`), every command falls back to the existing table / numbered-menu output. macOS and Linux always use the fallback.
+
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 
 ### Creating a new User Story
 
-`az-New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers a numbered picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. After it creates the story it links the chosen parent and opens the new work item in your browser.
+`az-New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers an interactive picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. The picker uses `Out-GridView` on Windows when available, otherwise a Read-Host numbered menu (see "Day-to-day work-item shortcuts" above for the fallback rules). After it creates the story it links the chosen parent and opens the new work item in your browser.
 
 ```powershell
 az-New-AzDevOpsUserStory                       # full interactive walk-through

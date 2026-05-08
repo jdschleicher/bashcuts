@@ -627,6 +627,70 @@ function Get-AzDevOpsCacheAge {
 }
 
 
+function Get-AzDevOpsCacheStatusRows {
+    # Joins $cacheAge.Counts (dataset -> row count) with $cacheAge.Datasets
+    # (dataset -> {Status, Error}) into one flat row per dataset so the
+    # table / grid shows everything cache-related on a single sortable surface.
+    param([Parameter(Mandatory)] $CacheAge)
+
+    $rows = New-Object System.Collections.Generic.List[PSCustomObject]
+
+    $countsObj   = $CacheAge.Counts
+    $datasetsObj = $CacheAge.Datasets
+
+    $countNames = if ($countsObj) {
+        @($countsObj.PSObject.Properties.Name)
+    } else {
+        @()
+    }
+
+    $datasetNames = if ($datasetsObj) {
+        @($datasetsObj.PSObject.Properties.Name)
+    } else {
+        @()
+    }
+
+    $allNames = @($countNames + $datasetNames | Select-Object -Unique | Sort-Object)
+
+    foreach ($name in $allNames) {
+        $count = if ($countsObj -and $countsObj.PSObject.Properties[$name]) {
+            $countsObj.$name
+        } else {
+            $null
+        }
+
+        $datasetEntry = if ($datasetsObj -and $datasetsObj.PSObject.Properties[$name]) {
+            $datasetsObj.$name
+        } else {
+            $null
+        }
+
+        $status = if ($datasetEntry -and $datasetEntry.Status) {
+            $datasetEntry.Status
+        } else {
+            'ok'
+        }
+
+        $errorText = if ($datasetEntry -and $datasetEntry.Error) {
+            Get-AzDevOpsFirstStderrLine -Stderr $datasetEntry.Error
+        } else {
+            ''
+        }
+
+        $row = [PSCustomObject]@{
+            Dataset = $name
+            Status  = $status
+            Count   = $count
+            Error   = $errorText
+        }
+        $rows.Add($row)
+    }
+
+    $result = ,@($rows)
+    return $result
+}
+
+
 function az-Get-AzDevOpsCacheStatus {
     $cacheAge = Get-AzDevOpsCacheAge
     if ($null -eq $cacheAge) {
@@ -640,23 +704,16 @@ function az-Get-AzDevOpsCacheStatus {
         Write-Host "OK fresh - synced $($cacheAge.AgeText)" -ForegroundColor Green
     }
 
-    if ($cacheAge.Counts) {
-        $cacheAge.Counts.PSObject.Properties | ForEach-Object {
-            Write-Host "  $($_.Name): $($_.Value) rows"
-        }
+    $rows = Get-AzDevOpsCacheStatusRows -CacheAge $cacheAge
+    if (@($rows).Count -gt 0) {
+        Show-AzDevOpsRows -Rows $rows -Title "Azure DevOps cache - $($cacheAge.AgeText)"
     }
 
     if ($cacheAge.Datasets) {
         $errored = @($cacheAge.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
         if ($errored.Count -gt 0) {
             Write-Host ""
-            Write-Host "Partial sync - $($errored.Count) dataset(s) errored:" -ForegroundColor Yellow
-            foreach ($e in $errored) {
-                $msg = Get-AzDevOpsFirstStderrLine -Stderr $e.Value.Error
-                if (-not $msg) { $msg = '(no error text)' }
-                Write-Host "  X $($e.Name): $msg" -ForegroundColor Red
-            }
-            Write-Host "  See $($cacheAge.LogPath) for full az stderr" -ForegroundColor Yellow
+            Write-Host "Partial sync - $($errored.Count) dataset(s) errored. See $($cacheAge.LogPath) for full az stderr." -ForegroundColor Yellow
         }
     }
 }
@@ -775,6 +832,84 @@ function az-Unregister-AzDevOpsSyncSchedule {
     }
 
     Write-Host "Unsupported OS for az-Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
+}
+
+
+# ---------------------------------------------------------------------------
+# Grid presentation helpers
+#
+# Out-GridView gives the user a sortable, filterable, click-to-select view
+# for every list and every picker, but it's a Windows-only WPF cmdlet that
+# may not be present on PS 7 hosts (it ships in
+# Microsoft.PowerShell.GraphicalTools, which the user installs separately).
+# These helpers centralize the capability check + the call site so each
+# public function calls one line instead of repeating the if/else
+# (CLAUDE.md "extract repeated branches" rule).
+#
+#   Test-AzDevOpsGridAvailable - $true only on Windows + Out-GridView resolves
+#   Show-AzDevOpsRows          - render rows as grid (display-only or PassThru),
+#                              fall back to Format-Table when grid unavailable
+#   Read-AzDevOpsGridPick      - single-select grid picker; returns $null when
+#                              grid unavailable so the caller can run its
+#                              Read-Host numbered menu
+# ---------------------------------------------------------------------------
+
+function Test-AzDevOpsGridAvailable {
+    if ((Get-AzDevOpsPlatform) -ne 'Windows') {
+        return $false
+    }
+
+    $cmd       = Get-Command Out-GridView -ErrorAction SilentlyContinue
+    $available = ($null -ne $cmd)
+    return $available
+}
+
+
+function Show-AzDevOpsRows {
+    param(
+        $Rows,
+        [Parameter(Mandatory)] [string] $Title,
+        [switch] $PassThru
+    )
+
+    if ($null -eq $Rows) {
+        return
+    }
+
+    if (Test-AzDevOpsGridAvailable) {
+        if ($PassThru) {
+            $selected = $Rows | Out-GridView -Title $Title -PassThru
+            return $selected
+        }
+
+        $Rows | Out-GridView -Title $Title
+        return
+    }
+
+    if ($PassThru) {
+        return $Rows
+    }
+
+    $Rows | Format-Table -AutoSize | Out-Host
+}
+
+
+function Read-AzDevOpsGridPick {
+    param(
+        $Rows,
+        [Parameter(Mandatory)] [string] $Title
+    )
+
+    if ($null -eq $Rows -or @($Rows).Count -eq 0) {
+        return $null
+    }
+
+    if (-not (Test-AzDevOpsGridAvailable)) {
+        return $null
+    }
+
+    $picked = $Rows | Out-GridView -Title $Title -OutputMode Single
+    return $picked
 }
 
 
@@ -985,8 +1120,11 @@ function az-Get-AzDevOpsAssigned {
 
     $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
 
-    $rows = $filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt
-    return $rows
+    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    $title = "Assigned to me - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    return $selected
 }
 
 
@@ -1113,8 +1251,11 @@ function az-Get-AzDevOpsMentions {
         }
     }
 
-    $rows = $filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt
-    return $rows
+    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
+    $title = "Mentions - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    return $selected
 }
 
 
@@ -1250,6 +1391,62 @@ function Format-AzDevOpsTreeNode {
 }
 
 
+function Get-AzDevOpsTreeRows {
+    # Walks the Epic -> Feature -> User Story hierarchy and emits one flat
+    # row per node with a Path column ('Epic 1 / Feature 2 / Story 3') so
+    # the grid view stays sortable and filterable without losing the parent
+    # context the indented tree gives the eye.
+    param(
+        [Parameter(Mandatory)] $Items,
+        [Parameter(Mandatory)] $ByParent
+    )
+
+    $rows  = New-Object System.Collections.Generic.List[PSCustomObject]
+    $epics = @($Items | Where-Object { $_.Type -eq 'Epic' } | Sort-Object Id)
+
+    foreach ($epic in $epics) {
+        $epicPath = "Epic $($epic.Id) / $($epic.Title)"
+        $rows.Add([PSCustomObject]@{
+            Type  = 'Epic'
+            Id    = $epic.Id
+            Title = $epic.Title
+            State = $epic.State
+            Depth = 0
+            Path  = $epicPath
+        })
+
+        $features = @($ByParent[$epic.Id] | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
+        foreach ($feature in $features) {
+            $featurePath = "$epicPath / Feature $($feature.Id) / $($feature.Title)"
+            $rows.Add([PSCustomObject]@{
+                Type  = 'Feature'
+                Id    = $feature.Id
+                Title = $feature.Title
+                State = $feature.State
+                Depth = 1
+                Path  = $featurePath
+            })
+
+            $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
+            foreach ($story in $stories) {
+                $storyPath = "$featurePath / Story $($story.Id) / $($story.Title)"
+                $rows.Add([PSCustomObject]@{
+                    Type  = 'User Story'
+                    Id    = $story.Id
+                    Title = $story.Title
+                    State = $story.State
+                    Depth = 2
+                    Path  = $storyPath
+                })
+            }
+        }
+    }
+
+    $result = ,@($rows)
+    return $result
+}
+
+
 function az-Show-AzDevOpsTree {
     [CmdletBinding()]
     param()
@@ -1276,6 +1473,12 @@ function az-Show-AzDevOpsTree {
     $epics = @($items | Where-Object { $_.Type -eq 'Epic' } | Sort-Object Id)
     if ($epics.Count -eq 0) {
         Write-Host "(no epics in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
+    if (Test-AzDevOpsGridAvailable) {
+        $rows = Get-AzDevOpsTreeRows -Items $items -ByParent $byParent
+        Show-AzDevOpsRows -Rows $rows -Title "Azure DevOps hierarchy - $(@($rows).Count) items"
         return
     }
 
@@ -1496,9 +1699,11 @@ function Read-AzDevOpsAcceptanceCriteria {
 
 
 function Read-AzDevOpsFeaturePick {
-    # Lists active Features from hierarchy.json, prompts for a 1-based index
-    # (or 0 for "no parent - orphan"). Returns the chosen Feature Id, or 0
-    # for orphan.
+    # Lists active Features from hierarchy.json. Returns the chosen Feature
+    # Id, or 0 for orphan. On Windows + Out-GridView, opens a grid picker
+    # with a synthetic 'orphan' row pre-pended so the no-parent option is
+    # discoverable; Cancel maps to orphan as well. Otherwise falls back to
+    # the Read-Host numbered menu.
     param([Parameter(Mandatory)] $Hierarchy)
 
     $closedStates = Get-AzDevOpsClosedStates
@@ -1509,6 +1714,33 @@ function Read-AzDevOpsFeaturePick {
     if ($features.Count -eq 0) {
         Write-Host "(no active Features in hierarchy.json - story will be orphaned)" -ForegroundColor Yellow
         return 0
+    }
+
+    if (Test-AzDevOpsGridAvailable) {
+        $orphanRow = [PSCustomObject]@{
+            Id    = 0
+            Title = '(no parent - orphan story)'
+            State = ''
+        }
+
+        $featureRows = $features | ForEach-Object {
+            $title = Format-AzDevOpsTruncatedTitle -Title $_.Title
+            [PSCustomObject]@{
+                Id    = $_.Id
+                Title = $title
+                State = $_.State
+            }
+        }
+
+        $gridRows = @($orphanRow) + @($featureRows)
+        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title 'Pick a parent Feature (Cancel = orphan story)'
+
+        if ($null -eq $picked) {
+            return 0
+        }
+
+        $featureId = [int]$picked.Id
+        return $featureId
     }
 
     Write-Host ""
@@ -1543,14 +1775,39 @@ function Read-AzDevOpsFeaturePick {
 
 
 function Read-AzDevOpsClassificationPick {
-    # Numbered picker shared by iteration + area selection. Empty input
-    # selects the supplied default (typically $env:AZ_ITERATION /
-    # $env:AZ_AREA) when one is available.
+    # Picker shared by iteration + area selection. On Windows + Out-GridView,
+    # renders a Path / IsDefault grid; Cancel returns the supplied default
+    # (typically $env:AZ_ITERATION / $env:AZ_AREA). Otherwise falls back to
+    # the Read-Host numbered menu where empty input selects the default.
     param(
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
         [Parameter(Mandatory)] [string[]] $Paths,
         [string] $Default
     )
+
+    if (Test-AzDevOpsGridAvailable) {
+        $gridRows = $Paths | ForEach-Object {
+            [PSCustomObject]@{
+                Path      = $_
+                IsDefault = ($Default -and $_ -eq $Default)
+            }
+        }
+
+        $title = if ($Default) {
+            "Pick $Kind (Cancel = use default '$Default')"
+        } else {
+            "Pick $Kind"
+        }
+
+        $picked = Read-AzDevOpsGridPick -Rows $gridRows -Title $title
+
+        if ($null -eq $picked) {
+            return $Default
+        }
+
+        $pickedPath = [string]$picked.Path
+        return $pickedPath
+    }
 
     Write-Host ""
     Write-Host "Available ${Kind}s:" -ForegroundColor Cyan
@@ -2115,7 +2372,7 @@ function az-Get-AzDevOpsSchema {
         return $rows
     }
 
-    $rows | Format-Table -AutoSize | Out-Host
+    Show-AzDevOpsRows -Rows $rows -Title "Azure DevOps schema - $(@($rows).Count) fields"
 }
 
 
