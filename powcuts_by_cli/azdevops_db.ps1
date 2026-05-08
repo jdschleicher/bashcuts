@@ -21,11 +21,27 @@ function Invoke-AzDevOpsAzJson {
     # Generic wrapper around `az ... --output json` that captures stdout JSON
     # and stderr text separately. The canonical JSON+error path used by every
     # other data-plane wrapper in this file.
+    #
+    # When $env:AZ_DEVOPS_ORG / $env:AZ_PROJECT are set and the caller has not
+    # already supplied --organization / --project, we inject them so every
+    # wrapper auto-scopes to the bashcuts env-var contract instead of relying
+    # on `az devops configure --defaults`. Explicit caller flags always win
+    # (e.g. New-AzDevOpsWorkItem passes its own --project).
     param([Parameter(Mandatory)] [string[]] $ArgList)
+
+    $scopedArgs = @($ArgList)
+
+    if ($env:AZ_DEVOPS_ORG -and ($scopedArgs -notcontains '--organization')) {
+        $scopedArgs += @('--organization', $env:AZ_DEVOPS_ORG)
+    }
+
+    if ($env:AZ_PROJECT -and ($scopedArgs -notcontains '--project')) {
+        $scopedArgs += @('--project', $env:AZ_PROJECT)
+    }
 
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
-        $json = & az @ArgList --output json 2>$stderrFile
+        $json = & az @scopedArgs --output json 2>$stderrFile
         $exit = $LASTEXITCODE
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
             (Get-Content -LiteralPath $stderrFile -Raw)
