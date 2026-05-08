@@ -3,13 +3,13 @@
 Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_workitems.ps1`. Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
-- [2. `Connect-AzDevOps` — 6-step orchestrator](#2-connect-azdevops--6-step-orchestrator)
-- [3. `Test-AzDevOpsAuth` — silent diagnostic chain](#3-test-azdevopsauth--silent-diagnostic-chain)
-- [4. `Sync-AzDevOpsCache` — dataset fan-out](#4-sync-azdevopscache--dataset-fan-out)
-- [5. Cache consumers (`Get-/Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-get-open-azdevopsassignedmentions)
-- [6. `Show-AzDevOpsTree` — Epic → Feature → Story render](#6-show-azdevopstree--epic--feature--story-render)
-- [7. `New-AzDevOpsUserStory` — interactive create flow](#7-new-azdevopsuserstory--interactive-create-flow)
-- [8. `Register-/Unregister-AzDevOpsSyncSchedule` — platform branch](#8-register-unregister-azdevopssyncschedule--platform-branch)
+- [2. `az-Connect-AzDevOps` — 6-step orchestrator](#2-az-connect-azdevops--6-step-orchestrator)
+- [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
+- [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
+- [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
+- [6. `az-Show-AzDevOpsTree` — Epic → Feature → Story render](#6-az-show-azdevopstree--epic--feature--story-render)
+- [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
+- [8. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#8-az-register-az-unregister-azdevopssyncschedule--platform-branch)
 - [9. Function dependency map](#9-function-dependency-map)
 
 ---
@@ -26,18 +26,18 @@ flowchart LR
     end
 
     subgraph Public["Public functions"]
-        Connect["Connect-AzDevOps"]
-        TestAuth["Test-AzDevOpsAuth"]
-        Sync["Sync-AzDevOpsCache"]
-        Status["Get-AzDevOpsCacheStatus"]
-        Reg["Register-AzDevOpsSyncSchedule"]
-        Unreg["Unregister-AzDevOpsSyncSchedule"]
-        GetA["Get-AzDevOpsAssigned"]
-        OpenA["Open-AzDevOpsAssigned"]
-        GetM["Get-AzDevOpsMentions"]
-        OpenM["Open-AzDevOpsMention"]
-        Tree["Show-AzDevOpsTree"]
-        NewStory["New-AzDevOpsUserStory"]
+        Connect["az-Connect-AzDevOps"]
+        TestAuth["az-Test-AzDevOpsAuth"]
+        Sync["az-Sync-AzDevOpsCache"]
+        Status["az-Get-AzDevOpsCacheStatus"]
+        Reg["az-Register-AzDevOpsSyncSchedule"]
+        Unreg["az-Unregister-AzDevOpsSyncSchedule"]
+        GetA["az-Get-AzDevOpsAssigned"]
+        OpenA["az-Open-AzDevOpsAssigned"]
+        GetM["az-Get-AzDevOpsMentions"]
+        OpenM["az-Open-AzDevOpsMention"]
+        Tree["az-Show-AzDevOpsTree"]
+        NewStory["az-New-AzDevOpsUserStory"]
     end
 
     subgraph Cache["$HOME/.bashcuts-cache/azure-devops/"]
@@ -92,20 +92,20 @@ flowchart LR
 
 ---
 
-## 2. `Connect-AzDevOps` — 6-step orchestrator
+## 2. `az-Connect-AzDevOps` — 6-step orchestrator
 
 Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`.
 
 ```mermaid
 flowchart TD
-    Start([Connect-AzDevOps]) --> S1
+    Start([az-Connect-AzDevOps]) --> S1
 
-    S1["Step 1 — Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
-    S2["Step 2 — Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
-    S3["Step 3 — Confirm-AzDevOpsEnvVars<br/>uses Get-AzDevOpsMissingEnvVars"]
-    S4["Step 4 — Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
-    S5["Step 5 — Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S6["Step 6 — Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
+    S1["Step 1 — az-Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
+    S2["Step 2 — az-Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
+    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>uses Get-AzDevOpsMissingEnvVars"]
+    S4["Step 4 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
+    S5["Step 5 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
+    S6["Step 6 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
     NotReady([NOT READY — blocked at step N])
@@ -135,13 +135,13 @@ Helpers used by every step:
 
 ---
 
-## 3. `Test-AzDevOpsAuth` — silent diagnostic chain
+## 3. `az-Test-AzDevOpsAuth` — silent diagnostic chain
 
-Used by callers (`Sync-AzDevOpsCache`, `New-AzDevOpsUserStory`) at the top of every command to bail early if the environment regressed. No I/O — pure boolean.
+Used by callers (`az-Sync-AzDevOpsCache`, `az-New-AzDevOpsUserStory`) at the top of every command to bail early if the environment regressed. No I/O — pure boolean.
 
 ```mermaid
 flowchart TD
-    Start([Test-AzDevOpsAuth]) --> A{Test-AzDevOpsCliPresent?}
+    Start([az-Test-AzDevOpsAuth]) --> A{Test-AzDevOpsCliPresent?}
     A -- no --> F([return $false])
     A -- yes --> B{Get-AzDevOpsMissingEnvVars<br/>count == 0?}
     B -- no --> F
@@ -159,14 +159,14 @@ Skipped on purpose: `Test-AzDevOpsExtensionInstalled` and `Test-AzDevOpsLoggedIn
 
 ---
 
-## 4. `Sync-AzDevOpsCache` — dataset fan-out
+## 4. `az-Sync-AzDevOpsCache` — dataset fan-out
 
 Five datasets, one orchestrator. Each dataset descriptor declares its `Fetch` scriptblock, `Counter`, and target file path; `Invoke-AzDevOpsAzDataset` is the single sync helper that runs them all (per the CLAUDE.md extract-repeated-branches rule).
 
 ```mermaid
 flowchart TD
-    Entry([Sync-AzDevOpsCache]) --> Auth{Test-AzDevOpsAuth}
-    Auth -- false --> AbortAuth([abort: 'Run Connect-AzDevOps'])
+    Entry([az-Sync-AzDevOpsCache]) --> Auth{az-Test-AzDevOpsAuth}
+    Auth -- false --> AbortAuth([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Init["Initialize-AzDevOpsCacheDir<br/>(creates dir)"]
     Init --> Datasets["Get-AzDevOpsSyncDatasets<br/>builds 5 descriptors"]
 
@@ -208,7 +208,7 @@ Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`,
 
 ---
 
-## 5. Cache consumers (`Get-/Open-AzDevOps{Assigned,Mentions}`)
+## 5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)
 
 The two parallel pairs share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads.
 
@@ -216,7 +216,7 @@ The two parallel pairs share private helpers (extracted under "Shared scaffoldin
 sequenceDiagram
     autonumber
     actor User
-    participant GetA as Get-AzDevOpsAssigned
+    participant GetA as az-Get-AzDevOpsAssigned
     participant ReadA as Read-AzDevOpsAssignedCache
     participant ReadJ as Read-AzDevOpsJsonCache
     participant Conv as ConvertFrom-AzDevOpsAssignedItem
@@ -225,7 +225,7 @@ sequenceDiagram
     participant Title as Format-AzDevOpsTruncatedTitle
     participant Cache as assigned.json
 
-    User->>GetA: Get-AzDevOpsAssigned -State Active
+    User->>GetA: az-Get-AzDevOpsAssigned -State Active
     GetA->>ReadA: ReadAssigned()
     ReadA->>ReadJ: Read-AzDevOpsJsonCache(path, converter)
     ReadJ->>Cache: Get-Content -Raw
@@ -247,24 +247,24 @@ Open-by-id flow re-uses the same cache + a different last-mile helper:
 
 ```mermaid
 flowchart LR
-    A([Open-AzDevOpsAssigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
+    A([az-Open-AzDevOpsAssigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
     RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
-    Find -- miss --> Hint([print 'run Get-AzDevOpsAssigned' + LASTEXITCODE=1])
+    Find -- miss --> Hint([print 'run az-Get-AzDevOpsAssigned' + LASTEXITCODE=1])
     Find -- hit --> Open["Open-AzDevOpsWorkItemUrl<br/>(env-var guard + URL build)"]
     Open --> SP["Start-Process<br/>$env:AZ_DEVOPS_ORG/$env:AZ_PROJECT/_workitems/edit/12345"]
 ```
 
-`Open-AzDevOpsMention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
+`az-Open-AzDevOpsMention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
 
 ---
 
-## 6. `Show-AzDevOpsTree` — Epic → Feature → Story render
+## 6. `az-Show-AzDevOpsTree` — Epic → Feature → Story render
 
 Pure cache read, no `az`. The hierarchy WIQL pulled `[System.Parent]` per row, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
 
 ```mermaid
 flowchart TD
-    Start([Show-AzDevOpsTree]) --> Read[Read-AzDevOpsHierarchyCache]
+    Start([az-Show-AzDevOpsTree]) --> Read[Read-AzDevOpsHierarchyCache]
     Read --> Banner[Write-AzDevOpsStaleBanner]
     Banner --> Index["build $byParent hashtable<br/>key = ParentId or 0"]
     Index --> Epics["filter Type='Epic', sort by Id"]
@@ -287,14 +287,14 @@ Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, 
 
 ---
 
-## 7. `New-AzDevOpsUserStory` — interactive create flow
+## 7. `az-New-AzDevOpsUserStory` — interactive create flow
 
 Interactive walk-through with all-optional parameters: every prompt is skipped if its parameter was supplied, so the function is also script-callable.
 
 ```mermaid
 flowchart TD
-    Start([New-AzDevOpsUserStory]) --> Auth{Test-AzDevOpsAuth}
-    Auth -- false --> Abort1([abort: 'Run Connect-AzDevOps'])
+    Start([az-New-AzDevOpsUserStory]) --> Auth{az-Test-AzDevOpsAuth}
+    Auth -- false --> Abort1([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
     Email -- no --> Abort2([abort])
     Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
@@ -343,22 +343,22 @@ flowchart TD
     SP2 --> Done([return $newId])
 ```
 
-Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (user upgraded but hasn't synced), `Read-AzDevOpsKindPick` calls `Invoke-AzDevOpsClassificationLive` and prints a one-line "(run Sync-AzDevOpsCache to make this instant)" hint.
+Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (user upgraded but hasn't synced), `Read-AzDevOpsKindPick` calls `Invoke-AzDevOpsClassificationLive` and prints a one-line "(run az-Sync-AzDevOpsCache to make this instant)" hint.
 
 ---
 
-## 8. `Register-/Unregister-AzDevOpsSyncSchedule` — platform branch
+## 8. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
 
 Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
 
 ```mermaid
 flowchart TD
-    Reg([Register-AzDevOpsSyncSchedule]) --> P1{Get-AzDevOpsPlatform}
+    Reg([az-Register-AzDevOpsSyncSchedule]) --> P1{Get-AzDevOpsPlatform}
     P1 -- Windows --> WReg["New-ScheduledTaskAction + Trigger<br/>Register-ScheduledTask -TaskName<br/>Get-AzDevOpsScheduledTaskName<br/>(every Get-AzDevOpsSyncIntervalHours)"]
     P1 -- Posix --> PReg["Get-AzDevOpsCronLine -PwshPath<br/>+ Get-AzDevOpsCrontabSplit<br/>append + crontab -"]
     P1 -- Unknown --> ErrR([Unsupported OS])
 
-    Unreg([Unregister-AzDevOpsSyncSchedule]) --> P2{Get-AzDevOpsPlatform}
+    Unreg([az-Unregister-AzDevOpsSyncSchedule]) --> P2{Get-AzDevOpsPlatform}
     P2 -- Windows --> WUn["Get-ScheduledTask?<br/>Unregister-ScheduledTask -Confirm:$false"]
     P2 -- Posix --> PUn["Get-AzDevOpsCrontabSplit<br/>(filter Get-AzDevOpsCronTag)<br/>crontab -"]
     P2 -- Unknown --> ErrU([Unsupported OS])
@@ -388,26 +388,26 @@ graph LR
     classDef priv fill:#3a3a3a,stroke:#888,color:#ddd
     classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
 
-    Connect(["Connect-AzDevOps"]):::pub
-    TestAuth(["Test-AzDevOpsAuth"]):::pub
-    Sync(["Sync-AzDevOpsCache"]):::pub
-    Status(["Get-AzDevOpsCacheStatus"]):::pub
-    Reg(["Register-AzDevOpsSyncSchedule"]):::pub
-    Unreg(["Unregister-AzDevOpsSyncSchedule"]):::pub
-    GetA(["Get-AzDevOpsAssigned"]):::pub
-    OpenA(["Open-AzDevOpsAssigned"]):::pub
-    GetM(["Get-AzDevOpsMentions"]):::pub
-    OpenM(["Open-AzDevOpsMention"]):::pub
-    Tree(["Show-AzDevOpsTree"]):::pub
-    NewS(["New-AzDevOpsUserStory"]):::pub
+    Connect(["az-Connect-AzDevOps"]):::pub
+    TestAuth(["az-Test-AzDevOpsAuth"]):::pub
+    Sync(["az-Sync-AzDevOpsCache"]):::pub
+    Status(["az-Get-AzDevOpsCacheStatus"]):::pub
+    Reg(["az-Register-AzDevOpsSyncSchedule"]):::pub
+    Unreg(["az-Unregister-AzDevOpsSyncSchedule"]):::pub
+    GetA(["az-Get-AzDevOpsAssigned"]):::pub
+    OpenA(["az-Open-AzDevOpsAssigned"]):::pub
+    GetM(["az-Get-AzDevOpsMentions"]):::pub
+    OpenM(["az-Open-AzDevOpsMention"]):::pub
+    Tree(["az-Show-AzDevOpsTree"]):::pub
+    NewS(["az-New-AzDevOpsUserStory"]):::pub
 
     %% Step helpers
-    C1[Confirm-AzDevOpsCli]:::priv
-    C2[Confirm-AzDevOpsExtension]:::priv
-    C3[Confirm-AzDevOpsEnvVars]:::priv
-    C4[Confirm-AzDevOpsLogin]:::priv
-    C5[Set-AzDevOpsDefaults]:::priv
-    C6[Confirm-AzDevOpsSmokeQuery]:::priv
+    C1[az-Confirm-AzDevOpsCli]:::priv
+    C2[az-Confirm-AzDevOpsExtension]:::priv
+    C3[az-Confirm-AzDevOpsEnvVars]:::priv
+    C4[az-Confirm-AzDevOpsLogin]:::priv
+    C5[az-Set-AzDevOpsDefaults]:::priv
+    C6[az-Confirm-AzDevOpsSmokeQuery]:::priv
     StepRes[New-AzDevOpsStepResult]:::priv
     YN[Read-AzDevOpsYesNo]:::priv
 

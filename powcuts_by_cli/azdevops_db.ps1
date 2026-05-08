@@ -13,7 +13,7 @@
 #     caller. This matches the existing helper shape and keeps wrappers thin.
 #   - Session/admin calls (az login, az account show, az extension *,
 #     az devops configure) are NOT wrapped here - they live in
-#     azdevops_workitems.ps1 alongside Connect-AzDevOps.
+#     azdevops_workitems.ps1 alongside az-Connect-AzDevOps.
 # ---------------------------------------------------------------------------
 
 
