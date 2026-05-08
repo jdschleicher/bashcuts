@@ -77,10 +77,13 @@ function Test-AzDevOpsLoggedIn {
 
 function Invoke-AzDevOpsSmokeQuery {
     $wiql = 'Select [System.Id] From WorkItems Where [System.AssignedTo] = @Me'
-    $json = az boards query --wiql $wiql --output json 2>$null
-    if ($LASTEXITCODE -ne 0) { return $null }
+    $result = Invoke-AzDevOpsBoardsQuery -Wiql $wiql
+    if ($result.ExitCode -ne 0) {
+        return $null
+    }
+
     try {
-        $items = $json | ConvertFrom-Json
+        $items = $result.Json | ConvertFrom-Json
         return @($items).Count
     } catch {
         return $null
@@ -351,42 +354,6 @@ function Write-AzDevOpsSyncLog {
 }
 
 
-function Invoke-AzDevOpsAzJson {
-    # Generic wrapper around `az ... --output json` that captures stdout JSON
-    # and stderr text separately. Used by Invoke-AzDevOpsBoardsQuery (WIQL) and
-    # the iteration/area classification list calls so both paths share one
-    # stderr-to-tempfile pattern instead of repeating it.
-    param([Parameter(Mandatory)] [string[]] $ArgList)
-
-    $stderrFile = [System.IO.Path]::GetTempFileName()
-    try {
-        $json = & az @ArgList --output json 2>$stderrFile
-        $exit = $LASTEXITCODE
-        $stderr = if (Test-Path -LiteralPath $stderrFile) {
-            (Get-Content -LiteralPath $stderrFile -Raw)
-        } else { '' }
-    } finally {
-        Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
-    }
-
-    if ($null -eq $stderr) { $stderr = '' }
-
-    return [PSCustomObject]@{
-        Json     = $json
-        Error    = $stderr
-        ExitCode = $exit
-    }
-}
-
-
-function Invoke-AzDevOpsBoardsQuery {
-    param([Parameter(Mandatory)] [string] $Wiql)
-
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'query', '--wiql', $Wiql)
-    return $result
-}
-
-
 # ---------------------------------------------------------------------------
 # Sync helpers — extracted so az-Sync-AzDevOpsCache stays a small orchestrator
 # and the duplicated "first stderr line" / "build error status" / "log raw
@@ -496,7 +463,7 @@ function Get-AzDevOpsSyncDatasets {
             Name      = 'iterations'
             Label     = 'Project iterations (tree)'
             Path      = $Paths.Iterations
-            Fetch     = { Invoke-AzDevOpsAzJson -ArgList @('boards', 'iteration', 'project', 'list', '--depth', '5') }
+            Fetch     = { Get-AzDevOpsIterationList -Depth 5 }
             Counter   = $treeCounter
             RowLabel  = 'nodes'
             JsonDepth = 20
@@ -505,7 +472,7 @@ function Get-AzDevOpsSyncDatasets {
             Name      = 'areas'
             Label     = 'Project areas (tree)'
             Path      = $Paths.Areas
-            Fetch     = { Invoke-AzDevOpsAzJson -ArgList @('boards', 'area', 'project', 'list', '--depth', '5') }
+            Fetch     = { Get-AzDevOpsAreaList -Depth 5 }
             Counter   = $treeCounter
             RowLabel  = 'nodes'
             JsonDepth = 20
@@ -1383,8 +1350,12 @@ function Invoke-AzDevOpsClassificationLive {
     # working before the user runs az-Sync-AzDevOpsCache after this update.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $azKind = $Kind.ToLower()
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', $azKind, 'project', 'list', '--depth', '5')
+    $result = if ($Kind -eq 'Iteration') {
+        Get-AzDevOpsIterationList -Depth 5
+    } else {
+        Get-AzDevOpsAreaList -Depth 5
+    }
+
     if ($result.ExitCode -ne 0) {
         return $null
     }
@@ -1675,22 +1646,21 @@ function Invoke-AzDevOpsWorkItemCreate {
         [Parameter(Mandatory)] [string] $Area
     )
 
-    $argList = @(
-        'boards', 'work-item', 'create',
-        '--type',        'User Story',
-        '--title',       $Title,
-        '--description', $Description,
-        '--assigned-to', $env:AZ_USER_EMAIL,
-        '--project',     $env:AZ_PROJECT,
-        '--area',        $Area,
-        '--iteration',   $Iteration,
-        '--fields',
-            "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints",
-            "Microsoft.VSTS.Common.Priority=$Priority",
-            "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
+    $fields = @(
+        "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints",
+        "Microsoft.VSTS.Common.Priority=$Priority",
+        "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
     )
 
-    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    $result = New-AzDevOpsWorkItem `
+        -Type        'User Story' `
+        -Title       $Title `
+        -Description $Description `
+        -AssignedTo  $env:AZ_USER_EMAIL `
+        -Project     $env:AZ_PROJECT `
+        -Area        $Area `
+        -Iteration   $Iteration `
+        -Fields      $fields
 
     if ($result.ExitCode -ne 0) {
         return [PSCustomObject]@{
@@ -1741,12 +1711,7 @@ function Invoke-AzDevOpsParentLink {
         [Parameter(Mandatory)] [int] $ParentId
     )
 
-    $result = Invoke-AzDevOpsAzJson -ArgList @(
-        'boards', 'work-item', 'relation', 'add',
-        '--id',            "$Id",
-        '--relation-type', 'parent',
-        '--target-id',     "$ParentId"
-    )
+    $result = Add-AzDevOpsWorkItemRelation -Id $Id -TargetId $ParentId -RelationType 'parent'
 
     if ($result.ExitCode -ne 0) {
         return [PSCustomObject]@{ Ok = $false; Error = $result.Error }
@@ -2219,7 +2184,7 @@ function Invoke-AzDevOpsWorkItemTypeShow {
     # one of the standards) without taking down the whole flow.
     param([Parameter(Mandatory)] [string] $Type)
 
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'work-item-type', 'show', '--type', $Type)
+    $result = Get-AzDevOpsWorkItemTypeDefinition -Type $Type
     if ($result.ExitCode -ne 0) {
         return [PSCustomObject]@{ Ok = $false; Error = $result.Error; Type = $null }
     }
