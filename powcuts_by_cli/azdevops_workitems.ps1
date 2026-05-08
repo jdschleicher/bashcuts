@@ -1068,14 +1068,35 @@ function Find-AzDevOpsCachedWorkItem {
     Write-Host "Work item $Id is not in your $Description cache." -ForegroundColor Red
     Write-Host "  Tip: run $ListCommand to list valid IDs, or az-Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
 
-    if ($IncludeUrlFallback -and $env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
-        $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-        $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-        Write-Host "  Or open it directly: $org/$projectEnc/_workitems/edit/$Id" -ForegroundColor Yellow
+    if ($IncludeUrlFallback) {
+        $fallbackUrl = Get-AzDevOpsWorkItemUrl -Id $Id
+        if ($fallbackUrl) {
+            Write-Host "  Or open it directly: $fallbackUrl" -ForegroundColor Yellow
+        }
     }
 
     $global:LASTEXITCODE = 1
     return $null
+}
+
+
+function Get-AzDevOpsWorkItemUrl {
+    # Quiet URL builder. Returns the work-item edit URL when both env vars are
+    # set; returns $null and sets $LASTEXITCODE = 1 silently when they aren't,
+    # so it is safe to call from row projections (Out-ConsoleGridView columns)
+    # without spamming output. User-facing callers (Open-AzDevOpsWorkItemUrl)
+    # keep their own Write-Host messaging.
+    param([Parameter(Mandatory)] [int] $Id)
+
+    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+        $global:LASTEXITCODE = 1
+        return $null
+    }
+
+    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
+    $url        = "$org/$projectEnc/_workitems/edit/$Id"
+    return $url
 }
 
 
@@ -1084,15 +1105,11 @@ function Open-AzDevOpsWorkItemUrl {
     # returns when env-vars are missing; otherwise launches the OS browser.
     param([Parameter(Mandatory)] [int] $Id)
 
-    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+    $url = Get-AzDevOpsWorkItemUrl -Id $Id
+    if ($null -eq $url) {
         Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
-        $global:LASTEXITCODE = 1
         return
     }
-
-    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    $url        = "$org/$projectEnc/_workitems/edit/$Id"
 
     Write-Host "Opening $url" -ForegroundColor Cyan
     Start-Process $url
@@ -1415,6 +1432,7 @@ function Get-AzDevOpsTreeRows {
             State = $epic.State
             Depth = 0
             Path  = $epicPath
+            Url   = Get-AzDevOpsWorkItemUrl -Id $epic.Id
         })
 
         $features = @($ByParent[$epic.Id] | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
@@ -1427,6 +1445,7 @@ function Get-AzDevOpsTreeRows {
                 State = $feature.State
                 Depth = 1
                 Path  = $featurePath
+                Url   = Get-AzDevOpsWorkItemUrl -Id $feature.Id
             })
 
             $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
@@ -1439,6 +1458,7 @@ function Get-AzDevOpsTreeRows {
                     State = $story.State
                     Depth = 2
                     Path  = $storyPath
+                    Url   = Get-AzDevOpsWorkItemUrl -Id $story.Id
                 })
             }
         }
