@@ -37,6 +37,10 @@ function o-pow-git {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\git_common.ps1"
 }
 
+function o-pow-azdevops {
+	Start-Process "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
+}
+
 
 function o-pow-jir {
 	Start-Process "$path_to_bashcuts\powcuts_by_cli\jira_automations.ps1"
