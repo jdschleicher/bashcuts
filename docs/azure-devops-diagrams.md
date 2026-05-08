@@ -440,6 +440,11 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
 
+    %% Query echo helpers (azdevops_db.ps1)
+    CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
+    CmdHead[Get-AzDevOpsCommandHeadline]:::priv
+    EchoLn[Write-AzDevOpsQueryEcho]:::priv
+
     %% Schedule helpers
     Plat[Get-AzDevOpsPlatform]:::priv
     TaskName[Get-AzDevOpsScheduledTaskName]:::priv
@@ -514,6 +519,10 @@ graph LR
     InvokeDS --> ClassList
     Boards --> AzJson
     ClassList --> AzJson
+    Boards --> EchoLn
+    AzJson --> CmdDisp
+    AzJson --> CmdHead
+    AzJson --> EchoLn
     AzJson --> Az
     InvokeDS --> Stderr1
     InvokeDS --> DStatus
