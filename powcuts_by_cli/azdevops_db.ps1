@@ -140,13 +140,14 @@ function Invoke-AzDevOpsAzJson {
     $elapsed  = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
     $headline = Get-AzDevOpsCommandHeadline -ArgList $scopedArgs
 
-    if ($exit -eq 0) {
-        $summary = "$headline ($elapsed, exit=0)"
-        Write-AzDevOpsQueryEcho -Message $summary -Color 'DarkGreen'
+    $summary      = "$headline ($elapsed, exit=$exit)"
+    $summaryColor = if ($exit -eq 0) {
+        'DarkGreen'
     } else {
-        $summary = "$headline ($elapsed, exit=$exit)"
-        Write-AzDevOpsQueryEcho -Message $summary -Color 'Red'
+        'Red'
     }
+
+    Write-AzDevOpsQueryEcho -Message $summary -Color $summaryColor
 
     if ($null -eq $stderr) {
         $stderr = ''
