@@ -463,7 +463,7 @@ function Get-AzDevOpsSyncDatasets {
             Name      = 'iterations'
             Label     = 'Project iterations (tree)'
             Path      = $Paths.Iterations
-            Fetch     = { Get-AzDevOpsIterationList -Depth 5 }
+            Fetch     = { Get-AzDevOpsClassificationList -Kind 'Iteration' -Depth 5 }
             Counter   = $treeCounter
             RowLabel  = 'nodes'
             JsonDepth = 20
@@ -472,7 +472,7 @@ function Get-AzDevOpsSyncDatasets {
             Name      = 'areas'
             Label     = 'Project areas (tree)'
             Path      = $Paths.Areas
-            Fetch     = { Get-AzDevOpsAreaList -Depth 5 }
+            Fetch     = { Get-AzDevOpsClassificationList -Kind 'Area' -Depth 5 }
             Counter   = $treeCounter
             RowLabel  = 'nodes'
             JsonDepth = 20
@@ -1350,12 +1350,7 @@ function Invoke-AzDevOpsClassificationLive {
     # working before the user runs az-Sync-AzDevOpsCache after this update.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $result = if ($Kind -eq 'Iteration') {
-        Get-AzDevOpsIterationList -Depth 5
-    } else {
-        Get-AzDevOpsAreaList -Depth 5
-    }
-
+    $result = Get-AzDevOpsClassificationList -Kind $Kind -Depth 5
     if ($result.ExitCode -ne 0) {
         return $null
     }

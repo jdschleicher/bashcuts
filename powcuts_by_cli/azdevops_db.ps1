@@ -58,20 +58,18 @@ function Invoke-AzDevOpsBoardsQuery {
 }
 
 
-function Get-AzDevOpsIterationList {
-    # `az boards iteration project list --depth <N>` wrapper.
-    param([int] $Depth = 5)
+function Get-AzDevOpsClassificationList {
+    # `az boards <iteration|area> project list --depth <N>` wrapper. Replaces
+    # the prior Iteration/Area twin pair so callers express the kind via -Kind
+    # rather than choosing between two near-identical functions (CLAUDE.md
+    # extract-repeated-branches rule for parallel function pairs).
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
+        [int] $Depth = 5
+    )
 
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'iteration', 'project', 'list', '--depth', "$Depth")
-    return $result
-}
-
-
-function Get-AzDevOpsAreaList {
-    # `az boards area project list --depth <N>` wrapper.
-    param([int] $Depth = 5)
-
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'area', 'project', 'list', '--depth', "$Depth")
+    $subcommand = $Kind.ToLower()
+    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', $subcommand, 'project', 'list', '--depth', "$Depth")
     return $result
 }
 
@@ -94,30 +92,34 @@ function New-AzDevOpsWorkItem {
         [switch]   $Open
     )
 
+    # Reject `--`-prefixed or otherwise malformed field tokens so a stray
+    # value cannot escape the variadic --fields slot and be reinterpreted
+    # by az's argparse as a new flag (defense in depth — callers are
+    # interactive and self-trusted but the class of bug is worth killing).
+    foreach ($f in $Fields) {
+        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
+            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
+        }
+    }
+
     $argList = @(
         'boards', 'work-item', 'create',
         '--type',  $Type,
         '--title', $Title
     )
 
-    if ($Description) {
-        $argList += @('--description', $Description)
+    $optionalFlags = [ordered]@{
+        '--description' = $Description
+        '--assigned-to' = $AssignedTo
+        '--project'     = $Project
+        '--area'        = $Area
+        '--iteration'   = $Iteration
     }
 
-    if ($AssignedTo) {
-        $argList += @('--assigned-to', $AssignedTo)
-    }
-
-    if ($Project) {
-        $argList += @('--project', $Project)
-    }
-
-    if ($Area) {
-        $argList += @('--area', $Area)
-    }
-
-    if ($Iteration) {
-        $argList += @('--iteration', $Iteration)
+    foreach ($kv in $optionalFlags.GetEnumerator()) {
+        if ($kv.Value) {
+            $argList += @($kv.Key, $kv.Value)
+        }
     }
 
     if ($Fields -and $Fields.Count -gt 0) {
