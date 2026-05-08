@@ -429,7 +429,13 @@ function Get-AzDevOpsSyncDatasets {
     # Flat work-items query (not link-mode): az boards query resolves
     # System.Parent + the rest of the fields for each item in one shot,
     # giving az-Show-AzDevOpsTree everything it needs without re-calling az.
-    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.TeamProject] = @Project AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story')"
+    # IN GROUP queries by work-item-type *category* so this works on every
+    # process template - 'User Story' only exists in Agile; Scrum uses
+    # 'Product Backlog Item', CMMI uses 'Requirement', Basic uses 'Issue'.
+    # Project scope is supplied by --project on the az invocation
+    # (Invoke-AzDevOpsAzJson injects it from $env:AZ_PROJECT), so the WIQL
+    # itself no longer needs a [System.TeamProject] = @Project clause.
+    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
 
     $rowCounter  = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
@@ -453,7 +459,7 @@ function Get-AzDevOpsSyncDatasets {
         },
         @{
             Name     = 'hierarchy'
-            Label    = 'Epic/Feature/Story hierarchy in @Project'
+            Label    = 'Epic/Feature/Requirement-tier hierarchy'
             Path     = $Paths.Hierarchy
             Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $hierarchyWiql }.GetNewClosure()
             Counter  = $rowCounter
