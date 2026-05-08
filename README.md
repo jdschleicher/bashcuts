@@ -158,13 +158,13 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `Connect-AzDevOps` first-run helper, a cached background sync (`Sync-AzDevOpsCache` + `Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`Get-AzDevOpsAssigned`, `Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`Get-AzDevOpsMentions`, `Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`Show-AzDevOpsTree`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`New-AzDevOpsUserStory`), and a per-org field-schema config (`Initialize-AzDevOpsSchema`, `Get-AzDevOpsSchema`, `Edit-AzDevOpsSchema`, `Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
 - Azure CLI: https://aka.ms/installazurecli
-- `azure-devops` CLI extension: `az extension add --name azure-devops` (`Connect-AzDevOps` will offer to install this for you on first run)
-- An active `az login` session (`Connect-AzDevOps` will offer to start one for you on first run)
+- `azure-devops` CLI extension: `az extension add --name azure-devops` (`az-Connect-AzDevOps` will offer to install this for you on first run)
+- An active `az login` session (`az-Connect-AzDevOps` will offer to start one for you on first run)
 
 ### Profile environment variables
 
@@ -183,52 +183,52 @@ $env:AZ_ITERATION  = 'My Project\Sprint 42'
 In a fresh PowerShell terminal:
 
 ```powershell
-Connect-AzDevOps
+az-Connect-AzDevOps
 ```
 
 This walks through six checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
 
-After `Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
+After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `az-Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
 
 ### Day-to-day work-item shortcuts
 
-These read the local cache populated by `Sync-AzDevOpsCache` (and the recurring `Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
+These read the local cache populated by `az-Sync-AzDevOpsCache` (and the recurring `az-Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
 
 ```powershell
-Get-AzDevOpsAssigned                       # everything assigned to you (excludes Closed/Removed)
-Get-AzDevOpsAssigned -State Active         # filter to a single state
-Get-AzDevOpsAssigned -State Active,New     # filter to multiple states
-Get-AzDevOpsAssigned | Format-Table -AutoSize
+az-Get-AzDevOpsAssigned                       # everything assigned to you (excludes Closed/Removed)
+az-Get-AzDevOpsAssigned -State Active         # filter to a single state
+az-Get-AzDevOpsAssigned -State Active,New     # filter to multiple states
+az-Get-AzDevOpsAssigned | Format-Table -AutoSize
 
-Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
+az-Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
 
-Get-AzDevOpsMentions                                  # work items where you've been @-mentioned (excludes items you're already assigned to)
-Get-AzDevOpsMentions -State Active                    # filter to a single state
-Get-AzDevOpsMentions -Since (Get-Date).AddDays(-7)    # only mentions whose last activity was in the past week
-Get-AzDevOpsMentions -IncludeAssigned                 # also surface mentioned items already assigned to you
-Get-AzDevOpsMentions | Format-Table -AutoSize
+az-Get-AzDevOpsMentions                                  # work items where you've been @-mentioned (excludes items you're already assigned to)
+az-Get-AzDevOpsMentions -State Active                    # filter to a single state
+az-Get-AzDevOpsMentions -Since (Get-Date).AddDays(-7)    # only mentions whose last activity was in the past week
+az-Get-AzDevOpsMentions -IncludeAssigned                 # also surface mentioned items already assigned to you
+az-Get-AzDevOpsMentions | Format-Table -AutoSize
 
-Open-AzDevOpsMention 12345                 # open one of your mentioned items in the browser
+az-Open-AzDevOpsMention 12345                 # open one of your mentioned items in the browser
 
-Show-AzDevOpsTree                          # print the project's Epic -> Feature -> User Story tree
+az-Show-AzDevOpsTree                          # print the project's Epic -> Feature -> User Story tree
 ```
 
-If the cache is older than 6 hours, `Get-AzDevOpsAssigned`, `Get-AzDevOpsMentions`, and `Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, and `az-Show-AzDevOpsTree` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
-`Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run Sync-AzDevOpsCache to make this instant)" notice.
+`az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 
 ### Creating a new User Story
 
-`New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers a numbered picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. After it creates the story it links the chosen parent and opens the new work item in your browser.
+`az-New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers a numbered picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. After it creates the story it links the chosen parent and opens the new work item in your browser.
 
 ```powershell
-New-AzDevOpsUserStory                       # full interactive walk-through
+az-New-AzDevOpsUserStory                       # full interactive walk-through
 ```
 
 Every prompt is skippable via a parameter, so the function works non-interactively in a script:
 
 ```powershell
-New-AzDevOpsUserStory `
+az-New-AzDevOpsUserStory `
     -Title              "Add new dashboard widget" `
     -Description        "Surface deploy frequency on the team home page." `
     -Priority           2 `
@@ -249,13 +249,13 @@ Every Azure DevOps org configures its own required + custom fields via process t
 The schema lives at `$HOME/.bashcuts/azure-devops/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
 ```powershell
-Initialize-AzDevOpsSchema     # introspect your org via `az boards work-item-type show`
+az-Initialize-AzDevOpsSchema     # introspect your org via `az boards work-item-type show`
                               #   and write a starter schema. Refine afterward.
-Get-AzDevOpsSchema            # print summary table of every required/optional field
-Get-AzDevOpsSchema -PassThru  # return objects (pipeable / scriptable)
-Edit-AzDevOpsSchema           # open the schema in $env:EDITOR / code / notepad / nano
+az-Get-AzDevOpsSchema            # print summary table of every required/optional field
+az-Get-AzDevOpsSchema -PassThru  # return objects (pipeable / scriptable)
+az-Edit-AzDevOpsSchema           # open the schema in $env:EDITOR / code / notepad / nano
                               #   (creates a stub if the file doesn't exist yet)
-Test-AzDevOpsSchema           # validate the JSON, that every ref still exists in the
+az-Test-AzDevOpsSchema           # validate the JSON, that every ref still exists in the
                               #   org, and that picklist options are a subset of
                               #   the org's allowedValues. Verdict: VALID / STALE /
                               #   INVALID with a list of any unknown refs / option
@@ -279,5 +279,5 @@ Schema file format (one entry per work-item type, each with `required` and `opti
 }
 ```
 
-Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline`. Unknown types are treated as `string` with a warning from `Test-AzDevOpsSchema`.
+Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline`. Unknown types are treated as `string` with a warning from `az-Test-AzDevOpsSchema`.
 

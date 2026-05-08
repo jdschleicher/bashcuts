@@ -5,23 +5,23 @@
 # Foundation file for Azure DevOps work-item navigation shortcuts.
 #
 # User-facing functions:
-#   Connect-AzDevOps   - interactive first-run auth + setup helper (run once
+#   az-Connect-AzDevOps   - interactive first-run auth + setup helper (run once
 #                        on a fresh machine, or any time auth feels stale)
-#   Test-AzDevOpsAuth  - silent yes/no auth assertion intended for callers
+#   az-Test-AzDevOpsAuth  - silent yes/no auth assertion intended for callers
 #                        in later AzDevOps commands; returns $true / $false
 #
-# Step functions invoked by Connect-AzDevOps (also exposed for direct use,
+# Step functions invoked by az-Connect-AzDevOps (also exposed for direct use,
 # e.g. to debug a single failing step). Each returns a [PSCustomObject]
 # with Ok (bool) and FailMessage (string or $null) properties, and prints
 # its own status:
-#   Confirm-AzDevOpsCli              - step 1 (CLI on PATH + version echo)
-#   Confirm-AzDevOpsExtension        - step 2 (azure-devops extension; offers install)
-#   Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
-#   Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
-#   Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
-#   Confirm-AzDevOpsSmokeQuery       - step 6 (az boards query smoke test)
+#   az-Confirm-AzDevOpsCli              - step 1 (CLI on PATH + version echo)
+#   az-Confirm-AzDevOpsExtension        - step 2 (azure-devops extension; offers install)
+#   az-Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
+#   az-Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
+#   az-Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
+#   az-Confirm-AzDevOpsSmokeQuery       - step 6 (az boards query smoke test)
 #
-# Silent diagnostic helpers (pure checks, no I/O — used by Test-AzDevOpsAuth):
+# Silent diagnostic helpers (pure checks, no I/O — used by az-Test-AzDevOpsAuth):
 #   Test-AzDevOpsCliPresent          - is the `az` CLI on PATH?
 #   Test-AzDevOpsExtensionInstalled  - is the `azure-devops` extension installed?
 #   Get-AzDevOpsMissingEnvVars       - returns array of required env vars not set
@@ -42,12 +42,12 @@
 #   - azure-devops ext : az extension add --name azure-devops
 #
 # First-run:
-#   PS> Connect-AzDevOps
+#   PS> az-Connect-AzDevOps
 # ============================================================================
 
 
 # ---------------------------------------------------------------------------
-# Silent diagnostic helpers (no I/O; safe for Test-AzDevOpsAuth callers)
+# Silent diagnostic helpers (no I/O; safe for az-Test-AzDevOpsAuth callers)
 # ---------------------------------------------------------------------------
 
 function Test-AzDevOpsCliPresent {
@@ -88,7 +88,7 @@ function Invoke-AzDevOpsSmokeQuery {
 }
 
 
-function Test-AzDevOpsAuth {
+function az-Test-AzDevOpsAuth {
     if (-not (Test-AzDevOpsCliPresent))                { return $false }
     if ((Get-AzDevOpsMissingEnvVars).Count -gt 0)      { return $false }
     if ($null -eq (Invoke-AzDevOpsSmokeQuery))         { return $false }
@@ -99,7 +99,7 @@ function Test-AzDevOpsAuth {
 function Assert-AzDevOpsAuthOrAbort {
     # Standard auth-test-and-abort prologue used by every command that calls
     # az on the user's behalf (Sync-AzDevOpsCache, New-AzDevOpsUserStory,
-    # Initialize-AzDevOpsSchema, Test-AzDevOpsSchema). Returns $true when
+    # az-Initialize-AzDevOpsSchema, az-Test-AzDevOpsSchema). Returns $true when
     # auth is good. On failure, prints the standard "<command> aborted -
     # Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." line and
     # returns $false so callers `if (-not (Assert-...)) { return }`.
@@ -115,7 +115,7 @@ function Assert-AzDevOpsAuthOrAbort {
 
 
 # ---------------------------------------------------------------------------
-# Step functions invoked by Connect-AzDevOps. Each owns its print + I/O for
+# Step functions invoked by az-Connect-AzDevOps. Each owns its print + I/O for
 # one step and returns a [PSCustomObject] with Ok (bool) and FailMessage
 # (string or $null) properties.
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ function Read-AzDevOpsYesNo {
 }
 
 
-function Confirm-AzDevOpsCli {
+function az-Confirm-AzDevOpsCli {
     if (-not (Test-AzDevOpsCliPresent)) {
         Write-Host "  X az CLI not on PATH" -ForegroundColor Red
         if ($IsWindows) {
@@ -159,7 +159,7 @@ function Confirm-AzDevOpsCli {
 }
 
 
-function Confirm-AzDevOpsExtension {
+function az-Confirm-AzDevOpsExtension {
     if (-not (Test-AzDevOpsExtensionInstalled)) {
         Write-Host "  !  azure-devops extension not installed" -ForegroundColor Yellow
         if (-not (Read-AzDevOpsYesNo -Prompt 'Install now?')) {
@@ -176,7 +176,7 @@ function Confirm-AzDevOpsExtension {
 }
 
 
-function Confirm-AzDevOpsEnvVars {
+function az-Confirm-AzDevOpsEnvVars {
     $missing = Get-AzDevOpsMissingEnvVars
     if ($missing.Count -gt 0) {
         Write-Host "  X Missing env vars: $($missing -join ', ')" -ForegroundColor Red
@@ -198,7 +198,7 @@ function Confirm-AzDevOpsEnvVars {
 }
 
 
-function Confirm-AzDevOpsLogin {
+function az-Confirm-AzDevOpsLogin {
     if (-not (Test-AzDevOpsLoggedIn)) {
         Write-Host "  !  No active az login session" -ForegroundColor Yellow
         if (-not (Read-AzDevOpsYesNo -Prompt "Run 'az login' now?")) {
@@ -216,7 +216,7 @@ function Confirm-AzDevOpsLogin {
 }
 
 
-function Set-AzDevOpsDefaults {
+function az-Set-AzDevOpsDefaults {
     $configOutput = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  X az devops configure failed" -ForegroundColor Red
@@ -228,7 +228,7 @@ function Set-AzDevOpsDefaults {
 }
 
 
-function Confirm-AzDevOpsSmokeQuery {
+function az-Confirm-AzDevOpsSmokeQuery {
     $count = Invoke-AzDevOpsSmokeQuery
     if ($null -eq $count) {
         Write-Host "  X Smoke query failed" -ForegroundColor Red
@@ -241,26 +241,26 @@ function Confirm-AzDevOpsSmokeQuery {
 
 
 # ---------------------------------------------------------------------------
-# Connect-AzDevOps — thin orchestrator that runs each step in order and
+# az-Connect-AzDevOps — thin orchestrator that runs each step in order and
 # bails on the first failure with a clear NOT READY verdict.
 # ---------------------------------------------------------------------------
 
-function Connect-AzDevOps {
+function az-Connect-AzDevOps {
 
     Write-Host ""
-    Write-Host "Connect-AzDevOps" -ForegroundColor Cyan
+    Write-Host "az-Connect-AzDevOps" -ForegroundColor Cyan
     Write-Host "================" -ForegroundColor Cyan
 
     # $steps is a closed internal array of step descriptors. Each Action is a
     # hardcoded scriptblock invoking a known function; nothing here accepts
     # untrusted input, so & $step.Action below has no injection surface.
     $steps = @(
-        @{ Num = 1; Name = 'Azure CLI';                     Action = { Confirm-AzDevOpsCli } },
-        @{ Num = 2; Name = 'azure-devops extension';        Action = { Confirm-AzDevOpsExtension } },
-        @{ Num = 3; Name = 'Profile environment variables'; Action = { Confirm-AzDevOpsEnvVars } },
-        @{ Num = 4; Name = 'Azure login session';           Action = { Confirm-AzDevOpsLogin } },
-        @{ Num = 5; Name = 'Configure az devops defaults';  Action = { Set-AzDevOpsDefaults } },
-        @{ Num = 6; Name = 'Smoke test (az boards query)';  Action = { Confirm-AzDevOpsSmokeQuery } }
+        @{ Num = 1; Name = 'Azure CLI';                     Action = { az-Confirm-AzDevOpsCli } },
+        @{ Num = 2; Name = 'azure-devops extension';        Action = { az-Confirm-AzDevOpsExtension } },
+        @{ Num = 3; Name = 'Profile environment variables'; Action = { az-Confirm-AzDevOpsEnvVars } },
+        @{ Num = 4; Name = 'Azure login session';           Action = { az-Confirm-AzDevOpsLogin } },
+        @{ Num = 5; Name = 'Configure az devops defaults';  Action = { az-Set-AzDevOpsDefaults } },
+        @{ Num = 6; Name = 'Smoke test (az boards query)';  Action = { az-Confirm-AzDevOpsSmokeQuery } }
     )
 
     foreach ($step in $steps) {
@@ -293,11 +293,11 @@ function Connect-AzDevOps {
 #   sync.log        - append-only, rotated to sync.log.1 at ~1 MB
 #
 # Public functions:
-#   Sync-AzDevOpsCache              - one-shot refresh of all three datasets
-#   Get-AzDevOpsCacheStatus         - prints freshness vs 6h threshold
-#   Register-AzDevOpsSyncSchedule   - Task Scheduler (Windows) or crontab
+#   az-Sync-AzDevOpsCache              - one-shot refresh of all three datasets
+#   az-Get-AzDevOpsCacheStatus         - prints freshness vs 6h threshold
+#   az-Register-AzDevOpsSyncSchedule   - Task Scheduler (Windows) or crontab
 #                                      (macOS/Linux) entry, every 5 hours
-#   Unregister-AzDevOpsSyncSchedule - removes the schedule on either OS
+#   az-Unregister-AzDevOpsSyncSchedule - removes the schedule on either OS
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsCachePaths {
@@ -388,7 +388,7 @@ function Invoke-AzDevOpsBoardsQuery {
 
 
 # ---------------------------------------------------------------------------
-# Sync helpers — extracted so Sync-AzDevOpsCache stays a small orchestrator
+# Sync helpers — extracted so az-Sync-AzDevOpsCache stays a small orchestrator
 # and the duplicated "first stderr line" / "build error status" / "log raw
 # stderr" patterns live in one place each (per CLAUDE.md DRY rule).
 # ---------------------------------------------------------------------------
@@ -461,7 +461,7 @@ function Get-AzDevOpsSyncDatasets {
     $mentionsWiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
     # Flat work-items query (not link-mode): az boards query resolves
     # System.Parent + the rest of the fields for each item in one shot,
-    # giving Show-AzDevOpsTree everything it needs without re-calling az.
+    # giving az-Show-AzDevOpsTree everything it needs without re-calling az.
     $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.TeamProject] = @Project AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story')"
 
     $rowCounter  = { param($parsed) @($parsed).Count }
@@ -591,8 +591,8 @@ function Measure-AzDevOpsClassificationNodes {
 }
 
 
-function Sync-AzDevOpsCache {
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Sync-AzDevOpsCache')) {
+function az-Sync-AzDevOpsCache {
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-Sync-AzDevOpsCache')) {
         return
     }
 
@@ -660,10 +660,10 @@ function Get-AzDevOpsCacheAge {
 }
 
 
-function Get-AzDevOpsCacheStatus {
+function az-Get-AzDevOpsCacheStatus {
     $cacheAge = Get-AzDevOpsCacheAge
     if ($null -eq $cacheAge) {
-        Write-Host "No cache yet - run Sync-AzDevOpsCache" -ForegroundColor Yellow
+        Write-Host "No cache yet - run az-Sync-AzDevOpsCache" -ForegroundColor Yellow
         return
     }
 
@@ -696,7 +696,7 @@ function Get-AzDevOpsCacheStatus {
 
 
 # ---------------------------------------------------------------------------
-# Scheduling helpers — shared by Register-/Unregister-AzDevOpsSyncSchedule
+# Scheduling helpers — shared by Register-/az-Unregister-AzDevOpsSyncSchedule
 # so the platform branch and the cron-tag filter live in one place each
 # (CLAUDE.md explicitly names Get-AzDevOpsPlatform / Get-AzDevOpsCronLine).
 # ---------------------------------------------------------------------------
@@ -727,7 +727,7 @@ function Get-AzDevOpsCronLine {
     param([Parameter(Mandatory)] [string] $PwshPath)
     $tag   = Get-AzDevOpsCronTag
     $hours = Get-AzDevOpsSyncIntervalHours
-    return "0 */$hours * * * $PwshPath -Command `"Sync-AzDevOpsCache`" $tag"
+    return "0 */$hours * * * $PwshPath -Command `"az-Sync-AzDevOpsCache`" $tag"
 }
 
 
@@ -751,7 +751,7 @@ function Get-AzDevOpsCrontabSplit {
 }
 
 
-function Register-AzDevOpsSyncSchedule {
+function az-Register-AzDevOpsSyncSchedule {
     $platform = Get-AzDevOpsPlatform
     # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
     # available; without -NoProfile, the scheduled invocation has the same
@@ -761,7 +761,7 @@ function Register-AzDevOpsSyncSchedule {
 
     if ($platform -eq 'Windows') {
         $taskName = Get-AzDevOpsScheduledTaskName
-        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"Sync-AzDevOpsCache`""
+        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
         $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
                         -RepetitionInterval (New-TimeSpan -Hours $hours)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
@@ -778,11 +778,11 @@ function Register-AzDevOpsSyncSchedule {
         return
     }
 
-    Write-Host "Unsupported OS for Register-AzDevOpsSyncSchedule" -ForegroundColor Red
+    Write-Host "Unsupported OS for az-Register-AzDevOpsSyncSchedule" -ForegroundColor Red
 }
 
 
-function Unregister-AzDevOpsSyncSchedule {
+function az-Unregister-AzDevOpsSyncSchedule {
     $platform = Get-AzDevOpsPlatform
 
     if ($platform -eq 'Windows') {
@@ -807,7 +807,7 @@ function Unregister-AzDevOpsSyncSchedule {
         return
     }
 
-    Write-Host "Unsupported OS for Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
+    Write-Host "Unsupported OS for az-Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
 }
 
 
@@ -815,13 +815,13 @@ function Unregister-AzDevOpsSyncSchedule {
 # Cache consumers - read-only commands that surface cached work items
 #
 # Public functions:
-#   Get-AzDevOpsAssigned   - table of work items assigned to me
-#   Open-AzDevOpsAssigned  - open a single assigned item in the browser
-#   Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
-#   Open-AzDevOpsMention   - open a single mentioned item in the browser
+#   az-Get-AzDevOpsAssigned   - table of work items assigned to me
+#   az-Open-AzDevOpsAssigned  - open a single assigned item in the browser
+#   az-Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
+#   az-Open-AzDevOpsMention   - open a single mentioned item in the browser
 #
 # All four read $HOME/.bashcuts-cache/azure-devops/{assigned,mentions}.json
-# (built by Sync-AzDevOpsCache). They never call `az` directly - if the cache
+# (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
 # ---------------------------------------------------------------------------
 
@@ -853,8 +853,8 @@ function Read-AzDevOpsJsonCache {
 
     if (-not (Test-Path -LiteralPath $Path)) {
         Write-Host "No $Description cache at $Path." -ForegroundColor Yellow
-        Write-Host "  Run: Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
-        Write-Host "  Run: Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
+        Write-Host "  Run: az-Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
+        Write-Host "  Run: az-Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
         return $null
     }
 
@@ -934,7 +934,7 @@ function Format-AzDevOpsTruncatedTitle {
 function Get-AzDevOpsTitleColumn {
     # Returns a Select-Object calculated-property hashtable that renders the
     # Title column with the standard 80-char ellipsis truncation. Used by
-    # Get-AzDevOpsAssigned and Get-AzDevOpsMentions so the projection lives
+    # az-Get-AzDevOpsAssigned and az-Get-AzDevOpsMentions so the projection lives
     # in one place.
     return @{
         Name       = 'Title'
@@ -962,7 +962,7 @@ function Find-AzDevOpsCachedWorkItem {
     }
 
     Write-Host "Work item $Id is not in your $Description cache." -ForegroundColor Red
-    Write-Host "  Tip: run $ListCommand to list valid IDs, or Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
+    Write-Host "  Tip: run $ListCommand to list valid IDs, or az-Sync-AzDevOpsCache to refresh." -ForegroundColor Yellow
 
     if ($IncludeUrlFallback -and $env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
         $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
@@ -1005,7 +1005,7 @@ function Read-AzDevOpsAssignedCache {
 }
 
 
-function Get-AzDevOpsAssigned {
+function az-Get-AzDevOpsAssigned {
     [CmdletBinding()]
     param(
         [string[]] $State
@@ -1023,7 +1023,7 @@ function Get-AzDevOpsAssigned {
 }
 
 
-function Open-AzDevOpsAssigned {
+function az-Open-AzDevOpsAssigned {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)] [int] $Id
@@ -1036,7 +1036,7 @@ function Open-AzDevOpsAssigned {
         -Items       $items `
         -Id          $Id `
         -Description 'assigned-items' `
-        -ListCommand 'Get-AzDevOpsAssigned' `
+        -ListCommand 'az-Get-AzDevOpsAssigned' `
         -IncludeUrlFallback
     if (-not $match) { return }
 
@@ -1111,7 +1111,7 @@ function Read-AzDevOpsMentionsCache {
 }
 
 
-function Get-AzDevOpsMentions {
+function az-Get-AzDevOpsMentions {
     [CmdletBinding()]
     param(
         [string[]] $State,
@@ -1151,7 +1151,7 @@ function Get-AzDevOpsMentions {
 }
 
 
-function Open-AzDevOpsMention {
+function az-Open-AzDevOpsMention {
     # Plain /_workitems/edit/<id> URL only - Azure DevOps' #comment-NNNN
     # anchor is an ephemeral comment id that isn't stable across syncs, so
     # there's no reliable way to deep-link into the discussion thread; the
@@ -1168,7 +1168,7 @@ function Open-AzDevOpsMention {
         -Items       $items `
         -Id          $Id `
         -Description 'mentions' `
-        -ListCommand 'Get-AzDevOpsMentions' `
+        -ListCommand 'az-Get-AzDevOpsMentions' `
         -IncludeUrlFallback
     if (-not $match) { return }
 
@@ -1180,11 +1180,11 @@ function Open-AzDevOpsMention {
 # Hierarchy tree view
 #
 # Public function:
-#   Show-AzDevOpsTree   - prints the project's Epic/Feature/User Story tree
+#   az-Show-AzDevOpsTree   - prints the project's Epic/Feature/User Story tree
 #                          from the cached hierarchy.json (no `az` calls)
 #
 # Reads $HOME/.bashcuts-cache/azure-devops/hierarchy.json (built by
-# Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
+# az-Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
 # item carries its parent link directly - no follow-up resolution needed.
 # ---------------------------------------------------------------------------
 
@@ -1283,7 +1283,7 @@ function Format-AzDevOpsTreeNode {
 }
 
 
-function Show-AzDevOpsTree {
+function az-Show-AzDevOpsTree {
     [CmdletBinding()]
     param()
 
@@ -1340,7 +1340,7 @@ function Show-AzDevOpsTree {
 # Interactive new-user-story creator
 #
 # Public function:
-#   New-AzDevOpsUserStory   - prompts for title/description/priority/SP/AC,
+#   az-New-AzDevOpsUserStory   - prompts for title/description/priority/SP/AC,
 #                              then walks parent-Feature / iteration / area
 #                              pickers, calls `az boards work-item create`,
 #                              links the chosen parent, and opens the new
@@ -1380,7 +1380,7 @@ function Read-AzDevOpsClassificationCache {
 function Invoke-AzDevOpsClassificationLive {
     # Fetches the iteration / area tree directly from `az` when the cache
     # doesn't have it yet. Used as a fallback so the new-story flow keeps
-    # working before the user runs Sync-AzDevOpsCache after this update.
+    # working before the user runs az-Sync-AzDevOpsCache after this update.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
     $azKind = $Kind.ToLower()
@@ -1464,14 +1464,14 @@ function ConvertTo-AzDevOpsClassificationPaths {
 
 function Get-AzDevOpsClassificationPaths {
     # Single entry point for picker consumers: read from cache first, fall
-    # back to live `az` with a one-line "(run Sync-AzDevOpsCache to make this
+    # back to live `az` with a one-line "(run az-Sync-AzDevOpsCache to make this
     # instant)" notice so the function stays usable before the user re-syncs.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
     $tree = Read-AzDevOpsClassificationCache -Kind $Kind
     if ($null -eq $tree) {
         $azKind = $Kind.ToLower()
-        Write-Host "(fetching ${azKind}s live - run Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
+        Write-Host "(fetching ${azKind}s live - run az-Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
         $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
     }
 
@@ -1756,7 +1756,7 @@ function Invoke-AzDevOpsParentLink {
 }
 
 
-function New-AzDevOpsUserStory {
+function az-New-AzDevOpsUserStory {
     [CmdletBinding()]
     param(
         [string] $Title,
@@ -1770,12 +1770,12 @@ function New-AzDevOpsUserStory {
         [switch] $NoOpen
     )
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'New-AzDevOpsUserStory')) {
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsUserStory')) {
         return
     }
 
     if (-not $env:AZ_USER_EMAIL) {
-        Write-Host "New-AzDevOpsUserStory aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+        Write-Host "az-New-AzDevOpsUserStory aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
         return
     }
 
@@ -1816,7 +1816,7 @@ function New-AzDevOpsUserStory {
         $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
     }
     if (-not $Iteration) {
-        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run Sync-AzDevOpsCache." -ForegroundColor Red
+        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
         return
     }
 
@@ -1824,7 +1824,7 @@ function New-AzDevOpsUserStory {
         $Area = Read-AzDevOpsKindPick -Kind 'Area'
     }
     if (-not $Area) {
-        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run Sync-AzDevOpsCache." -ForegroundColor Red
+        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
         return
     }
 
@@ -1883,17 +1883,17 @@ function New-AzDevOpsUserStory {
 #                   $env:AZ_DEVOPS_ORG; falls back to schema.json when unset)
 #
 # Public functions:
-#   Get-AzDevOpsSchema          - print summary table of the configured
+#   az-Get-AzDevOpsSchema          - print summary table of the configured
 #                                  required/optional/custom fields per
 #                                  work-item type. -PassThru returns objects.
-#   Edit-AzDevOpsSchema         - open the schema file in $env:EDITOR /
+#   az-Edit-AzDevOpsSchema         - open the schema file in $env:EDITOR /
 #                                  code / notepad / nano. Creates a stub
 #                                  if the file does not exist.
-#   Initialize-AzDevOpsSchema   - introspect the org via
+#   az-Initialize-AzDevOpsSchema   - introspect the org via
 #                                  `az boards work-item-type show` and
 #                                  write a starter schema. User refines
-#                                  afterward via Edit-AzDevOpsSchema.
-#   Test-AzDevOpsSchema         - validate JSON parses, every ref still
+#                                  afterward via az-Edit-AzDevOpsSchema.
+#   az-Test-AzDevOpsSchema         - validate JSON parses, every ref still
 #                                  exists in the org, and picklist options
 #                                  are a subset of allowedValues. Verdict:
 #                                  VALID / STALE / INVALID.
@@ -1911,7 +1911,7 @@ function Get-AzDevOpsSchemaValidTypes {
 
 
 function Get-AzDevOpsSchemaWorkItemTypes {
-    # Standard process-template work-item types Initialize-AzDevOpsSchema
+    # Standard process-template work-item types az-Initialize-AzDevOpsSchema
     # introspects. Types not present in the org's process are skipped with
     # a warning rather than failing the whole introspection.
     return @('Epic', 'Feature', 'User Story', 'Bug', 'Task')
@@ -1920,7 +1920,7 @@ function Get-AzDevOpsSchemaWorkItemTypes {
 
 function Get-AzDevOpsSchemaSystemRefs {
     # Reference names that ship with every Azure DevOps process template
-    # (Agile / Scrum / CMMI). Initialize-AzDevOpsSchema filters these out
+    # (Agile / Scrum / CMMI). az-Initialize-AzDevOpsSchema filters these out
     # so the produced schema only carries org-specific fields.
     return @(
         'System.Id', 'System.Title', 'System.Description', 'System.State',
@@ -2033,8 +2033,8 @@ function Write-AzDevOpsSchemaFile {
 
 function Read-AzDevOpsSchemaFile {
     # Returns the parsed schema object, or $null when the file is missing
-    # or unparseable. Used by Get-AzDevOpsSchema, Get-AzDevOpsSchemaForType,
-    # and Test-AzDevOpsSchema.
+    # or unparseable. Used by az-Get-AzDevOpsSchema, Get-AzDevOpsSchemaForType,
+    # and az-Test-AzDevOpsSchema.
     $paths = Get-AzDevOpsSchemaPaths
     if (-not (Test-Path -LiteralPath $paths.File)) {
         return $null
@@ -2074,8 +2074,8 @@ function Get-AzDevOpsSchemaForType {
 
 
 function New-AzDevOpsSchemaStub {
-    # Empty starter schema used by Edit-AzDevOpsSchema when no file exists
-    # yet and the user just wants to hand-edit one in. Initialize-AzDevOpsSchema
+    # Empty starter schema used by az-Edit-AzDevOpsSchema when no file exists
+    # yet and the user just wants to hand-edit one in. az-Initialize-AzDevOpsSchema
     # produces a richer file by introspecting the org.
     return [ordered]@{
         'User Story' = [ordered]@{
@@ -2136,7 +2136,7 @@ function ConvertFrom-AzDevOpsSchemaToRows {
 }
 
 
-function Get-AzDevOpsSchema {
+function az-Get-AzDevOpsSchema {
     [CmdletBinding()]
     param([switch] $PassThru)
 
@@ -2144,8 +2144,8 @@ function Get-AzDevOpsSchema {
     if ($null -eq $schema) {
         $paths = Get-AzDevOpsSchemaPaths
         Write-Host "No schema configured at $($paths.File)." -ForegroundColor Yellow
-        Write-Host "  Run: Initialize-AzDevOpsSchema   # populate from your org's work-item types" -ForegroundColor Yellow
-        Write-Host "  Or:  Edit-AzDevOpsSchema         # create + hand-edit a stub" -ForegroundColor Yellow
+        Write-Host "  Run: az-Initialize-AzDevOpsSchema   # populate from your org's work-item types" -ForegroundColor Yellow
+        Write-Host "  Or:  az-Edit-AzDevOpsSchema         # create + hand-edit a stub" -ForegroundColor Yellow
         return
     }
 
@@ -2179,7 +2179,7 @@ function Resolve-AzDevOpsEditor {
 }
 
 
-function Edit-AzDevOpsSchema {
+function az-Edit-AzDevOpsSchema {
     [CmdletBinding()]
     param()
 
@@ -2189,7 +2189,7 @@ function Edit-AzDevOpsSchema {
         $stub = New-AzDevOpsSchemaStub
         Write-AzDevOpsSchemaFile -Path $paths.File -Schema $stub
         Write-Host "Created stub schema at $($paths.File)." -ForegroundColor Cyan
-        Write-Host "  Edit and run Test-AzDevOpsSchema to validate against your org." -ForegroundColor Cyan
+        Write-Host "  Edit and run az-Test-AzDevOpsSchema to validate against your org." -ForegroundColor Cyan
     }
 
     $editor       = Resolve-AzDevOpsEditor
@@ -2238,7 +2238,7 @@ function ConvertTo-AzDevOpsSchemaFieldEntry {
     # Maps one fieldInstances[] element to our { name, ref, type, options? }
     # shape. Type defaults to 'string' since `az boards work-item-type show`
     # doesn't surface the underlying field type; presence of allowedValues
-    # promotes it to 'picklist'. Users refine via Edit-AzDevOpsSchema.
+    # promotes it to 'picklist'. Users refine via az-Edit-AzDevOpsSchema.
     param([Parameter(Mandatory)] $FieldInstance)
 
     $name = $FieldInstance.field.name
@@ -2269,11 +2269,11 @@ function ConvertTo-AzDevOpsSchemaFieldEntry {
 }
 
 
-function Initialize-AzDevOpsSchema {
+function az-Initialize-AzDevOpsSchema {
     [CmdletBinding()]
     param()
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Initialize-AzDevOpsSchema')) {
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-Initialize-AzDevOpsSchema')) {
         return
     }
 
@@ -2323,17 +2323,17 @@ function Initialize-AzDevOpsSchema {
 
     Write-Host ""
     Write-Host "Wrote $($paths.File)" -ForegroundColor Cyan
-    Write-Host "Refine field types and picklist options via Edit-AzDevOpsSchema, then run Test-AzDevOpsSchema." -ForegroundColor Cyan
+    Write-Host "Refine field types and picklist options via az-Edit-AzDevOpsSchema, then run az-Test-AzDevOpsSchema." -ForegroundColor Cyan
 }
 
 
-function Test-AzDevOpsSchema {
+function az-Test-AzDevOpsSchema {
     [CmdletBinding()]
     param()
 
     $paths = Get-AzDevOpsSchemaPaths
     if (-not (Test-Path -LiteralPath $paths.File)) {
-        Write-Host "No schema configured at $($paths.File). Run Initialize-AzDevOpsSchema." -ForegroundColor Yellow
+        Write-Host "No schema configured at $($paths.File). Run az-Initialize-AzDevOpsSchema." -ForegroundColor Yellow
         return
     }
 
@@ -2343,7 +2343,7 @@ function Test-AzDevOpsSchema {
         return
     }
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'Test-AzDevOpsSchema')) {
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-Test-AzDevOpsSchema')) {
         return
     }
 
