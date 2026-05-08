@@ -14,19 +14,99 @@
 #   - Session/admin calls (az login, az account show, az extension *,
 #     az devops configure) are NOT wrapped here - they live in
 #     azdevops_workitems.ps1 alongside az-Connect-AzDevOps.
+#
+# Diagnostic echoes:
+#   - Every call through Invoke-AzDevOpsAzJson echoes the assembled `az`
+#     command line before invoking and the elapsed-time / exit-code summary
+#     after the call returns. WIQL queries additionally echo the WIQL string
+#     as its own labeled line via Invoke-AzDevOpsBoardsQuery so the SQL-ish
+#     text isn't buried inside the `--wiql` arg of the command echo.
+#   - All echoes go through Write-Host (host stream only) so the canonical
+#     { Json, Error, ExitCode } envelope is unaffected for callers that
+#     consume the function's return value.
 # ---------------------------------------------------------------------------
+
+
+function Write-AzDevOpsQueryEcho {
+    # Private helper - emits a single status line for query echoes (the WIQL
+    # string, the assembled `az` command, and the post-call elapsed/exit
+    # summary). Lifts the indent and arrow glyph into one place so the
+    # visual style stays consistent across callers and a future tweak
+    # (different glyph, different indent, different default color) is a
+    # one-line edit. Uses an unapproved-verb-free name (Write-* is approved)
+    # but is treated as private to azdevops_db.ps1 / azdevops_workitems.ps1.
+    param(
+        [Parameter(Mandatory)] [string] $Message,
+        [string] $Color = 'DarkCyan'
+    )
+
+    $indent    = '  '
+    $arrowChar = "$([char]0x21B3)"   # downwards arrow with tip rightwards
+    $line      = "$indent$arrowChar $Message"
+
+    Write-Host $line -ForegroundColor $Color
+}
+
+
+function Format-AzDevOpsCommandDisplay {
+    # Private helper - renders an `az` ArgList into a human-readable single
+    # line for echo output. Args containing whitespace or quotes get wrapped
+    # in double quotes (with embedded quotes escaped); plain args stay
+    # unquoted. Appends `--output json` to match what Invoke-AzDevOpsAzJson
+    # actually runs so a copy-pasted line reproduces the call faithfully.
+    param([Parameter(Mandatory)] [string[]] $ArgList)
+
+    $displayParts = @()
+    foreach ($a in $ArgList) {
+        $needsQuote = $a -match '\s|"'
+        if ($needsQuote) {
+            $escaped = $a -replace '"', '\"'
+            $displayParts += "`"$escaped`""
+        } else {
+            $displayParts += $a
+        }
+    }
+
+    $command = "az $($displayParts -join ' ') --output json"
+    return $command
+}
+
+
+function Get-AzDevOpsCommandHeadline {
+    # Private helper - extracts a short subcommand-only headline from an `az`
+    # ArgList by joining tokens up to (but not including) the first `--flag`
+    # arg. Used for the post-call elapsed/exit summary line so the trailing
+    # echo stays compact (e.g. `az boards query (0.8s, exit=0)`) instead of
+    # repeating the full command which is already on the line above.
+    param([Parameter(Mandatory)] [string[]] $ArgList)
+
+    $parts = @('az')
+    foreach ($a in $ArgList) {
+        if ($a -like '--*') {
+            break
+        }
+        $parts += $a
+    }
+
+    $headline = $parts -join ' '
+    return $headline
+}
 
 
 function Invoke-AzDevOpsAzJson {
     # Generic wrapper around `az ... --output json` that captures stdout JSON
     # and stderr text separately. The canonical JSON+error path used by every
-    # other data-plane wrapper in this file.
+    # other data-plane wrapper in this file. Emits diagnostic before/after
+    # echoes so every query is visible in the terminal alongside its elapsed
+    # time and exit code.
     #
     # When $env:AZ_DEVOPS_ORG / $env:AZ_PROJECT are set and the caller has not
     # already supplied --organization / --project, we inject them so every
     # wrapper auto-scopes to the bashcuts env-var contract instead of relying
     # on `az devops configure --defaults`. Explicit caller flags always win
-    # (e.g. New-AzDevOpsWorkItem passes its own --project).
+    # (e.g. New-AzDevOpsWorkItem passes its own --project). The echo prints
+    # the post-injection command so the user sees the actual flags being
+    # sent to az, not the pre-scoped ArgList from the caller.
     param([Parameter(Mandatory)] [string[]] $ArgList)
 
     $scopedArgs = @($ArgList)
@@ -39,7 +119,11 @@ function Invoke-AzDevOpsAzJson {
         $scopedArgs += @('--project', $env:AZ_PROJECT)
     }
 
+    $commandDisplay = Format-AzDevOpsCommandDisplay -ArgList $scopedArgs
+    Write-AzDevOpsQueryEcho -Message $commandDisplay -Color 'DarkCyan'
+
     $stderrFile = [System.IO.Path]::GetTempFileName()
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         $json = & az @scopedArgs --output json 2>$stderrFile
         $exit = $LASTEXITCODE
@@ -50,6 +134,18 @@ function Invoke-AzDevOpsAzJson {
         }
     } finally {
         Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
+    }
+    $sw.Stop()
+
+    $elapsed  = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
+    $headline = Get-AzDevOpsCommandHeadline -ArgList $scopedArgs
+
+    if ($exit -eq 0) {
+        $summary = "$headline ($elapsed, exit=0)"
+        Write-AzDevOpsQueryEcho -Message $summary -Color 'DarkGreen'
+    } else {
+        $summary = "$headline ($elapsed, exit=$exit)"
+        Write-AzDevOpsQueryEcho -Message $summary -Color 'Red'
     }
 
     if ($null -eq $stderr) {
@@ -66,8 +162,13 @@ function Invoke-AzDevOpsAzJson {
 
 function Invoke-AzDevOpsBoardsQuery {
     # Runs a WIQL query via `az boards query --wiql <Wiql>`. Returns the
-    # canonical { Json, Error, ExitCode } envelope.
+    # canonical { Json, Error, ExitCode } envelope. Echoes the WIQL string
+    # to the terminal before delegating so the query is visible as its own
+    # labeled line, separate from the `--wiql` arg embedded in the command
+    # echo emitted by Invoke-AzDevOpsAzJson.
     param([Parameter(Mandatory)] [string] $Wiql)
+
+    Write-AzDevOpsQueryEcho -Message "WIQL: $Wiql" -Color 'DarkCyan'
 
     $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'query', '--wiql', $Wiql)
     return $result
