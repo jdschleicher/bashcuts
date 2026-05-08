@@ -98,18 +98,18 @@ function az-Test-AzDevOpsAuth {
 
 function Assert-AzDevOpsAuthOrAbort {
     # Standard auth-test-and-abort prologue used by every command that calls
-    # az on the user's behalf (Sync-AzDevOpsCache, New-AzDevOpsUserStory,
+    # az on the user's behalf (az-Sync-AzDevOpsCache, az-New-AzDevOpsUserStory,
     # az-Initialize-AzDevOpsSchema, az-Test-AzDevOpsSchema). Returns $true when
     # auth is good. On failure, prints the standard "<command> aborted -
-    # Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." line and
+    # az-Test-AzDevOpsAuth returned false. Run az-Connect-AzDevOps." line and
     # returns $false so callers `if (-not (Assert-...)) { return }`.
     param([Parameter(Mandatory)] [string] $CommandName)
 
-    if (Test-AzDevOpsAuth) {
+    if (az-Test-AzDevOpsAuth) {
         return $true
     }
 
-    Write-Host "$CommandName aborted - Test-AzDevOpsAuth returned false. Run Connect-AzDevOps." -ForegroundColor Red
+    Write-Host "$CommandName aborted - az-Test-AzDevOpsAuth returned false. Run az-Connect-AzDevOps." -ForegroundColor Red
     return $false
 }
 
@@ -1899,7 +1899,7 @@ function az-New-AzDevOpsUserStory {
 #                                  VALID / STALE / INVALID.
 #
 # Internal integration point (consumed by future schema-aware updates to
-# New-AzDevOpsUserStory, Get-AzDevOpsAssigned, Show-AzDevOpsTree, etc.):
+# az-New-AzDevOpsUserStory, az-Get-AzDevOpsAssigned, az-Show-AzDevOpsTree, etc.):
 #   Get-AzDevOpsSchemaForType   - returns the parsed schema entry for one
 #                                  work-item type, or $null if no schema
 #                                  is configured / type not present.
@@ -2052,7 +2052,7 @@ function Read-AzDevOpsSchemaFile {
 
 
 function Get-AzDevOpsSchemaForType {
-    # Internal integration point for schema-aware consumers (New-AzDevOpsUserStory,
+    # Internal integration point for schema-aware consumers (az-New-AzDevOpsUserStory,
     # the read commands, the tree). Returns the parsed { required = ..., optional = ... }
     # entry for one work-item type, or $null when no schema is configured / the
     # type is not present.

@@ -244,7 +244,7 @@ az-New-AzDevOpsUserStory `
 
 ### Per-org field-schema config
 
-Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `New-AzDevOpsUserStory`, `Get-AzDevOpsAssigned`, `Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
+Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `az-New-AzDevOpsUserStory`, `az-Get-AzDevOpsAssigned`, `az-Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
 
 The schema lives at `$HOME/.bashcuts/azure-devops/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
