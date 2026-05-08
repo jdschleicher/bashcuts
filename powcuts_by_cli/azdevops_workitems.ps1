@@ -844,15 +844,15 @@ function az-Unregister-AzDevOpsSyncSchedule {
 # ---------------------------------------------------------------------------
 # Grid presentation helpers
 #
-# Out-GridView gives the user a sortable, filterable, click-to-select view
-# for every list and every picker, but it's a Windows-only WPF cmdlet that
-# may not be present on PS 7 hosts (it ships in
-# Microsoft.PowerShell.GraphicalTools, which the user installs separately).
+# Out-ConsoleGridView gives the user a sortable, filterable, click-to-select
+# TUI in the terminal for every list and every picker. It ships in
+# Microsoft.PowerShell.ConsoleGuiTools and is cross-platform (Windows /
+# macOS / Linux), unlike the WPF-based Out-GridView which is Windows-only.
 # These helpers centralize the capability check + the call site so each
 # public function calls one line instead of repeating the if/else
 # (CLAUDE.md "extract repeated branches" rule).
 #
-#   Test-AzDevOpsGridAvailable - $true only on Windows + Out-GridView resolves
+#   Test-AzDevOpsGridAvailable - $true if Out-ConsoleGridView resolves
 #   Show-AzDevOpsRows          - render rows as grid (display-only or PassThru),
 #                              fall back to Format-Table when grid unavailable
 #   Read-AzDevOpsGridPick      - single-select grid picker; returns $null when
@@ -861,11 +861,7 @@ function az-Unregister-AzDevOpsSyncSchedule {
 # ---------------------------------------------------------------------------
 
 function Test-AzDevOpsGridAvailable {
-    if ((Get-AzDevOpsPlatform) -ne 'Windows') {
-        return $false
-    }
-
-    $cmd       = Get-Command Out-GridView -ErrorAction SilentlyContinue
+    $cmd       = Get-Command Out-ConsoleGridView -ErrorAction SilentlyContinue
     $available = ($null -ne $cmd)
     return $available
 }
@@ -884,11 +880,11 @@ function Show-AzDevOpsRows {
 
     if (Test-AzDevOpsGridAvailable) {
         if ($PassThru) {
-            $selected = $Rows | Out-GridView -Title $Title -PassThru
+            $selected = $Rows | Out-ConsoleGridView -Title $Title
             return $selected
         }
 
-        $Rows | Out-GridView -Title $Title
+        $Rows | Out-ConsoleGridView -Title $Title -OutputMode None
         return
     }
 
@@ -914,7 +910,7 @@ function Read-AzDevOpsGridPick {
         return $null
     }
 
-    $picked = $Rows | Out-GridView -Title $Title -OutputMode Single
+    $picked = $Rows | Out-ConsoleGridView -Title $Title -OutputMode Single
     return $picked
 }
 
@@ -1706,10 +1702,10 @@ function Read-AzDevOpsAcceptanceCriteria {
 
 function Read-AzDevOpsFeaturePick {
     # Lists active Features from hierarchy.json. Returns the chosen Feature
-    # Id, or 0 for orphan. On Windows + Out-GridView, opens a grid picker
-    # with a synthetic 'orphan' row pre-pended so the no-parent option is
-    # discoverable; Cancel maps to orphan as well. Otherwise falls back to
-    # the Read-Host numbered menu.
+    # Id, or 0 for orphan. When Out-ConsoleGridView is available, opens a
+    # TUI grid picker with a synthetic 'orphan' row pre-pended so the
+    # no-parent option is discoverable; Cancel maps to orphan as well.
+    # Otherwise falls back to the Read-Host numbered menu.
     param([Parameter(Mandatory)] $Hierarchy)
 
     $closedStates = Get-AzDevOpsClosedStates
@@ -1739,7 +1735,7 @@ function Read-AzDevOpsFeaturePick {
         }
 
         $gridRows = @($orphanRow) + @($featureRows)
-        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title 'Pick a parent Feature (Cancel = orphan story)'
+        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title 'Pick a parent Feature (Esc = orphan story)'
 
         if ($null -eq $picked) {
             return 0
@@ -1781,10 +1777,11 @@ function Read-AzDevOpsFeaturePick {
 
 
 function Read-AzDevOpsClassificationPick {
-    # Picker shared by iteration + area selection. On Windows + Out-GridView,
-    # renders a Path / IsDefault grid; Cancel returns the supplied default
-    # (typically $env:AZ_ITERATION / $env:AZ_AREA). Otherwise falls back to
-    # the Read-Host numbered menu where empty input selects the default.
+    # Picker shared by iteration + area selection. When Out-ConsoleGridView
+    # is available, renders a Path / IsDefault grid; Cancel returns the
+    # supplied default (typically $env:AZ_ITERATION / $env:AZ_AREA).
+    # Otherwise falls back to the Read-Host numbered menu where empty
+    # input selects the default.
     param(
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
         [Parameter(Mandatory)] [string[]] $Paths,
@@ -1800,7 +1797,7 @@ function Read-AzDevOpsClassificationPick {
         }
 
         $title = if ($Default) {
-            "Pick $Kind (Cancel = use default '$Default')"
+            "Pick $Kind (Esc = use default '$Default')"
         } else {
             "Pick $Kind"
         }
