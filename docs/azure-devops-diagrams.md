@@ -174,7 +174,7 @@ flowchart TD
 
     subgraph Each["Invoke-AzDevOpsAzDataset (per descriptor)"]
         direction TB
-        Fetch["& $Fetch<br/>→ Invoke-AzDevOpsBoardsQuery<br/>or Invoke-AzDevOpsAzJson"]
+        Fetch["& $Fetch<br/>→ Invoke-AzDevOpsBoardsQuery<br/>or Get-AzDevOpsClassificationList"]
         Stopwatch["measure elapsed"]
         Branch{ExitCode == 0?}
         Parse["ConvertFrom-Json<br/>+ Counter scriptblock"]
@@ -197,8 +197,8 @@ flowchart TD
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
         D3["hierarchy<br/>WIQL Epic/Feature/Story flat<br/>+ System.Parent"]
-        D4["iterations<br/>az boards iteration project list --depth 5"]
-        D5["areas<br/>az boards area project list --depth 5"]
+        D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
+        D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
     end
 
     Datasets -.descriptors.-> Datasets5
@@ -329,11 +329,11 @@ flowchart TD
     Area -- yes --> Create
     PickArea --> Create
 
-    Create["Invoke-AzDevOpsWorkItemCreate<br/>az boards work-item create"]
+    Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
     Create --> CreateOk{Ok?}
     CreateOk -- no --> CreateFail([STEP FAILED])
     CreateOk -- yes --> Link{FeatureId > 0?}
-    Link -- yes --> InvokeLink["Invoke-AzDevOpsParentLink<br/>az boards work-item relation add"]
+    Link -- yes --> InvokeLink["Invoke-AzDevOpsParentLink<br/>→ Add-AzDevOpsWorkItemRelation<br/>→ az boards work-item relation add"]
     InvokeLink --> Open
     Link -- no --> Orphan["print '(no parent linked)'"]
     Orphan --> Open
@@ -428,12 +428,17 @@ graph LR
     %% Sync helpers
     DSets[Get-AzDevOpsSyncDatasets]:::priv
     InvokeDS[Invoke-AzDevOpsAzDataset]:::priv
-    Boards[Invoke-AzDevOpsBoardsQuery]:::priv
-    AzJson[Invoke-AzDevOpsAzJson]:::priv
     Stderr1[Get-AzDevOpsFirstStderrLine]:::priv
     DStatus[New-AzDevOpsDatasetStatus]:::priv
     StderrW[Write-AzDevOpsSyncStderr]:::priv
     Measure[Measure-AzDevOpsClassificationNodes]:::priv
+
+    %% Data-plane wrappers (azdevops_db.ps1)
+    AzJson[Invoke-AzDevOpsAzJson]:::priv
+    Boards[Invoke-AzDevOpsBoardsQuery]:::priv
+    ClassList[Get-AzDevOpsClassificationList]:::priv
+    NewWI[New-AzDevOpsWorkItem]:::priv
+    AddRel[Add-AzDevOpsWorkItemRelation]:::priv
 
     %% Schedule helpers
     Plat[Get-AzDevOpsPlatform]:::priv
@@ -505,8 +510,11 @@ graph LR
     Sync --> LogFn --> Paths
     Sync --> DSets
     Sync --> InvokeDS
-    InvokeDS --> Boards --> Az
-    InvokeDS --> AzJson --> Az
+    InvokeDS --> Boards
+    InvokeDS --> ClassList
+    Boards --> AzJson
+    ClassList --> AzJson
+    AzJson --> Az
     InvokeDS --> Stderr1
     InvokeDS --> DStatus
     InvokeDS --> StderrW --> LogFn
@@ -559,12 +567,12 @@ graph LR
     NewS --> AC
     NewS --> PFeat
     NewS --> PKind --> ReadCls
-    PKind --> InvCls --> Az
+    PKind --> InvCls --> ClassList
     ReadCls --> Paths
     PKind --> GetCPaths --> ToCPaths --> ToWIPath
     PFeat --> PCls
-    NewS --> InvCreate --> Az
-    NewS --> InvLink --> Az
+    NewS --> InvCreate --> NewWI --> AzJson
+    NewS --> InvLink --> AddRel --> AzJson
 ```
 
 ---
