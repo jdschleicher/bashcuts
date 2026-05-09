@@ -1934,6 +1934,183 @@ function Get-AzDevOpsClassificationPaths {
 }
 
 
+# ---------------------------------------------------------------------------
+# Classification tree views
+#
+# Public functions:
+#   az-Show-AzDevOpsAreas       - prints the project's area-path tree
+#   az-Show-AzDevOpsIterations  - prints the project's iteration-path tree
+#                                 (with start/finish dates per node)
+#
+# Both read from the cache first (areas.json / iterations.json built by
+# az-Sync-AzDevOpsCache) and fall back to a live `az boards <kind> project
+# list` call when the cache is missing - same pattern as the picker's
+# Get-AzDevOpsClassificationPaths. Renders to Out-ConsoleGridView when
+# available, falls back to an indented text tree otherwise.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsClassificationRows {
+    # Walks the classification tree (depth-first, children in declaration
+    # order) and emits one PSCustomObject per node. Skips the synthetic root
+    # node (whose path is the bare '\<Project>\<Kind>' shell with no work-
+    # item-path equivalent) so the grid only shows pickable entries. For
+    # iterations, surfaces the startDate / finishDate attributes as ISO
+    # yyyy-MM-dd strings; areas omit those columns.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
+        [Parameter(Mandatory)] $Root
+    )
+
+    $rows = New-Object System.Collections.Generic.List[PSCustomObject]
+    if ($null -eq $Root) {
+        $empty = ,@($rows)
+        return $empty
+    }
+
+    $walk = {
+        param($Node, $Depth)
+
+        if ($null -eq $Node) { return }
+
+        # Only emit the synthetic root's children onward - the root itself
+        # is the bare project/kind shell that ConvertTo-AzDevOpsWorkItemPath
+        # also filters out (returns $null for it).
+        if ($Depth -gt 0) {
+            $row = if ($Kind -eq 'Iteration') {
+                $startIso = if ($Node.attributes -and $Node.attributes.startDate) {
+                    ($Node.attributes.startDate -as [datetime]).ToString('yyyy-MM-dd')
+                } else {
+                    ''
+                }
+
+                $finishIso = if ($Node.attributes -and $Node.attributes.finishDate) {
+                    ($Node.attributes.finishDate -as [datetime]).ToString('yyyy-MM-dd')
+                } else {
+                    ''
+                }
+
+                [PSCustomObject]@{
+                    Depth      = $Depth
+                    Name       = $Node.name
+                    Path       = $Node.path
+                    StartDate  = $startIso
+                    FinishDate = $finishIso
+                }
+            } else {
+                [PSCustomObject]@{
+                    Depth = $Depth
+                    Name  = $Node.name
+                    Path  = $Node.path
+                }
+            }
+
+            $rows.Add($row)
+        }
+
+        if ($Node.children) {
+            foreach ($child in $Node.children) {
+                & $walk $child ($Depth + 1)
+            }
+        }
+    }
+
+    & $walk $Root 0
+
+    $result = ,@($rows)
+    return $result
+}
+
+
+function Format-AzDevOpsClassificationNode {
+    # Text-fallback per-node line. '<indent><name>' for areas; for iterations
+    # appends '<tab><start> -> <finish>' when both dates are present (omits
+    # the date suffix when either is blank, matching the Get- helper). The
+    # tab separator keeps the dates copy-paste-able into a spreadsheet.
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Row,
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind
+    )
+
+    $indent     = Get-AzDevOpsTreeIndent -Depth ($Row.Depth - 1)
+    $arrowGlyph = "$([char]0x2192)"   # rightwards arrow
+    $line       = "$indent$($Row.Name)"
+
+    if ($Kind -eq 'Iteration' -and $Row.StartDate -and $Row.FinishDate) {
+        $line = "$line`t$($Row.StartDate) $arrowGlyph $($Row.FinishDate)"
+    }
+
+    return $line
+}
+
+
+function Show-AzDevOpsClassification {
+    # Orchestrator for az-Show-AzDevOpsAreas / az-Show-AzDevOpsIterations.
+    # Cache-first with live fallback (gated by Assert-AzDevOpsAuthOrAbort so
+    # the live `az` call doesn't fire on a stale env). Emits to
+    # Out-ConsoleGridView when available, falls back to an indented text tree
+    # via Format-AzDevOpsClassificationNode + Write-Output. Mirrors the
+    # az-Show-AzDevOpsTree post-#36 shape so the Show- family stays uniform.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $azKind        = $Kind.ToLower()
+    $publicCommand = "az-Show-AzDevOps$($Kind)s"
+    $kindLabelLow  = "${azKind}s"
+
+    $tree = Read-AzDevOpsClassificationCache -Kind $Kind
+    $cameFromCache = $true
+
+    if ($null -eq $tree) {
+        if (-not (Assert-AzDevOpsAuthOrAbort -CommandName $publicCommand)) {
+            return
+        }
+
+        Write-Host "(fetching $kindLabelLow live - run az-Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
+        $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
+        $cameFromCache = $false
+    }
+
+    if ($null -eq $tree) {
+        return
+    }
+
+    if ($cameFromCache) {
+        Write-AzDevOpsStaleBanner
+    }
+
+    $rows = Get-AzDevOpsClassificationRows -Kind $Kind -Root $tree
+    if (@($rows).Count -eq 0) {
+        Write-Host "(no $kindLabelLow defined)" -ForegroundColor Yellow
+        return
+    }
+
+    if (Test-AzDevOpsGridAvailable) {
+        $title = "Azure DevOps $kindLabelLow - $(@($rows).Count) nodes"
+        Show-AzDevOpsRows -Rows $rows -Title $title
+        return
+    }
+
+    foreach ($row in $rows) {
+        Write-Output (Format-AzDevOpsClassificationNode -Row $row -Kind $Kind)
+    }
+}
+
+
+function az-Show-AzDevOpsAreas {
+    [CmdletBinding()]
+    param()
+
+    Show-AzDevOpsClassification -Kind 'Area'
+}
+
+
+function az-Show-AzDevOpsIterations {
+    [CmdletBinding()]
+    param()
+
+    Show-AzDevOpsClassification -Kind 'Iteration'
+}
+
+
 function Read-AzDevOpsPriority {
     while ($true) {
         $resp = Read-Host 'Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH'
