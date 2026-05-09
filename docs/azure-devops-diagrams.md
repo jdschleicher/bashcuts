@@ -7,7 +7,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
-- [6. `az-Show-AzDevOpsTree` — Epic → Feature → Story render](#6-az-show-azdevopstree--epic--feature--story-render)
+- [6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render](#6-az-show-azdevopstree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#8-az-register-az-unregister-azdevopssyncschedule--platform-branch)
 - [9. Function dependency map](#9-function-dependency-map)
@@ -262,9 +262,11 @@ flowchart LR
 
 ---
 
-## 6. `az-Show-AzDevOpsTree` — Epic → Feature → Story render
+## 6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render
 
 Pure cache read, no `az`. The hierarchy WIQL pulled `[System.Parent]` per row, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
+
+The leaf-tier filter checks `Type -in $script:AzDevOpsRequirementTypes` — the four stock requirement-tier names across process templates (`User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic) — so the same render code works on every template the hierarchy WIQL fetches via `Microsoft.RequirementCategory`.
 
 ```mermaid
 flowchart TD
@@ -283,7 +285,7 @@ flowchart TD
     NoFeat -- no --> Empty["print '(no features)'"]
     NoFeat -- yes --> ForFeat{foreach feature}
     ForFeat --> NodeF["Format-AzDevOpsTreeNode -Depth 1<br/>(Feature icon)"]
-    NodeF --> Stories["children where Type='User Story'"]
+    NodeF --> Stories["children where Type ∈ $script:AzDevOpsRequirementTypes<br/>(User Story / Product Backlog Item / Requirement / Issue)"]
     Stories --> ForStory{foreach story}
     ForStory --> NodeS["Format-AzDevOpsTreeNode -Depth 2<br/>(Story icon)"]
     NodeS --> ForStory

@@ -1323,13 +1323,30 @@ function az-Open-AzDevOpsMention {
 # Hierarchy tree view
 #
 # Public function:
-#   az-Show-AzDevOpsTree   - prints the project's Epic/Feature/User Story tree
-#                          from the cached hierarchy.json (no `az` calls)
+#   az-Show-AzDevOpsTree   - prints the project's Epic/Feature/requirement-tier
+#                          tree from the cached hierarchy.json (no `az` calls)
 #
 # Reads $HOME/.bashcuts-cache/azure-devops/hierarchy.json (built by
 # az-Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
 # item carries its parent link directly - no follow-up resolution needed.
 # ---------------------------------------------------------------------------
+
+# Requirement-tier work-item types across the four stock process templates.
+# Sync-AzDevOpsCache's hierarchy WIQL fetches by Microsoft.RequirementCategory,
+# so hierarchy.json can carry any of these depending on the project's process:
+#   Agile  -> 'User Story'
+#   Scrum  -> 'Product Backlog Item'
+#   CMMI   -> 'Requirement'
+#   Basic  -> 'Issue'
+# Tree consumers test set membership instead of matching the Agile literal so
+# Scrum/CMMI/Basic projects render leaves under each Feature.
+$script:AzDevOpsRequirementTypes = @(
+    'User Story',
+    'Product Backlog Item',
+    'Requirement',
+    'Issue'
+)
+
 
 function ConvertFrom-AzDevOpsHierarchyItem {
     param([Parameter(Mandatory)] $Raw)
@@ -1386,6 +1403,10 @@ function Get-AzDevOpsTreeIcon {
     $iconStory   = "$([char]0x1F4DD)"   # memo
     $iconUnknown = '*'
 
+    if ($Type -in $script:AzDevOpsRequirementTypes) {
+        return $iconStory
+    }
+
     switch ($Type) {
         'Epic' {
             return $iconEpic
@@ -1393,10 +1414,6 @@ function Get-AzDevOpsTreeIcon {
 
         'Feature' {
             return $iconFeature
-        }
-
-        'User Story' {
-            return $iconStory
         }
 
         default {
@@ -1416,9 +1433,9 @@ function Format-AzDevOpsTreeNode {
     $icon      = Get-AzDevOpsTreeIcon -Type $Item.Type
     $separator = "$([char]0x2014)"   # em-dash
 
-    # User Story lines drop the type label per the issue spec; epics + features
-    # keep it so '📦 Epic 1234' / '🎯 Feature 1240' read clearly.
-    if ($Item.Type -eq 'User Story') {
+    # Requirement-tier lines drop the type label per the issue spec; epics +
+    # features keep it so '📦 Epic 1234' / '🎯 Feature 1240' read clearly.
+    if ($Item.Type -in $script:AzDevOpsRequirementTypes) {
         return "$indent$icon $($Item.Id) $separator $($Item.Title) [$($Item.State)]"
     }
 
@@ -1427,9 +1444,9 @@ function Format-AzDevOpsTreeNode {
 
 
 function Get-AzDevOpsTreeRows {
-    # Walks the Epic -> Feature -> User Story hierarchy and emits one flat
-    # row per node with a Path column ('Epic 1 / Feature 2 / Story 3') so
-    # the grid view stays sortable and filterable without losing the parent
+    # Walks the Epic -> Feature -> requirement-tier hierarchy and emits one
+    # flat row per node with a Path column ('Epic 1 / Feature 2 / Story 3')
+    # so the grid view stays sortable and filterable without losing the parent
     # context the indented tree gives the eye.
     param(
         [Parameter(Mandatory)] $Items,
@@ -1481,7 +1498,7 @@ function Get-AzDevOpsTreeRows {
                 Url   = $featureUrl
             })
 
-            $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
+            $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes } | Sort-Object Id)
             foreach ($story in $stories) {
                 $storyPath = "$featurePath / Story $($story.Id) / $($story.Title)"
                 $storyUrl  = if ($urlPrefix) {
@@ -1491,7 +1508,7 @@ function Get-AzDevOpsTreeRows {
                 }
 
                 $rows.Add([PSCustomObject]@{
-                    Type  = 'User Story'
+                    Type  = $story.Type
                     Id    = $story.Id
                     Title = $story.Title
                     State = $story.State
@@ -1558,7 +1575,7 @@ function az-Show-AzDevOpsTree {
         foreach ($feature in $features) {
             Write-Output (Format-AzDevOpsTreeNode -Item $feature -Depth 1)
 
-            $stories = @($byParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
+            $stories = @($byParent[$feature.Id] | Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes } | Sort-Object Id)
             foreach ($story in $stories) {
                 Write-Output (Format-AzDevOpsTreeNode -Item $story -Depth 2)
             }
@@ -1571,8 +1588,8 @@ function az-Show-AzDevOpsTree {
 # Interactive hierarchy drill-down
 #
 # Public function:
-#   az-Find-AzDevOpsWorkItem - drills Epic -> Feature -> User Story in
-#                              Out-ConsoleGridView grids with a "Go Back"
+#   az-Find-AzDevOpsWorkItem - drills Epic -> Feature -> requirement-tier
+#                              in Out-ConsoleGridView grids with a "Go Back"
 #                              affordance at each tier and an inline "Open
 #                              in browser" action. Loops on the outer Epic
 #                              grid so the user can navigate multiple
@@ -1699,10 +1716,10 @@ function az-Find-AzDevOpsWorkItem {
         }
 
         if ($tier -eq 3) {
-            $stories = @($byParent[$currentFeature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
+            $stories = @($byParent[$currentFeature.Id] | Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes } | Sort-Object Id)
             $rows    = @(New-AzDevOpsActionRow -Title $backLabel) + $stories + @(New-AzDevOpsActionRow -Title $openFeatureLabel)
 
-            $title  = "Feature $($currentFeature.Id) - $($currentFeature.Title) - pick a User Story"
+            $title  = "Feature $($currentFeature.Id) - $($currentFeature.Title) - pick a Story"
             $picked = $rows | Out-ConsoleGridView -Title $title -OutputMode Single
 
             if ($null -eq $picked -or $picked.Title -eq $backLabel) {
@@ -1943,6 +1960,13 @@ function Read-AzDevOpsFeaturePick {
     # TUI grid picker with a synthetic 'orphan' row pre-pended so the
     # no-parent option is discoverable; Cancel maps to orphan as well.
     # Otherwise falls back to the Read-Host numbered menu.
+    #
+    # Limitation: Basic-template projects skip the Feature tier entirely
+    # (Epic -> Issue, no Feature). This filter therefore returns zero rows
+    # on Basic projects and the caller falls through to the orphan path -
+    # an acceptable degradation while we keep the create flow Agile/Scrum/
+    # CMMI-focused. A future enhancement would detect a Featureless
+    # process template and skip the parent-pick step on Basic projects.
     param([Parameter(Mandatory)] $Hierarchy)
 
     $closedStates = Get-AzDevOpsClosedStates
