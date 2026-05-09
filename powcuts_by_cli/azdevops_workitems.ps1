@@ -991,6 +991,8 @@ function Read-AzDevOpsJsonCache {
 #                                  - Find-AzDevOpsCachedWorkItem
 #   - env-var guard + URL build + Start-Process
 #                                  - Open-AzDevOpsWorkItemUrl
+#   - newest-first sort with $null dates pushed to the bottom
+#                                  - Sort-AzDevOpsByDateDesc
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsClosedStates {
@@ -1021,6 +1023,26 @@ function Select-AzDevOpsActiveItems {
     }
 
     return $filtered
+}
+
+
+function Sort-AzDevOpsByDateDesc {
+    # Newest first. Sort-Object -Descending on a date alone would surface
+    # rows whose date is $null at the *top* of the list, because PowerShell
+    # sorts $null below every value. Two-key sort: the first key pushes
+    # null-date rows to the bottom; the second orders the non-nulls
+    # newest-first. Used by the Get-AzDevOpsAssigned / Get-AzDevOpsMentions
+    # listings so each one is a one-line call.
+    param(
+        [Parameter(Mandatory)] $Items,
+        [Parameter(Mandatory)] [string] $Field
+    )
+
+    $sorted = $Items | Sort-Object `
+        @{ Expression = { $null -ne $_.$Field }; Descending = $true }, `
+        @{ Expression = $Field;                  Descending = $true }
+
+    return @($sorted)
 }
 
 
@@ -1158,13 +1180,7 @@ function az-Get-AzDevOpsAssigned {
     Write-AzDevOpsStaleBanner
 
     $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
-
-    # Newest first; Sort-Object -Descending puts $null at the top because
-    # $null sorts below every value, so use a two-key sort whose first key
-    # pushes null dates to the bottom before applying the date order.
-    $sorted = @($filtered | Sort-Object `
-        @{ Expression = { $null -ne $_.AssignedAt }; Descending = $true }, `
-        @{ Expression = 'AssignedAt';                Descending = $true })
+    $sorted   = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
 
     $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
     $title = "Assigned to me - $($rows.Count) items"
@@ -1297,10 +1313,7 @@ function az-Get-AzDevOpsMentions {
         }
     }
 
-    # Newest first; same null-at-bottom trick as az-Get-AzDevOpsAssigned.
-    $sorted = @($filtered | Sort-Object `
-        @{ Expression = { $null -ne $_.MentionedAt }; Descending = $true }, `
-        @{ Expression = 'MentionedAt';                Descending = $true })
+    $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'MentionedAt'
 
     $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
     $title = "Mentions - $($rows.Count) items"
