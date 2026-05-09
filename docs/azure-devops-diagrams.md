@@ -273,7 +273,8 @@ flowchart TD
     Banner --> Index["build $byParent hashtable<br/>key = ParentId or 0"]
     Index --> Epics["filter Type='Epic', sort by Id"]
     Epics --> Grid{Test-AzDevOpsGridAvailable?}
-    Grid -- yes --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path)"]
+    Grid -- yes --> Pfx["Get-AzDevOpsWorkItemUrlPrefix<br/>(once, not per row)"]
+    Pfx --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path/Url)"]
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
     Grid -- no --> ForEpic{foreach epic}
     ForEpic --> NodeE["Format-AzDevOpsTreeNode -Depth 0<br/>uses Get-AzDevOpsTreeIcon (Epic icon)<br/>+ Get-AzDevOpsTreeIndent"]
@@ -478,6 +479,8 @@ graph LR
     TitleCol[Get-AzDevOpsTitleColumn]:::priv
     Find[Find-AzDevOpsCachedWorkItem]:::priv
     OpenUrl[Open-AzDevOpsWorkItemUrl]:::priv
+    WiUrl[Get-AzDevOpsWorkItemUrl]:::priv
+    WiPfx[Get-AzDevOpsWorkItemUrlPrefix]:::priv
     MentDN[Get-AzDevOpsMentionedByDisplayName]:::priv
 
     %% Tree helpers
@@ -571,7 +574,9 @@ graph LR
     GetA --> ShowRows
     OpenA --> ReadA
     OpenA --> Find
-    OpenA --> OpenUrl --> Az
+    OpenA --> OpenUrl --> WiUrl --> WiPfx
+    OpenUrl --> Az
+    Find --> WiUrl
 
     GetM --> ReadM
     GetM --> ReadA
@@ -588,6 +593,7 @@ graph LR
     Tree --> NodeFmt --> Indent
     NodeFmt --> Icon
     Tree --> TreeRows --> ShowRows
+    TreeRows --> WiPfx
     ShowRows --> GridAvail
     GridPick --> GridAvail
 
