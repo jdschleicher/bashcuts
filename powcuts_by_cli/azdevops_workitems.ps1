@@ -1080,22 +1080,37 @@ function Find-AzDevOpsCachedWorkItem {
 }
 
 
-function Get-AzDevOpsWorkItemUrl {
-    # Quiet URL builder. Returns the work-item edit URL when both env vars are
-    # set; returns $null and sets $LASTEXITCODE = 1 silently when they aren't,
-    # so it is safe to call from row projections (Out-ConsoleGridView columns)
-    # without spamming output. User-facing callers (Open-AzDevOpsWorkItemUrl)
-    # keep their own Write-Host messaging.
-    param([Parameter(Mandatory)] [int] $Id)
-
+function Get-AzDevOpsWorkItemUrlPrefix {
+    # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
+    # both env vars are set; returns '' when either is missing. Designed for
+    # callers that build URLs for many ids in a loop (e.g. Out-ConsoleGridView
+    # row projections in Get-AzDevOpsTreeRows) so the prefix is computed once
+    # instead of per row, and so per-row use does not pollute $LASTEXITCODE.
     if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
-        $global:LASTEXITCODE = 1
-        return $null
+        return ''
     }
 
     $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
     $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    $url        = "$org/$projectEnc/_workitems/edit/$Id"
+    $prefix     = "$org/$projectEnc/_workitems/edit/"
+    return $prefix
+}
+
+
+function Get-AzDevOpsWorkItemUrl {
+    # Single-shot URL builder. Returns the full work-item edit URL when env
+    # vars are set; returns $null when they aren't. Caller decides whether
+    # missing env vars warrants $LASTEXITCODE / Write-Host - this helper stays
+    # quiet so callers like Find-AzDevOpsCachedWorkItem URL-fallback can branch
+    # on $null without spamming side effects.
+    param([Parameter(Mandatory)] [int] $Id)
+
+    $prefix = Get-AzDevOpsWorkItemUrlPrefix
+    if (-not $prefix) {
+        return $null
+    }
+
+    $url = "$prefix$Id"
     return $url
 }
 
@@ -1108,6 +1123,7 @@ function Open-AzDevOpsWorkItemUrl {
     $url = Get-AzDevOpsWorkItemUrl -Id $Id
     if ($null -eq $url) {
         Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
+        $global:LASTEXITCODE = 1
         return
     }
 
@@ -1423,8 +1439,19 @@ function Get-AzDevOpsTreeRows {
     $rows  = New-Object System.Collections.Generic.List[PSCustomObject]
     $epics = @($Items | Where-Object { $_.Type -eq 'Epic' } | Sort-Object Id)
 
+    # Build the URL prefix once instead of resolving env vars + escaping the
+    # project name per row. Empty string when env vars are unset - callers see
+    # an empty Url column instead of a per-row $LASTEXITCODE flip.
+    $urlPrefix = Get-AzDevOpsWorkItemUrlPrefix
+
     foreach ($epic in $epics) {
         $epicPath = "Epic $($epic.Id) / $($epic.Title)"
+        $epicUrl  = if ($urlPrefix) {
+            "$urlPrefix$($epic.Id)"
+        } else {
+            ''
+        }
+
         $rows.Add([PSCustomObject]@{
             Type  = 'Epic'
             Id    = $epic.Id
@@ -1432,12 +1459,18 @@ function Get-AzDevOpsTreeRows {
             State = $epic.State
             Depth = 0
             Path  = $epicPath
-            Url   = Get-AzDevOpsWorkItemUrl -Id $epic.Id
+            Url   = $epicUrl
         })
 
         $features = @($ByParent[$epic.Id] | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
         foreach ($feature in $features) {
             $featurePath = "$epicPath / Feature $($feature.Id) / $($feature.Title)"
+            $featureUrl  = if ($urlPrefix) {
+                "$urlPrefix$($feature.Id)"
+            } else {
+                ''
+            }
+
             $rows.Add([PSCustomObject]@{
                 Type  = 'Feature'
                 Id    = $feature.Id
@@ -1445,12 +1478,18 @@ function Get-AzDevOpsTreeRows {
                 State = $feature.State
                 Depth = 1
                 Path  = $featurePath
-                Url   = Get-AzDevOpsWorkItemUrl -Id $feature.Id
+                Url   = $featureUrl
             })
 
             $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -eq 'User Story' } | Sort-Object Id)
             foreach ($story in $stories) {
                 $storyPath = "$featurePath / Story $($story.Id) / $($story.Title)"
+                $storyUrl  = if ($urlPrefix) {
+                    "$urlPrefix$($story.Id)"
+                } else {
+                    ''
+                }
+
                 $rows.Add([PSCustomObject]@{
                     Type  = 'User Story'
                     Id    = $story.Id
@@ -1458,7 +1497,7 @@ function Get-AzDevOpsTreeRows {
                     State = $story.State
                     Depth = 2
                     Path  = $storyPath
-                    Url   = Get-AzDevOpsWorkItemUrl -Id $story.Id
+                    Url   = $storyUrl
                 })
             }
         }
