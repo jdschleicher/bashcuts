@@ -927,6 +927,10 @@ function Read-AzDevOpsGridPick {
 # All four read $HOME/.bashcuts-cache/azure-devops/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
+#
+# Default order for the two Get- listings: most recently changed first
+# (AssignedAt / MentionedAt descending). Click the column header in
+# Out-ConsoleGridView to re-sort by Id, State, etc.
 # ---------------------------------------------------------------------------
 
 function ConvertFrom-AzDevOpsAssignedItem {
@@ -1155,7 +1159,14 @@ function az-Get-AzDevOpsAssigned {
 
     $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
 
-    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    # Newest first; Sort-Object -Descending puts $null at the top because
+    # $null sorts below every value, so use a two-key sort whose first key
+    # pushes null dates to the bottom before applying the date order.
+    $sorted = @($filtered | Sort-Object `
+        @{ Expression = { $null -ne $_.AssignedAt }; Descending = $true }, `
+        @{ Expression = 'AssignedAt';                Descending = $true })
+
+    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
     $title = "Assigned to me - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -1286,7 +1297,12 @@ function az-Get-AzDevOpsMentions {
         }
     }
 
-    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
+    # Newest first; same null-at-bottom trick as az-Get-AzDevOpsAssigned.
+    $sorted = @($filtered | Sort-Object `
+        @{ Expression = { $null -ne $_.MentionedAt }; Descending = $true }, `
+        @{ Expression = 'MentionedAt';                Descending = $true })
+
+    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
     $title = "Mentions - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
