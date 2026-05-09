@@ -37,6 +37,7 @@ flowchart LR
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-AzDevOpsMention"]
         Tree["az-Show-AzDevOpsTree"]
+        Find["az-Find-AzDevOpsWorkItem"]
         NewStory["az-New-AzDevOpsUserStory"]
     end
 
@@ -79,6 +80,7 @@ flowchart LR
     GetM -.exclude assigned ids.-> AssignedJson
     OpenM --> MentionsJson
     Tree --> HierJson
+    Find --> HierJson
     Status --> LastSync
 
     NewStory --> HierJson
@@ -405,6 +407,7 @@ graph LR
     OpenM(["az-Open-AzDevOpsMention"]):::pub
     Tree(["az-Show-AzDevOpsTree"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
+    Find(["az-Find-AzDevOpsWorkItem"]):::pub
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -488,6 +491,7 @@ graph LR
     ShowRows[Show-AzDevOpsRows]:::priv
     GridPick[Read-AzDevOpsGridPick]:::priv
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
+    ActionRow[New-AzDevOpsActionRow]:::priv
 
     %% NewStory helpers
     ReadCls[Read-AzDevOpsClassificationCache]:::priv
@@ -586,6 +590,13 @@ graph LR
     Tree --> TreeRows --> ShowRows
     ShowRows --> GridAvail
     GridPick --> GridAvail
+
+    Find --> ReadH
+    Find --> Stale
+    Find --> Closed
+    Find --> GridAvail
+    Find --> ActionRow
+    Find --> OpenUrl
 
     NewS --> TestAuth
     NewS --> ReadH
