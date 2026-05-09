@@ -927,6 +927,10 @@ function Read-AzDevOpsGridPick {
 # All four read $HOME/.bashcuts-cache/azure-devops/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
+#
+# Default order for the two Get- listings: most recently changed first
+# (AssignedAt / MentionedAt descending). Click the column header in
+# Out-ConsoleGridView to re-sort by Id, State, etc.
 # ---------------------------------------------------------------------------
 
 function ConvertFrom-AzDevOpsAssignedItem {
@@ -987,6 +991,8 @@ function Read-AzDevOpsJsonCache {
 #                                  - Find-AzDevOpsCachedWorkItem
 #   - env-var guard + URL build + Start-Process
 #                                  - Open-AzDevOpsWorkItemUrl
+#   - newest-first sort with $null dates pushed to the bottom
+#                                  - Sort-AzDevOpsByDateDesc
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsClosedStates {
@@ -1017,6 +1023,26 @@ function Select-AzDevOpsActiveItems {
     }
 
     return $filtered
+}
+
+
+function Sort-AzDevOpsByDateDesc {
+    # Newest first. Sort-Object -Descending on a date alone would surface
+    # rows whose date is $null at the *top* of the list, because PowerShell
+    # sorts $null below every value. Two-key sort: the first key pushes
+    # null-date rows to the bottom; the second orders the non-nulls
+    # newest-first. Used by the Get-AzDevOpsAssigned / Get-AzDevOpsMentions
+    # listings so each one is a one-line call.
+    param(
+        [Parameter(Mandatory)] $Items,
+        [Parameter(Mandatory)] [string] $Field
+    )
+
+    $sorted = $Items | Sort-Object `
+        @{ Expression = { $null -ne $_.$Field }; Descending = $true }, `
+        @{ Expression = $Field;                  Descending = $true }
+
+    return @($sorted)
 }
 
 
@@ -1154,8 +1180,9 @@ function az-Get-AzDevOpsAssigned {
     Write-AzDevOpsStaleBanner
 
     $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
+    $sorted   = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
 
-    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
     $title = "Assigned to me - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -1286,7 +1313,9 @@ function az-Get-AzDevOpsMentions {
         }
     }
 
-    $rows  = @($filtered | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
+    $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'MentionedAt'
+
+    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
     $title = "Mentions - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru

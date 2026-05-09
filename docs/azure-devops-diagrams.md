@@ -224,6 +224,7 @@ sequenceDiagram
     participant Conv as ConvertFrom-AzDevOpsAssignedItem
     participant Banner as Write-AzDevOpsStaleBanner
     participant Filter as Select-AzDevOpsActiveItems
+    participant Sort as Sort-AzDevOpsByDateDesc
     participant Title as Format-AzDevOpsTruncatedTitle
     participant Show as Show-AzDevOpsRows
     participant Cache as assigned.json
@@ -241,6 +242,8 @@ sequenceDiagram
     GetA->>Banner: WARNING stale (if last-sync > 6h)
     GetA->>Filter: filter by -State or active default
     Filter-->>GetA: filtered[]
+    GetA->>Sort: newest-first by AssignedAt (or MentionedAt)
+    Sort-->>GetA: sorted[]
     GetA->>Title: title-column projection
     Title-->>GetA: rows
     GetA->>Show: -PassThru (Out-ConsoleGridView<br/>or Format-Table fallback)
@@ -477,6 +480,7 @@ graph LR
     Closed[Get-AzDevOpsClosedStates]:::priv
     Stale[Write-AzDevOpsStaleBanner]:::priv
     SelAct[Select-AzDevOpsActiveItems]:::priv
+    Sort[Sort-AzDevOpsByDateDesc]:::priv
     Trunc[Format-AzDevOpsTruncatedTitle]:::priv
     TitleCol[Get-AzDevOpsTitleColumn]:::priv
     Find[Find-AzDevOpsCachedWorkItem]:::priv
@@ -572,6 +576,7 @@ graph LR
     GetA --> ReadA
     GetA --> Stale --> Age
     GetA --> SelAct --> Closed
+    GetA --> Sort
     GetA --> TitleCol --> Trunc
     GetA --> ShowRows
     OpenA --> ReadA
@@ -584,6 +589,7 @@ graph LR
     GetM --> ReadA
     GetM --> Stale
     GetM --> SelAct
+    GetM --> Sort
     GetM --> TitleCol
     GetM --> ShowRows
     OpenM --> ReadM
