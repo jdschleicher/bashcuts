@@ -9,8 +9,9 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
 - [6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render](#6-az-show-azdevopstree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
-- [8. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#8-az-register-az-unregister-azdevopssyncschedule--platform-branch)
-- [9. Function dependency map](#9-function-dependency-map)
+- [8. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#8-az-new-azdevopsfeaturestories--batch-child-story-loop)
+- [9. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#9-az-register-az-unregister-azdevopssyncschedule--platform-branch)
+- [10. Function dependency map](#10-function-dependency-map)
 
 ---
 
@@ -41,6 +42,7 @@ flowchart LR
         ShowIters["az-Show-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
         NewStory["az-New-AzDevOpsUserStory"]
+        NewStoryBatch["az-New-AzDevOpsFeatureStories"]
     end
 
     subgraph Cache["$HOME/.bashcuts-cache/azure-devops/"]
@@ -367,7 +369,56 @@ Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (us
 
 ---
 
-## 8. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
+## 8. `az-New-AzDevOpsFeatureStories` — batch child-story loop
+
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+
+```mermaid
+flowchart TD
+    Start([az-New-AzDevOpsFeatureStories -ParentId N]) --> Auth{az-Test-AzDevOpsAuth}
+    Auth -- false --> Abort1([abort: 'Run az-Connect-AzDevOps'])
+    Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
+    Email -- no --> Abort2([abort])
+    Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
+    Hier -- null --> Abort3([abort: cache missing])
+    Hier -- ok --> Validate[Test-AzDevOpsParentIsFeature]
+    Validate -- not-found / not-Feature --> Abort4([abort: clear message])
+    Validate -- ok --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>(skipped if -Iteration param)"]
+    PickIter --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>(skipped if -Area param)"]
+    PickArea --> Loop
+
+    Loop[Story loop iteration N] --> ReadTitle["Read-Host 'Story title (Enter to finish batch)'"]
+    ReadTitle --> EmptyTitle{empty?}
+    EmptyTitle -- yes --> Summary
+    EmptyTitle -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
+    ReadAC --> ReadPrio["Read-AzDevOpsPriority -Previous $previousPriority<br/>(Enter reuses last answer)"]
+    ReadPrio --> ReadSP["Read-AzDevOpsStoryPoints -Previous $previousStoryPoints"]
+    ReadSP --> Create["Invoke-AzDevOpsWorkItemCreate<br/>+ Invoke-AzDevOpsParentLink"]
+    Create --> CreateOk{Ok?}
+    CreateOk -- no --> FailCount["fail counter ++<br/>title -> failedTitles"]
+    CreateOk -- yes --> CarryFwd["createdIds += newId<br/>previousPriority / previousStoryPoints = answers"]
+    FailCount --> Continue
+    CarryFwd --> Continue
+    Continue[Read-AzDevOpsBatchContinue] --> Decide{stop / continue / change?}
+    Decide -- stop --> Summary
+    Decide -- continue --> Loop
+    Decide -- change --> Repick["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>Read-AzDevOpsKindPick -Kind 'Area'<br/>(carried forward into the next story)"]
+    Repick --> Loop
+
+    Summary["one-line summary:<br/>'Created N child stories under Feature #P: id1, id2, ...'<br/>(or 'Created N, Failed M' on partial failure)"]
+    Summary --> Urls[one URL per created story]
+    Urls --> Done([return [int[]] $createdIds])
+```
+
+Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branches" + "name your magic strings" rules):
+
+- `Get-AzDevOpsReuseHint` — formats the `(Enter to reuse '<value>')` suffix; reused by `Read-AzDevOpsPriority` + `Read-AzDevOpsStoryPoints`.
+- `Read-AzDevOpsBatchContinue` — three-way `y/N/c` loop-control prompt.
+- `Test-AzDevOpsParentIsFeature` — pre-loop validation against `hierarchy.json`.
+
+---
+
+## 9. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
 
 Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
 
@@ -398,7 +449,7 @@ Shared private helpers (named in CLAUDE.md):
 
 ---
 
-## 9. Function dependency map
+## 10. Function dependency map
 
 Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs.
 
@@ -422,6 +473,7 @@ graph LR
     ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
     ShowIters(["az-Show-AzDevOpsIterations"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
+    NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
 
     %% Step helpers
@@ -525,6 +577,11 @@ graph LR
     PKind[Read-AzDevOpsKindPick]:::priv
     InvCreate[Invoke-AzDevOpsWorkItemCreate]:::priv
     InvLink[Invoke-AzDevOpsParentLink]:::priv
+
+    %% Batch-creator helpers (az-New-AzDevOpsFeatureStories)
+    ReuseHint[Get-AzDevOpsReuseHint]:::priv
+    BatchCont[Read-AzDevOpsBatchContinue]:::priv
+    ParentTest[Test-AzDevOpsParentIsFeature]:::priv
 
     %% I/O sinks
     Az[(az CLI)]:::io
@@ -649,6 +706,19 @@ graph LR
     PCls --> GridPick
     NewS --> InvCreate --> NewWI --> AzJson
     NewS --> InvLink --> AddRel --> AzJson
+
+    NewSB --> TestAuth
+    NewSB --> ReadH
+    NewSB --> ParentTest
+    NewSB --> PKind
+    NewSB --> AC
+    NewSB --> Pri
+    NewSB --> Pts
+    NewSB --> InvCreate
+    NewSB --> InvLink
+    NewSB --> BatchCont
+    Pri --> ReuseHint
+    Pts --> ReuseHint
 ```
 
 ---

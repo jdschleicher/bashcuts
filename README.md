@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), area- and iteration-path tree views (`az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), area- and iteration-path tree views (`az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
@@ -251,6 +251,24 @@ az-New-AzDevOpsUserStory `
 ```
 
 `-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts. The existing `az-create-userstory` in `pow_az_cli.ps1` is left in place for users who prefer the original flow.
+
+### Batch-creating child stories under a Feature
+
+`az-New-AzDevOpsFeatureStories -ParentId <feature-id>` decomposes an existing Feature into its 3-7 child User Stories without making you re-answer parent / area / iteration on every story. The flow:
+
+1. Validates the `-ParentId` resolves to a Feature in `hierarchy.json` (run `az-Sync-AzDevOpsCache` first if it doesn't).
+2. Picks the iteration + area **once** for the whole batch (or accepts `-Iteration` / `-Area` to skip the pickers).
+3. Loops: **title** (Enter to finish the batch) → **acceptance criteria** → **priority** (Enter reuses the previous story's answer; any digit overrides) → **story points** (same `[Enter] to reuse` shorthand) → creates the story via the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` path the single-shot creator uses, so failure modes / schema enforcement stay identical.
+4. After each story prompts `Add another story? (y/N/c)`. `n` (default) ends the batch; `y` continues; `c` re-picks area / iteration before the next story (escape hatch when one story in the batch belongs to a different sprint).
+5. Mid-batch failures don't abort — the error is logged, the loop continues, and the failed titles are listed at the end so you can retry them via `az-New-AzDevOpsUserStory -ParentId $ParentId`.
+6. Emits a single summary line — `Created N child stories under Feature #1240: 5001, 5002, 5003` (or `Created N, Failed M` when partial) — followed by one URL per created story for quick post-batch review. Returns `[int[]]` of the created story ids so it composes into pipelines.
+
+```powershell
+az-New-AzDevOpsFeatureStories -ParentId 1240               # full interactive batch
+az-New-AzDevOpsFeatureStories -ParentId 1240 `
+    -Iteration "My Project\Sprint 42" `
+    -Area      "My Project\My Team"                       # skip the pickers
+```
 
 ### Per-org field-schema config
 

@@ -2111,9 +2111,40 @@ function az-Show-AzDevOpsIterations {
 }
 
 
+function Get-AzDevOpsReuseHint {
+    # Builds the " (Enter to reuse '<value>')" suffix used by batch-flow readers
+    # that carry forward the prior loop's answer. Returns '' when Previous has
+    # no usable value so the prompt collapses cleanly to its non-batch form.
+    param([object] $Previous)
+
+    if ($null -eq $Previous -or "$Previous" -eq '') {
+        return ''
+    }
+
+    $hint = " (Enter to reuse '$Previous')"
+    return $hint
+}
+
+
 function Read-AzDevOpsPriority {
+    # -Previous lets batch flows (az-New-AzDevOpsFeatureStories) carry the
+    # prior priority forward: empty input reuses Previous, any 1-4 digit
+    # overrides. Single-shot callers omit -Previous and get the original
+    # required-prompt behavior.
+    param([int] $Previous = -1)
+
+    $hasPrevious = $Previous -ge 1 -and $Previous -le 4
+    $hint = if ($hasPrevious) {
+        Get-AzDevOpsReuseHint -Previous $Previous
+    } else {
+        ''
+    }
+
     while ($true) {
-        $resp = Read-Host 'Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH'
+        $resp = Read-Host "Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH$hint"
+        if (-not $resp -and $hasPrevious) {
+            return $Previous
+        }
         if ($resp -match '^[1-4]$') {
             $priority = [int]$resp
             return $priority
@@ -2124,9 +2155,22 @@ function Read-AzDevOpsPriority {
 
 
 function Read-AzDevOpsStoryPoints {
+    # -Previous mirrors Read-AzDevOpsPriority's reuse shorthand for batch flows.
+    param([int] $Previous = -1)
+
+    $hasPrevious = $Previous -ge 0
+    $hint = if ($hasPrevious) {
+        Get-AzDevOpsReuseHint -Previous $Previous
+    } else {
+        ''
+    }
+
     $val = 0
     while ($true) {
-        $resp = Read-Host 'Story points? (integer)'
+        $resp = Read-Host "Story points? (integer)$hint"
+        if (-not $resp -and $hasPrevious) {
+            return $Previous
+        }
         if ([int]::TryParse($resp, [ref]$val) -and $val -ge 0) {
             return $val
         }
@@ -2558,6 +2602,221 @@ function az-New-AzDevOpsUserStory {
     }
 
     return $newId
+}
+
+
+function Read-AzDevOpsBatchContinue {
+    # Three-way batch-loop prompt used by az-New-AzDevOpsFeatureStories at the
+    # end of each story. Mirrors Read-AzDevOpsYesNo's style but adds a third
+    # 'c' option that flags "re-pick area / iteration before the next story".
+    # Returns 'continue' / 'stop' / 'change'.
+    $resp = Read-Host '    Add another story? (y/N/c=change area or iteration)'
+
+    if ($resp -match '^(y|yes)$') {
+        return 'continue'
+    }
+
+    if ($resp -match '^(c|change)$') {
+        return 'change'
+    }
+
+    return 'stop'
+}
+
+
+function Test-AzDevOpsParentIsFeature {
+    # Validates -ParentId resolves to a Feature row in the cached hierarchy
+    # before az-New-AzDevOpsFeatureStories enters the loop. Emits a clear
+    # Write-Host on either failure mode (id missing entirely, or id present
+    # but not a Feature) so the caller can abort with the right hint.
+    param(
+        [Parameter(Mandatory)] [int] $ParentId,
+        [Parameter(Mandatory)] $Hierarchy
+    )
+
+    $candidates = @($Hierarchy | Where-Object { $_.Id -eq $ParentId })
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "ParentId $ParentId not found in hierarchy.json. Run az-Sync-AzDevOpsCache and retry." -ForegroundColor Red
+        return $false
+    }
+
+    $found = $candidates[0]
+    if ($found.Type -ne 'Feature') {
+        Write-Host "ParentId $ParentId is a $($found.Type), not a Feature. Pick a Feature parent." -ForegroundColor Red
+        return $false
+    }
+
+    return $true
+}
+
+
+function az-New-AzDevOpsFeatureStories {
+    # Batch-create child User Stories under an existing Feature. Captures
+    # parent / area / iteration ONCE up front; loops per-story prompts for
+    # title, AC, priority (Enter to reuse last), story points (same). At the
+    # end of each story prompts "Add another story? (y/N/c)" - 'c' re-picks
+    # area / iteration without exiting the loop. Empty title at the top of
+    # any iteration aborts the batch cleanly.
+    #
+    # Each child create runs through the same Invoke-AzDevOpsWorkItemCreate
+    # + Invoke-AzDevOpsParentLink path the single-shot az-New-AzDevOpsUserStory
+    # uses, so failure modes / exit codes / schema enforcement stay identical.
+    # A failed create is logged and the loop continues; the user can retry the
+    # one that failed via az-New-AzDevOpsUserStory -ParentId $ParentId.
+    #
+    # Designed to be invoked stand-alone, or chained off the end of
+    # az-New-AzDevOpsFeature once that ships (issue 3). Returns [int[]] of
+    # successfully-created story ids.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [int]    $ParentId,
+        [string] $Iteration,
+        [string] $Area
+    )
+
+    [int[]] $createdIds = @()
+
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsFeatureStories')) {
+        return $createdIds
+    }
+
+    if (-not $env:AZ_USER_EMAIL) {
+        Write-Host "az-New-AzDevOpsFeatureStories aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+        return $createdIds
+    }
+
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return $createdIds
+    }
+
+    if (-not (Test-AzDevOpsParentIsFeature -ParentId $ParentId -Hierarchy $hierarchy)) {
+        return $createdIds
+    }
+
+    if (-not $Iteration) {
+        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+    if (-not $Iteration) {
+        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return $createdIds
+    }
+
+    if (-not $Area) {
+        $Area = Read-AzDevOpsKindPick -Kind 'Area'
+    }
+    if (-not $Area) {
+        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return $createdIds
+    }
+
+    Write-Host ""
+    Write-Host "Batch-creating child User Stories under Feature $ParentId" -ForegroundColor Cyan
+    Write-Host "  Area      : $Area"
+    Write-Host "  Iteration : $Iteration"
+    Write-Host "  (empty title at the next prompt ends the batch cleanly)"
+
+    $failedTitles        = @()
+    $createdUrls         = @()
+    $previousPriority    = -1
+    $previousStoryPoints = -1
+    $iterationNumber     = 1
+
+    while ($true) {
+        Write-Host ""
+        Write-Host ("--- Story #{0} ---" -f $iterationNumber) -ForegroundColor Cyan
+
+        $title = Read-Host 'Story title (Enter to finish batch)'
+        if (-not $title) {
+            break
+        }
+
+        $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
+        $priority           = Read-AzDevOpsPriority    -Previous $previousPriority
+        $storyPoints        = Read-AzDevOpsStoryPoints -Previous $previousStoryPoints
+
+        Write-Host "Creating User Story..." -ForegroundColor Cyan
+        $createResult = Invoke-AzDevOpsWorkItemCreate `
+            -Title              $title `
+            -Description        '' `
+            -Priority           $priority `
+            -StoryPoints        $storyPoints `
+            -AcceptanceCriteria $acceptanceCriteria `
+            -Iteration          $Iteration `
+            -Area               $Area
+
+        if (-not $createResult.Ok) {
+            Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
+            Write-Host "  $($createResult.Error)" -ForegroundColor Red
+            $failedTitles += $title
+        } else {
+            $newId  = $createResult.Id
+            $newUrl = $createResult.Url
+            Write-Host "OK Created User Story $newId" -ForegroundColor Green
+
+            $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentId
+            if (-not $linkResult.Ok) {
+                Write-Host "STEP FAILED: az boards work-item relation add (story $newId is orphaned, fix manually)" -ForegroundColor Red
+                Write-Host "  $($linkResult.Error)" -ForegroundColor Red
+            } else {
+                Write-Host "OK Linked $newId -> Feature $ParentId" -ForegroundColor Green
+            }
+
+            if ($newUrl) {
+                Write-Host "URL: $newUrl" -ForegroundColor Cyan
+                $createdUrls += $newUrl
+            }
+
+            $createdIds          += $newId
+            $previousPriority     = $priority
+            $previousStoryPoints  = $storyPoints
+        }
+
+        $iterationNumber++
+
+        $next = Read-AzDevOpsBatchContinue
+        if ($next -eq 'stop') {
+            break
+        }
+
+        if ($next -eq 'change') {
+            $newIteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+            if ($newIteration) {
+                $Iteration = $newIteration
+            }
+
+            $newArea = Read-AzDevOpsKindPick -Kind 'Area'
+            if ($newArea) {
+                $Area = $newArea
+            }
+
+            Write-Host "  Area      : $Area"
+            Write-Host "  Iteration : $Iteration"
+        }
+    }
+
+    Write-Host ""
+    $createdCount = $createdIds.Count
+    $failedCount  = $failedTitles.Count
+    $idsList = if ($createdCount -gt 0) {
+        ($createdIds -join ', ')
+    } else {
+        '(none)'
+    }
+
+    if ($failedCount -gt 0) {
+        Write-Host ("Created {0}, Failed {1} child stories under Feature #{2}: {3}" -f $createdCount, $failedCount, $ParentId, $idsList) -ForegroundColor Yellow
+        Write-Host ("Failed titles: {0}" -f ($failedTitles -join ' | ')) -ForegroundColor Yellow
+    } else {
+        Write-Host ("Created {0} child stories under Feature #{1}: {2}" -f $createdCount, $ParentId, $idsList) -ForegroundColor Green
+    }
+
+    foreach ($url in $createdUrls) {
+        Write-Host "  $url" -ForegroundColor Cyan
+    }
+
+    return $createdIds
 }
 
 
