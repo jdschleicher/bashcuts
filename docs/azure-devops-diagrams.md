@@ -39,6 +39,7 @@ flowchart LR
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-AzDevOpsMention"]
         Tree["az-Show-AzDevOpsTree"]
+        Board["az-Show-AzDevOpsBoard"]
         ShowAreas["az-Show-AzDevOpsAreas"]
         ShowIters["az-Show-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
@@ -86,6 +87,7 @@ flowchart LR
     GetM -.exclude assigned ids.-> AssignedJson
     OpenM --> MentionsJson
     Tree --> HierJson
+    Board --> HierJson
     Find --> HierJson
     Status --> LastSync
 
@@ -531,6 +533,7 @@ graph LR
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-AzDevOpsMention"]):::pub
     Tree(["az-Show-AzDevOpsTree"]):::pub
+    Board(["az-Show-AzDevOpsBoard"]):::pub
     ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
     ShowIters(["az-Show-AzDevOpsIterations"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
@@ -739,6 +742,12 @@ graph LR
     TreeRows --> WiPfx
     ShowRows --> GridAvail
     GridPick --> GridAvail
+
+    Board --> ReadH
+    Board --> Stale
+    Board --> SelAct
+    Board --> TitleCol
+    Board --> ShowRows
 
     %% Classification tree views (cache-first, live fallback)
     ClsRows[Get-AzDevOpsClassificationRows]:::priv

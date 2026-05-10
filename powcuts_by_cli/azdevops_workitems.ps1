@@ -435,7 +435,7 @@ function Get-AzDevOpsSyncDatasets {
     # Project scope is supplied by --project on the az invocation
     # (Invoke-AzDevOpsAzJson injects it from $env:AZ_PROJECT), so the WIQL
     # itself no longer needs a [System.TeamProject] = @Project clause.
-    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
+    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
 
     $rowCounter  = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
@@ -1351,9 +1351,12 @@ function az-Open-AzDevOpsMention {
 # ---------------------------------------------------------------------------
 # Hierarchy tree view
 #
-# Public function:
+# Public functions:
 #   az-Show-AzDevOpsTree   - prints the project's Epic/Feature/requirement-tier
 #                          tree from the cached hierarchy.json (no `az` calls)
+#   az-Show-AzDevOpsBoard  - cached items grouped by State (board-style view);
+#                          relies on Out-ConsoleGridView's column group-by.
+#                          Defined further down in its own section.
 #
 # Reads $HOME/.bashcuts-cache/azure-devops/hierarchy.json (built by
 # az-Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
@@ -1395,11 +1398,12 @@ function ConvertFrom-AzDevOpsHierarchyItem {
     }
 
     $item = [PSCustomObject]@{
-        Id     = $id
-        Type   = $f.'System.WorkItemType'
-        State  = $f.'System.State'
-        Title  = $f.'System.Title'
-        Parent = $parent
+        Id        = $id
+        Type      = $f.'System.WorkItemType'
+        State     = $f.'System.State'
+        Title     = $f.'System.Title'
+        Iteration = $f.'System.IterationPath'
+        Parent    = $parent
     }
     return $item
 }
@@ -1610,6 +1614,46 @@ function az-Show-AzDevOpsTree {
             }
         }
     }
+}
+
+
+# ---------------------------------------------------------------------------
+# Board view (group cached items by State)
+#
+# Public function:
+#   az-Show-AzDevOpsBoard  - column-grouped board-style view of the cached
+#                            hierarchy. Pipes through Show-AzDevOpsRows -PassThru
+#                            so Out-ConsoleGridView's built-in group-by-State
+#                            handles the kanban affordance interactively.
+#
+# Reuses the same $HOME/.bashcuts-cache/azure-devops/hierarchy.json that
+# az-Show-AzDevOpsTree consumes; never calls `az` directly. Default -Type list
+# matches what the hierarchy WIQL pulls (Epic / Feature / requirement-tier).
+# Default -State filter excludes closed states via Select-AzDevOpsActiveItems;
+# pass -State Closed,Resolved to flip to the archive view.
+# ---------------------------------------------------------------------------
+
+function az-Show-AzDevOpsBoard {
+    [CmdletBinding()]
+    param(
+        [string[]] $Type  = @('Epic', 'Feature', 'User Story'),
+        [string[]] $State
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+
+    $byType  = @($items | Where-Object { $_.Type -in $Type })
+    $byState = Select-AzDevOpsActiveItems -Items $byType -State $State
+
+    $rows = @($byState | Sort-Object State, Type, Id | Select-Object State, Id, Type, (Get-AzDevOpsTitleColumn), Iteration)
+
+    $title = "Board - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    return $selected
 }
 
 
