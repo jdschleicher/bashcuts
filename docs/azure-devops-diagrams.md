@@ -647,6 +647,11 @@ graph LR
     BatchCont[Read-AzDevOpsBatchContinue]:::priv
     ParentTest[Test-AzDevOpsParentIsFeature]:::priv
 
+    %% Shared creator scaffolding (consumed by all three az-New-AzDevOps* creators)
+    CGate[Test-AzDevOpsCreateGate]:::priv
+    ResIA[Resolve-AzDevOpsIterationArea]:::priv
+    CrLink[Invoke-AzDevOpsCreateAndLink]:::priv
+
     %% I/O sinks
     Az[(az CLI)]:::io
     FS[(cache files)]:::io
@@ -768,9 +773,42 @@ graph LR
     PFeat --> PCls
     PFeat --> GridPick
     PCls --> GridPick
-    NewS --> InvCreate --> NewWI --> AzJson
-    NewS --> InvLink --> AddRel --> AzJson
+    NewS --> CGate
+    NewS --> ReadH
+    NewS --> Pri
+    NewS --> Pts
+    NewS --> AC
+    NewS --> PFeat
+    NewS --> ResIA
+    NewS --> CrLink
 
+    NewF --> CGate
+    NewF --> ReadH
+    NewF --> Pri
+    NewF --> AC
+    NewF --> PEpic
+    NewF --> ResIA
+    NewF --> CrLink
+    NewF --> YN
+    NewF -.hand-off on yes.-> NewSB
+
+    NewSB --> CGate
+    NewSB --> ReadH
+    NewSB --> ParentTest
+    NewSB --> ResIA
+    NewSB --> AC
+    NewSB --> Pri
+    NewSB --> Pts
+    NewSB --> CrLink
+    NewSB --> BatchCont
+
+    %% Shared creator scaffolding fan-out to the data plane
+    CGate --> TestAuth
+    ResIA --> PKind
+    CrLink --> InvCreate --> NewWI --> AzJson
+    CrLink --> InvLink --> AddRel --> AzJson
+
+    %% Parent picker shared between Feature and Epic pickers
     PFeat --> PParent
     PEpic --> PParent
     PParent --> Closed
@@ -778,27 +816,7 @@ graph LR
     PParent --> GridAvail
     PParent --> GridPick
 
-    NewF --> TestAuth
-    NewF --> ReadH
-    NewF --> Pri
-    NewF --> AC
-    NewF --> PEpic
-    NewF --> PKind
-    NewF --> InvCreate
-    NewF --> InvLink
-    NewF --> YN
-    NewF -.hand-off on yes.-> NewSB
-
-    NewSB --> TestAuth
-    NewSB --> ReadH
-    NewSB --> ParentTest
-    NewSB --> PKind
-    NewSB --> AC
-    NewSB --> Pri
-    NewSB --> Pts
-    NewSB --> InvCreate
-    NewSB --> InvLink
-    NewSB --> BatchCont
+    %% Reusable-prompt hint
     Pri --> ReuseHint
     Pts --> ReuseHint
 ```

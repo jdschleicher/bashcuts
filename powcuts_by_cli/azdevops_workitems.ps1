@@ -2521,6 +2521,122 @@ function Invoke-AzDevOpsParentLink {
 }
 
 
+function Test-AzDevOpsCreateGate {
+    # Auth + AZ_USER_EMAIL gate shared by every az-New-AzDevOps* creator.
+    # Prints the abort message and returns $false on miss so callers can
+    # short-circuit with a single `if (-not (Test-AzDevOpsCreateGate ...))`.
+    param([Parameter(Mandatory)] [string] $CommandName)
+
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName $CommandName)) {
+        return $false
+    }
+
+    if (-not $env:AZ_USER_EMAIL) {
+        Write-Host "$CommandName aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+        return $false
+    }
+
+    return $true
+}
+
+
+function Resolve-AzDevOpsIterationArea {
+    # Picker + env-var fallback shared by every az-New-AzDevOps* creator. For
+    # each kind: if the caller already passed a value, keep it; otherwise prompt
+    # via Read-AzDevOpsKindPick. Missing-after-pick prints the standard "Set
+    # `$env:AZ_* or run az-Sync-AzDevOpsCache" abort. Returns a result object
+    # with .Ok / .Iteration / .Area so callers can short-circuit with a single
+    # `if (-not $resolved.Ok) { return }`.
+    param(
+        [string] $Iteration,
+        [string] $Area
+    )
+
+    if (-not $Iteration) {
+        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+    if (-not $Iteration) {
+        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Iteration = $null; Area = $null }
+    }
+
+    if (-not $Area) {
+        $Area = Read-AzDevOpsKindPick -Kind 'Area'
+    }
+    if (-not $Area) {
+        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Iteration = $null; Area = $null }
+    }
+
+    $resolved = [PSCustomObject]@{ Ok = $true; Iteration = $Iteration; Area = $Area }
+    return $resolved
+}
+
+
+function Invoke-AzDevOpsCreateAndLink {
+    # Wraps the create -> parent-link -> echo URL tail shared by every
+    # az-New-AzDevOps* creator: az-New-AzDevOpsUserStory, az-New-AzDevOpsFeature,
+    # and the per-iteration body of az-New-AzDevOpsFeatureStories. Returns a
+    # result object with .Ok / .Id / .Url so the caller can short-circuit on
+    # failure or hand the new id to a follow-up step (browser launch, hand-off
+    # prompt, append to a batch summary).
+    #
+    # ChildLabel / ParentLabel feed the user-facing status lines ("Creating
+    # User Story...", "Linking story 5001 to parent Feature 1240..."), so the
+    # existing UX is preserved verbatim - the helper only consolidates the
+    # control flow.
+    param(
+        [Parameter(Mandatory)] [string]    $ChildLabel,
+        [Parameter(Mandatory)] [string]    $ParentLabel,
+        [Parameter(Mandatory)] [hashtable] $CreateArgs,
+        [int]    $ParentId      = 0,
+        [string] $OrphanLabel,
+        [switch] $OpenInBrowser
+    )
+
+    if (-not $OrphanLabel) {
+        $OrphanLabel = $ChildLabel
+    }
+
+    Write-Host ""
+    Write-Host "Creating $ChildLabel..." -ForegroundColor Cyan
+    $createResult = Invoke-AzDevOpsWorkItemCreate @CreateArgs
+
+    if (-not $createResult.Ok) {
+        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
+        Write-Host "  $($createResult.Error)" -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
+    }
+
+    $newId  = $createResult.Id
+    $newUrl = $createResult.Url
+    Write-Host "OK Created $ChildLabel $newId" -ForegroundColor Green
+
+    if ($ParentId -gt 0) {
+        Write-Host "Linking $OrphanLabel $newId to parent $ParentLabel $ParentId..." -ForegroundColor Cyan
+        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentId
+        if (-not $linkResult.Ok) {
+            Write-Host "STEP FAILED: az boards work-item relation add ($OrphanLabel $newId is orphaned, fix manually)" -ForegroundColor Red
+            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
+        } else {
+            Write-Host "OK Linked $newId -> $ParentLabel $ParentId" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "(no parent linked - orphan $OrphanLabel)" -ForegroundColor Yellow
+    }
+
+    if ($newUrl) {
+        Write-Host "URL: $newUrl" -ForegroundColor Cyan
+        if ($OpenInBrowser) {
+            Start-Process $newUrl
+        }
+    }
+
+    $outcome = [PSCustomObject]@{ Ok = $true; Id = $newId; Url = $newUrl }
+    return $outcome
+}
+
+
 function az-New-AzDevOpsUserStory {
     [CmdletBinding()]
     param(
@@ -2535,12 +2651,7 @@ function az-New-AzDevOpsUserStory {
         [switch] $NoOpen
     )
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsUserStory')) {
-        return
-    }
-
-    if (-not $env:AZ_USER_EMAIL) {
-        Write-Host "az-New-AzDevOpsUserStory aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsUserStory')) {
         return
     }
 
@@ -2577,64 +2688,36 @@ function az-New-AzDevOpsUserStory {
         $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy
     }
 
-    if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
+        return
     }
-    if (-not $Iteration) {
-        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
+
+    $createArgs = @{
+        Title              = $Title
+        Description        = $Description
+        Priority           = $Priority
+        StoryPoints        = $StoryPoints
+        AcceptanceCriteria = $AcceptanceCriteria
+        Iteration          = $Iteration
+        Area               = $Area
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'User Story' `
+        -ParentLabel   'Feature' `
+        -OrphanLabel   'story' `
+        -CreateArgs    $createArgs `
+        -ParentId      $FeatureId `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
         return
     }
 
-    if (-not $Area) {
-        $Area = Read-AzDevOpsKindPick -Kind 'Area'
-    }
-    if (-not $Area) {
-        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Creating User Story..." -ForegroundColor Cyan
-    $createResult = Invoke-AzDevOpsWorkItemCreate `
-        -Title              $Title `
-        -Description        $Description `
-        -Priority           $Priority `
-        -StoryPoints        $StoryPoints `
-        -AcceptanceCriteria $AcceptanceCriteria `
-        -Iteration          $Iteration `
-        -Area               $Area
-
-    if (-not $createResult.Ok) {
-        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
-        Write-Host "  $($createResult.Error)" -ForegroundColor Red
-        return
-    }
-
-    $newId  = $createResult.Id
-    $newUrl = $createResult.Url
-    Write-Host "OK Created User Story $newId" -ForegroundColor Green
-
-    if ($FeatureId -gt 0) {
-        Write-Host "Linking story $newId to parent Feature $FeatureId..." -ForegroundColor Cyan
-        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $FeatureId
-
-        if (-not $linkResult.Ok) {
-            Write-Host "STEP FAILED: az boards work-item relation add (story $newId is orphaned, fix manually)" -ForegroundColor Red
-            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
-        } else {
-            Write-Host "OK Linked $newId -> Feature $FeatureId" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "(no parent linked - orphan story)" -ForegroundColor Yellow
-    }
-
-    if ($newUrl) {
-        Write-Host "URL: $newUrl" -ForegroundColor Cyan
-        if (-not $NoOpen) {
-            Start-Process $newUrl
-        }
-    }
-
+    $newId = $outcome.Id
     return $newId
 }
 
@@ -2665,12 +2748,7 @@ function az-New-AzDevOpsFeature {
         [switch] $NoChildStoriesPrompt
     )
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsFeature')) {
-        return
-    }
-
-    if (-not $env:AZ_USER_EMAIL) {
-        Write-Host "az-New-AzDevOpsFeature aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeature')) {
         return
     }
 
@@ -2703,63 +2781,35 @@ function az-New-AzDevOpsFeature {
         $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy
     }
 
-    if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
+        return
     }
-    if (-not $Iteration) {
-        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
+
+    $createArgs = @{
+        Type               = 'Feature'
+        Title              = $Title
+        Description        = $Description
+        Priority           = $Priority
+        AcceptanceCriteria = $AcceptanceCriteria
+        Iteration          = $Iteration
+        Area               = $Area
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'Feature' `
+        -ParentLabel   'Epic' `
+        -CreateArgs    $createArgs `
+        -ParentId      $ParentEpicId `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
         return
     }
 
-    if (-not $Area) {
-        $Area = Read-AzDevOpsKindPick -Kind 'Area'
-    }
-    if (-not $Area) {
-        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Creating Feature..." -ForegroundColor Cyan
-    $createResult = Invoke-AzDevOpsWorkItemCreate `
-        -Type               'Feature' `
-        -Title              $Title `
-        -Description        $Description `
-        -Priority           $Priority `
-        -AcceptanceCriteria $AcceptanceCriteria `
-        -Iteration          $Iteration `
-        -Area               $Area
-
-    if (-not $createResult.Ok) {
-        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
-        Write-Host "  $($createResult.Error)" -ForegroundColor Red
-        return
-    }
-
-    $newId  = $createResult.Id
-    $newUrl = $createResult.Url
-    Write-Host "OK Created Feature $newId" -ForegroundColor Green
-
-    if ($ParentEpicId -gt 0) {
-        Write-Host "Linking Feature $newId to parent Epic $ParentEpicId..." -ForegroundColor Cyan
-        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentEpicId
-
-        if (-not $linkResult.Ok) {
-            Write-Host "STEP FAILED: az boards work-item relation add (Feature $newId is orphaned, fix manually)" -ForegroundColor Red
-            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
-        } else {
-            Write-Host "OK Linked $newId -> Epic $ParentEpicId" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "(no parent linked - orphan Feature)" -ForegroundColor Yellow
-    }
-
-    if ($newUrl) {
-        Write-Host "URL: $newUrl" -ForegroundColor Cyan
-        if (-not $NoOpen) {
-            Start-Process $newUrl
-        }
-    }
+    $newId = $outcome.Id
 
     if (-not $NoChildStoriesPrompt) {
         Write-Host ""
@@ -2847,12 +2897,7 @@ function az-New-AzDevOpsFeatureStories {
 
     [int[]] $createdIds = @()
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsFeatureStories')) {
-        return $createdIds
-    }
-
-    if (-not $env:AZ_USER_EMAIL) {
-        Write-Host "az-New-AzDevOpsFeatureStories aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeatureStories')) {
         return $createdIds
     }
 
@@ -2865,21 +2910,12 @@ function az-New-AzDevOpsFeatureStories {
         return $createdIds
     }
 
-    if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
-    }
-    if (-not $Iteration) {
-        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
         return $createdIds
     }
-
-    if (-not $Area) {
-        $Area = Read-AzDevOpsKindPick -Kind 'Area'
-    }
-    if (-not $Area) {
-        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
-        return $createdIds
-    }
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
 
     Write-Host ""
     Write-Host "Batch-creating child User Stories under Feature $ParentId" -ForegroundColor Cyan
@@ -2906,39 +2942,30 @@ function az-New-AzDevOpsFeatureStories {
         $priority           = Read-AzDevOpsPriority    -Previous $previousPriority
         $storyPoints        = Read-AzDevOpsStoryPoints -Previous $previousStoryPoints
 
-        Write-Host "Creating User Story..." -ForegroundColor Cyan
-        $createResult = Invoke-AzDevOpsWorkItemCreate `
-            -Title              $title `
-            -Description        '' `
-            -Priority           $priority `
-            -StoryPoints        $storyPoints `
-            -AcceptanceCriteria $acceptanceCriteria `
-            -Iteration          $Iteration `
-            -Area               $Area
+        $createArgs = @{
+            Title              = $title
+            Description        = ''
+            Priority           = $priority
+            StoryPoints        = $storyPoints
+            AcceptanceCriteria = $acceptanceCriteria
+            Iteration          = $Iteration
+            Area               = $Area
+        }
 
-        if (-not $createResult.Ok) {
-            Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
-            Write-Host "  $($createResult.Error)" -ForegroundColor Red
+        $outcome = Invoke-AzDevOpsCreateAndLink `
+            -ChildLabel  'User Story' `
+            -ParentLabel 'Feature' `
+            -OrphanLabel 'story' `
+            -CreateArgs  $createArgs `
+            -ParentId    $ParentId
+
+        if (-not $outcome.Ok) {
             $failedTitles += $title
         } else {
-            $newId  = $createResult.Id
-            $newUrl = $createResult.Url
-            Write-Host "OK Created User Story $newId" -ForegroundColor Green
-
-            $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentId
-            if (-not $linkResult.Ok) {
-                Write-Host "STEP FAILED: az boards work-item relation add (story $newId is orphaned, fix manually)" -ForegroundColor Red
-                Write-Host "  $($linkResult.Error)" -ForegroundColor Red
-            } else {
-                Write-Host "OK Linked $newId -> Feature $ParentId" -ForegroundColor Green
+            if ($outcome.Url) {
+                $createdUrls += $outcome.Url
             }
-
-            if ($newUrl) {
-                Write-Host "URL: $newUrl" -ForegroundColor Cyan
-                $createdUrls += $newUrl
-            }
-
-            $createdIds          += $newId
+            $createdIds          += $outcome.Id
             $previousPriority     = $priority
             $previousStoryPoints  = $storyPoints
         }
