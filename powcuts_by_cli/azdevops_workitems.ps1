@@ -2155,9 +2155,40 @@ function az-Show-AzDevOpsIterations {
 }
 
 
+function Get-AzDevOpsReuseHint {
+    # Builds the " (Enter to reuse '<value>')" suffix used by batch-flow readers
+    # that carry forward the prior loop's answer. Returns '' when Previous has
+    # no usable value so the prompt collapses cleanly to its non-batch form.
+    param([object] $Previous)
+
+    if ($null -eq $Previous -or "$Previous" -eq '') {
+        return ''
+    }
+
+    $hint = " (Enter to reuse '$Previous')"
+    return $hint
+}
+
+
 function Read-AzDevOpsPriority {
+    # -Previous lets batch flows (az-New-AzDevOpsFeatureStories) carry the
+    # prior priority forward: empty input reuses Previous, any 1-4 digit
+    # overrides. Single-shot callers omit -Previous and get the original
+    # required-prompt behavior.
+    param([int] $Previous = -1)
+
+    $hasPrevious = $Previous -ge 1 -and $Previous -le 4
+    $hint = if ($hasPrevious) {
+        Get-AzDevOpsReuseHint -Previous $Previous
+    } else {
+        ''
+    }
+
     while ($true) {
-        $resp = Read-Host 'Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH'
+        $resp = Read-Host "Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH$hint"
+        if (-not $resp -and $hasPrevious) {
+            return $Previous
+        }
         if ($resp -match '^[1-4]$') {
             $priority = [int]$resp
             return $priority
@@ -2168,9 +2199,22 @@ function Read-AzDevOpsPriority {
 
 
 function Read-AzDevOpsStoryPoints {
+    # -Previous mirrors Read-AzDevOpsPriority's reuse shorthand for batch flows.
+    param([int] $Previous = -1)
+
+    $hasPrevious = $Previous -ge 0
+    $hint = if ($hasPrevious) {
+        Get-AzDevOpsReuseHint -Previous $Previous
+    } else {
+        ''
+    }
+
     $val = 0
     while ($true) {
-        $resp = Read-Host 'Story points? (integer)'
+        $resp = Read-Host "Story points? (integer)$hint"
+        if (-not $resp -and $hasPrevious) {
+            return $Previous
+        }
         if ([int]::TryParse($resp, [ref]$val) -and $val -ge 0) {
             return $val
         }
@@ -2204,39 +2248,44 @@ function Read-AzDevOpsAcceptanceCriteria {
 }
 
 
-function Read-AzDevOpsFeaturePick {
-    # Lists active Features from hierarchy.json. Returns the chosen Feature
-    # Id, or 0 for orphan. When Out-ConsoleGridView is available, opens a
-    # TUI grid picker with a synthetic 'orphan' row pre-pended so the
-    # no-parent option is discoverable; Cancel maps to orphan as well.
-    # Otherwise falls back to the Read-Host numbered menu.
+function Read-AzDevOpsParentPick {
+    # Generic parent picker shared by Read-AzDevOpsFeaturePick (story -> Feature)
+    # and Read-AzDevOpsEpicPick (Feature -> Epic). Lists active rows of the
+    # requested ParentType from the hierarchy cache and returns the chosen Id,
+    # or 0 when the user picks 'orphan' / cancels. Out-ConsoleGridView TUI when
+    # available, Read-Host numbered menu otherwise.
     #
     # Limitation: Basic-template projects skip the Feature tier entirely
-    # (Epic -> Issue, no Feature). This filter therefore returns zero rows
-    # on Basic projects and the caller falls through to the orphan path -
-    # an acceptable degradation while we keep the create flow Agile/Scrum/
-    # CMMI-focused. A future enhancement would detect a Featureless
-    # process template and skip the parent-pick step on Basic projects.
-    param([Parameter(Mandatory)] $Hierarchy)
+    # (Epic -> Issue, no Feature). For -ParentType Feature this filter
+    # returns zero rows on Basic projects and the caller falls through to
+    # the orphan path - acceptable while the create flow stays Agile/Scrum/
+    # CMMI-focused.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Feature','Epic')] [string] $ParentType,
+        [Parameter(Mandatory)] $Hierarchy,
+        [string] $ChildLabel = 'item'
+    )
 
     $closedStates = Get-AzDevOpsClosedStates
-    $features     = @($Hierarchy |
-        Where-Object { $_.Type -eq 'Feature' -and $_.State -notin $closedStates } |
+    $candidates   = @($Hierarchy |
+        Where-Object { $_.Type -eq $ParentType -and $_.State -notin $closedStates } |
         Sort-Object Id)
 
-    if ($features.Count -eq 0) {
-        Write-Host "(no active Features in hierarchy.json - story will be orphaned)" -ForegroundColor Yellow
+    $orphanLabel = "(no parent - orphan $ChildLabel)"
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "(no active ${ParentType}s in hierarchy.json - $ChildLabel will be orphaned)" -ForegroundColor Yellow
         return 0
     }
 
     if (Test-AzDevOpsGridAvailable) {
         $orphanRow = [PSCustomObject]@{
             Id    = 0
-            Title = '(no parent - orphan story)'
+            Title = $orphanLabel
             State = ''
         }
 
-        $featureRows = $features | ForEach-Object {
+        $candidateRows = $candidates | ForEach-Object {
             $title = Format-AzDevOpsTruncatedTitle -Title $_.Title
             [PSCustomObject]@{
                 Id    = $_.Id
@@ -2245,29 +2294,29 @@ function Read-AzDevOpsFeaturePick {
             }
         }
 
-        $gridRows = @($orphanRow) + @($featureRows)
-        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title 'Pick a parent Feature (Esc = orphan story)'
+        $gridRows = @($orphanRow) + @($candidateRows)
+        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title "Pick a parent $ParentType (Esc = orphan $ChildLabel)"
 
         if ($null -eq $picked) {
             return 0
         }
 
-        $featureId = [int]$picked.Id
-        return $featureId
+        $parentId = [int]$picked.Id
+        return $parentId
     }
 
     Write-Host ""
-    Write-Host "Active Features:" -ForegroundColor Cyan
-    Write-Host "  0. (no parent - orphan story)"
-    for ($i = 0; $i -lt $features.Count; $i++) {
-        $f     = $features[$i]
-        $title = Format-AzDevOpsTruncatedTitle -Title $f.Title
-        Write-Host ("  {0}. {1} - {2} [{3}]" -f ($i + 1), $f.Id, $title, $f.State)
+    Write-Host "Active ${ParentType}s:" -ForegroundColor Cyan
+    Write-Host "  0. $orphanLabel"
+    for ($i = 0; $i -lt $candidates.Count; $i++) {
+        $c     = $candidates[$i]
+        $title = Format-AzDevOpsTruncatedTitle -Title $c.Title
+        Write-Host ("  {0}. {1} - {2} [{3}]" -f ($i + 1), $c.Id, $title, $c.State)
     }
 
     $idx = 0
     while ($true) {
-        $resp = Read-Host "Pick a parent Feature (0 for no parent)"
+        $resp = Read-Host "Pick a parent $ParentType (0 for no parent)"
         if (-not [int]::TryParse($resp, [ref]$idx)) {
             Write-Host "  Please enter a number." -ForegroundColor Yellow
             continue
@@ -2277,13 +2326,33 @@ function Read-AzDevOpsFeaturePick {
             return 0
         }
 
-        if ($idx -ge 1 -and $idx -le $features.Count) {
-            $featureId = $features[$idx - 1].Id
-            return $featureId
+        if ($idx -ge 1 -and $idx -le $candidates.Count) {
+            $parentId = $candidates[$idx - 1].Id
+            return $parentId
         }
 
-        Write-Host "  Please enter 0..$($features.Count)." -ForegroundColor Yellow
+        Write-Host "  Please enter 0..$($candidates.Count)." -ForegroundColor Yellow
     }
+}
+
+
+function Read-AzDevOpsFeaturePick {
+    # Story -> Feature parent picker. Thin wrapper over Read-AzDevOpsParentPick
+    # so az-New-AzDevOpsUserStory keeps its current call site unchanged.
+    param([Parameter(Mandatory)] $Hierarchy)
+
+    $featureId = Read-AzDevOpsParentPick -ParentType 'Feature' -Hierarchy $Hierarchy -ChildLabel 'story'
+    return $featureId
+}
+
+
+function Read-AzDevOpsEpicPick {
+    # Feature -> Epic parent picker. Thin wrapper over Read-AzDevOpsParentPick
+    # used by az-New-AzDevOpsFeature.
+    param([Parameter(Mandatory)] $Hierarchy)
+
+    $epicId = Read-AzDevOpsParentPick -ParentType 'Epic' -Hierarchy $Hierarchy -ChildLabel 'Feature'
+    return $epicId
 }
 
 
@@ -2398,28 +2467,37 @@ function Read-AzDevOpsKindPick {
 
 
 function Invoke-AzDevOpsWorkItemCreate {
-    # Wraps `az boards work-item create --type 'User Story' ...` so the
-    # orchestrator can react to a non-zero exit cleanly. Returns a result
-    # object with Ok / Error / Id / Url so the caller can decide whether to
-    # attempt the parent-link step and what URL to echo / open.
+    # Wraps `az boards work-item create --type <Type> ...` so the orchestrator
+    # can react to a non-zero exit cleanly. Returns a result object with
+    # Ok / Error / Id / Url so the caller can decide whether to attempt the
+    # parent-link step and what URL to echo / open.
+    #
+    # -Type defaults to 'User Story' so existing az-New-AzDevOpsUserStory
+    # callers stay binary-compatible. -StoryPoints accepts -1 ("omit field")
+    # so Feature creates can skip the story-points field cleanly - Features
+    # don't carry story points in the default Agile / Scrum templates.
     param(
         [Parameter(Mandatory)] [string] $Title,
         [string] $Description,
         [Parameter(Mandatory)] [int]    $Priority,
-        [Parameter(Mandatory)] [int]    $StoryPoints,
+        [int]    $StoryPoints = -1,
         [string] $AcceptanceCriteria,
         [Parameter(Mandatory)] [string] $Iteration,
-        [Parameter(Mandatory)] [string] $Area
+        [Parameter(Mandatory)] [string] $Area,
+        [string] $Type = 'User Story'
     )
 
     $fields = @(
-        "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints",
         "Microsoft.VSTS.Common.Priority=$Priority",
         "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
     )
 
+    if ($StoryPoints -ge 0) {
+        $fields += "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints"
+    }
+
     $result = New-AzDevOpsWorkItem `
-        -Type        'User Story' `
+        -Type        $Type `
         -Title       $Title `
         -Description $Description `
         -AssignedTo  $env:AZ_USER_EMAIL `
@@ -2487,6 +2565,122 @@ function Invoke-AzDevOpsParentLink {
 }
 
 
+function Test-AzDevOpsCreateGate {
+    # Auth + AZ_USER_EMAIL gate shared by every az-New-AzDevOps* creator.
+    # Prints the abort message and returns $false on miss so callers can
+    # short-circuit with a single `if (-not (Test-AzDevOpsCreateGate ...))`.
+    param([Parameter(Mandatory)] [string] $CommandName)
+
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName $CommandName)) {
+        return $false
+    }
+
+    if (-not $env:AZ_USER_EMAIL) {
+        Write-Host "$CommandName aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+        return $false
+    }
+
+    return $true
+}
+
+
+function Resolve-AzDevOpsIterationArea {
+    # Picker + env-var fallback shared by every az-New-AzDevOps* creator. For
+    # each kind: if the caller already passed a value, keep it; otherwise prompt
+    # via Read-AzDevOpsKindPick. Missing-after-pick prints the standard "Set
+    # `$env:AZ_* or run az-Sync-AzDevOpsCache" abort. Returns a result object
+    # with .Ok / .Iteration / .Area so callers can short-circuit with a single
+    # `if (-not $resolved.Ok) { return }`.
+    param(
+        [string] $Iteration,
+        [string] $Area
+    )
+
+    if (-not $Iteration) {
+        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+    if (-not $Iteration) {
+        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Iteration = $null; Area = $null }
+    }
+
+    if (-not $Area) {
+        $Area = Read-AzDevOpsKindPick -Kind 'Area'
+    }
+    if (-not $Area) {
+        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Iteration = $null; Area = $null }
+    }
+
+    $resolved = [PSCustomObject]@{ Ok = $true; Iteration = $Iteration; Area = $Area }
+    return $resolved
+}
+
+
+function Invoke-AzDevOpsCreateAndLink {
+    # Wraps the create -> parent-link -> echo URL tail shared by every
+    # az-New-AzDevOps* creator: az-New-AzDevOpsUserStory, az-New-AzDevOpsFeature,
+    # and the per-iteration body of az-New-AzDevOpsFeatureStories. Returns a
+    # result object with .Ok / .Id / .Url so the caller can short-circuit on
+    # failure or hand the new id to a follow-up step (browser launch, hand-off
+    # prompt, append to a batch summary).
+    #
+    # ChildLabel / ParentLabel feed the user-facing status lines ("Creating
+    # User Story...", "Linking story 5001 to parent Feature 1240..."), so the
+    # existing UX is preserved verbatim - the helper only consolidates the
+    # control flow.
+    param(
+        [Parameter(Mandatory)] [string]    $ChildLabel,
+        [Parameter(Mandatory)] [string]    $ParentLabel,
+        [Parameter(Mandatory)] [hashtable] $CreateArgs,
+        [int]    $ParentId      = 0,
+        [string] $OrphanLabel,
+        [switch] $OpenInBrowser
+    )
+
+    if (-not $OrphanLabel) {
+        $OrphanLabel = $ChildLabel
+    }
+
+    Write-Host ""
+    Write-Host "Creating $ChildLabel..." -ForegroundColor Cyan
+    $createResult = Invoke-AzDevOpsWorkItemCreate @CreateArgs
+
+    if (-not $createResult.Ok) {
+        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
+        Write-Host "  $($createResult.Error)" -ForegroundColor Red
+        return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
+    }
+
+    $newId  = $createResult.Id
+    $newUrl = $createResult.Url
+    Write-Host "OK Created $ChildLabel $newId" -ForegroundColor Green
+
+    if ($ParentId -gt 0) {
+        Write-Host "Linking $OrphanLabel $newId to parent $ParentLabel $ParentId..." -ForegroundColor Cyan
+        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentId
+        if (-not $linkResult.Ok) {
+            Write-Host "STEP FAILED: az boards work-item relation add ($OrphanLabel $newId is orphaned, fix manually)" -ForegroundColor Red
+            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
+        } else {
+            Write-Host "OK Linked $newId -> $ParentLabel $ParentId" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "(no parent linked - orphan $OrphanLabel)" -ForegroundColor Yellow
+    }
+
+    if ($newUrl) {
+        Write-Host "URL: $newUrl" -ForegroundColor Cyan
+        if ($OpenInBrowser) {
+            Start-Process $newUrl
+        }
+    }
+
+    $outcome = [PSCustomObject]@{ Ok = $true; Id = $newId; Url = $newUrl }
+    return $outcome
+}
+
+
 function az-New-AzDevOpsUserStory {
     [CmdletBinding()]
     param(
@@ -2501,12 +2695,7 @@ function az-New-AzDevOpsUserStory {
         [switch] $NoOpen
     )
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-New-AzDevOpsUserStory')) {
-        return
-    }
-
-    if (-not $env:AZ_USER_EMAIL) {
-        Write-Host "az-New-AzDevOpsUserStory aborted - `$env:AZ_USER_EMAIL is not set in your `$profile." -ForegroundColor Red
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsUserStory')) {
         return
     }
 
@@ -2543,65 +2732,332 @@ function az-New-AzDevOpsUserStory {
         $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy
     }
 
-    if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
+        return
     }
-    if (-not $Iteration) {
-        Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
+
+    $createArgs = @{
+        Title              = $Title
+        Description        = $Description
+        Priority           = $Priority
+        StoryPoints        = $StoryPoints
+        AcceptanceCriteria = $AcceptanceCriteria
+        Iteration          = $Iteration
+        Area               = $Area
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'User Story' `
+        -ParentLabel   'Feature' `
+        -OrphanLabel   'story' `
+        -CreateArgs    $createArgs `
+        -ParentId      $FeatureId `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
         return
     }
 
-    if (-not $Area) {
-        $Area = Read-AzDevOpsKindPick -Kind 'Area'
-    }
-    if (-not $Area) {
-        Write-Host "Area is required - aborting. Set `$env:AZ_AREA or run az-Sync-AzDevOpsCache." -ForegroundColor Red
+    $newId = $outcome.Id
+    return $newId
+}
+
+
+function az-New-AzDevOpsFeature {
+    # Interactive Feature creator. Mirrors az-New-AzDevOpsUserStory's UX one
+    # tier up the tree: pick a parent Epic from the cached hierarchy, fill
+    # title / description / priority / area / iteration / acceptance criteria,
+    # create the Feature, link it to the Epic. Story points are intentionally
+    # skipped - Features don't carry story points in the default Agile / Scrum
+    # templates.
+    #
+    # Ends with an "Add child stories now?" hand-off via Read-AzDevOpsYesNo;
+    # on yes calls az-New-AzDevOpsFeatureStories -ParentId $newFeatureId with
+    # the same area / iteration pre-seeded so the user doesn't re-pick them.
+    #
+    # Returns the new Feature's [int] id.
+    [CmdletBinding()]
+    param(
+        [string] $Title,
+        [string] $Description,
+        [int]    $Priority    = -1,
+        [string] $AcceptanceCriteria,
+        [int]    $ParentEpicId = -1,
+        [string] $Iteration,
+        [string] $Area,
+        [switch] $NoOpen,
+        [switch] $NoChildStoriesPrompt
+    )
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeature')) {
         return
     }
 
-    Write-Host ""
-    Write-Host "Creating User Story..." -ForegroundColor Cyan
-    $createResult = Invoke-AzDevOpsWorkItemCreate `
-        -Title              $Title `
-        -Description        $Description `
-        -Priority           $Priority `
-        -StoryPoints        $StoryPoints `
-        -AcceptanceCriteria $AcceptanceCriteria `
-        -Iteration          $Iteration `
-        -Area               $Area
-
-    if (-not $createResult.Ok) {
-        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
-        Write-Host "  $($createResult.Error)" -ForegroundColor Red
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
         return
     }
 
-    $newId  = $createResult.Id
-    $newUrl = $createResult.Url
-    Write-Host "OK Created User Story $newId" -ForegroundColor Green
-
-    if ($FeatureId -gt 0) {
-        Write-Host "Linking story $newId to parent Feature $FeatureId..." -ForegroundColor Cyan
-        $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $FeatureId
-
-        if (-not $linkResult.Ok) {
-            Write-Host "STEP FAILED: az boards work-item relation add (story $newId is orphaned, fix manually)" -ForegroundColor Red
-            Write-Host "  $($linkResult.Error)" -ForegroundColor Red
-        } else {
-            Write-Host "OK Linked $newId -> Feature $FeatureId" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "(no parent linked - orphan story)" -ForegroundColor Yellow
+    if (-not $Title) {
+        $Title = Read-Host 'What is the title of the Feature?'
+    }
+    if (-not $Title) {
+        Write-Host "Title is required - aborting." -ForegroundColor Red
+        return
     }
 
-    if ($newUrl) {
-        Write-Host "URL: $newUrl" -ForegroundColor Cyan
-        if (-not $NoOpen) {
-            Start-Process $newUrl
+    if (-not $PSBoundParameters.ContainsKey('Description')) {
+        $Description = Read-Host 'What is the description?'
+    }
+
+    if ($Priority -lt 1 -or $Priority -gt 4) {
+        $Priority = Read-AzDevOpsPriority
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
+        $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
+    }
+
+    if ($ParentEpicId -lt 0) {
+        $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
+
+    $createArgs = @{
+        Type               = 'Feature'
+        Title              = $Title
+        Description        = $Description
+        Priority           = $Priority
+        AcceptanceCriteria = $AcceptanceCriteria
+        Iteration          = $Iteration
+        Area               = $Area
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'Feature' `
+        -ParentLabel   'Epic' `
+        -CreateArgs    $createArgs `
+        -ParentId      $ParentEpicId `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
+        return
+    }
+
+    $newId = $outcome.Id
+
+    if (-not $NoChildStoriesPrompt) {
+        Write-Host ""
+        if (Read-AzDevOpsYesNo -Prompt 'Add child stories now?') {
+            az-New-AzDevOpsFeatureStories `
+                -ParentId  $newId `
+                -Iteration $Iteration `
+                -Area      $Area | Out-Null
         }
     }
 
     return $newId
+}
+
+
+function Read-AzDevOpsBatchContinue {
+    # Three-way batch-loop prompt used by az-New-AzDevOpsFeatureStories at the
+    # end of each story. Mirrors Read-AzDevOpsYesNo's style but adds a third
+    # 'c' option that flags "re-pick area / iteration before the next story".
+    # Returns 'continue' / 'stop' / 'change'.
+    $resp = Read-Host '    Add another story? (y/N/c=change area or iteration)'
+
+    if ($resp -match '^(y|yes)$') {
+        return 'continue'
+    }
+
+    if ($resp -match '^(c|change)$') {
+        return 'change'
+    }
+
+    return 'stop'
+}
+
+
+function Test-AzDevOpsParentIsFeature {
+    # Validates -ParentId resolves to a Feature row in the cached hierarchy
+    # before az-New-AzDevOpsFeatureStories enters the loop. Emits a clear
+    # Write-Host on either failure mode (id missing entirely, or id present
+    # but not a Feature) so the caller can abort with the right hint.
+    param(
+        [Parameter(Mandatory)] [int] $ParentId,
+        [Parameter(Mandatory)] $Hierarchy
+    )
+
+    $candidates = @($Hierarchy | Where-Object { $_.Id -eq $ParentId })
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "ParentId $ParentId not found in hierarchy.json. Run az-Sync-AzDevOpsCache and retry." -ForegroundColor Red
+        return $false
+    }
+
+    $found = $candidates[0]
+    if ($found.Type -ne 'Feature') {
+        Write-Host "ParentId $ParentId is a $($found.Type), not a Feature. Pick a Feature parent." -ForegroundColor Red
+        return $false
+    }
+
+    return $true
+}
+
+
+function az-New-AzDevOpsFeatureStories {
+    # Batch-create child User Stories under an existing Feature. Captures
+    # parent / area / iteration ONCE up front; loops per-story prompts for
+    # title, AC, priority (Enter to reuse last), story points (same). At the
+    # end of each story prompts "Add another story? (y/N/c)" - 'c' re-picks
+    # area / iteration without exiting the loop. Empty title at the top of
+    # any iteration aborts the batch cleanly.
+    #
+    # Each child create runs through the same Invoke-AzDevOpsWorkItemCreate
+    # + Invoke-AzDevOpsParentLink path the single-shot az-New-AzDevOpsUserStory
+    # uses, so failure modes / exit codes / schema enforcement stay identical.
+    # A failed create is logged and the loop continues; the user can retry the
+    # one that failed via az-New-AzDevOpsUserStory -ParentId $ParentId.
+    #
+    # Designed to be invoked stand-alone, or chained off the end of
+    # az-New-AzDevOpsFeature via its "Add child stories now?" hand-off prompt.
+    # Returns [int[]] of successfully-created story ids.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [int]    $ParentId,
+        [string] $Iteration,
+        [string] $Area
+    )
+
+    [int[]] $createdIds = @()
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeatureStories')) {
+        return $createdIds
+    }
+
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return $createdIds
+    }
+
+    if (-not (Test-AzDevOpsParentIsFeature -ParentId $ParentId -Hierarchy $hierarchy)) {
+        return $createdIds
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    if (-not $resolved.Ok) {
+        return $createdIds
+    }
+    $Iteration = $resolved.Iteration
+    $Area      = $resolved.Area
+
+    Write-Host ""
+    Write-Host "Batch-creating child User Stories under Feature $ParentId" -ForegroundColor Cyan
+    Write-Host "  Area      : $Area"
+    Write-Host "  Iteration : $Iteration"
+    Write-Host "  (empty title at the next prompt ends the batch cleanly)"
+
+    $failedTitles        = @()
+    $createdUrls         = @()
+    $previousPriority    = -1
+    $previousStoryPoints = -1
+    $iterationNumber     = 1
+
+    while ($true) {
+        Write-Host ""
+        Write-Host ("--- Story #{0} ---" -f $iterationNumber) -ForegroundColor Cyan
+
+        $title = Read-Host 'Story title (Enter to finish batch)'
+        if (-not $title) {
+            break
+        }
+
+        $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
+        $priority           = Read-AzDevOpsPriority    -Previous $previousPriority
+        $storyPoints        = Read-AzDevOpsStoryPoints -Previous $previousStoryPoints
+
+        $createArgs = @{
+            Title              = $title
+            Description        = ''
+            Priority           = $priority
+            StoryPoints        = $storyPoints
+            AcceptanceCriteria = $acceptanceCriteria
+            Iteration          = $Iteration
+            Area               = $Area
+        }
+
+        $outcome = Invoke-AzDevOpsCreateAndLink `
+            -ChildLabel  'User Story' `
+            -ParentLabel 'Feature' `
+            -OrphanLabel 'story' `
+            -CreateArgs  $createArgs `
+            -ParentId    $ParentId
+
+        if (-not $outcome.Ok) {
+            $failedTitles += $title
+        } else {
+            if ($outcome.Url) {
+                $createdUrls += $outcome.Url
+            }
+            $createdIds          += $outcome.Id
+            $previousPriority     = $priority
+            $previousStoryPoints  = $storyPoints
+        }
+
+        $iterationNumber++
+
+        $next = Read-AzDevOpsBatchContinue
+        if ($next -eq 'stop') {
+            break
+        }
+
+        if ($next -eq 'change') {
+            $newIteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+            if ($newIteration) {
+                $Iteration = $newIteration
+            }
+
+            $newArea = Read-AzDevOpsKindPick -Kind 'Area'
+            if ($newArea) {
+                $Area = $newArea
+            }
+
+            Write-Host "  Area      : $Area"
+            Write-Host "  Iteration : $Iteration"
+        }
+    }
+
+    Write-Host ""
+    $createdCount = $createdIds.Count
+    $failedCount  = $failedTitles.Count
+    $idsList = if ($createdCount -gt 0) {
+        ($createdIds -join ', ')
+    } else {
+        '(none)'
+    }
+
+    if ($failedCount -gt 0) {
+        Write-Host ("Created {0}, Failed {1} child stories under Feature #{2}: {3}" -f $createdCount, $failedCount, $ParentId, $idsList) -ForegroundColor Yellow
+        Write-Host ("Failed titles: {0}" -f ($failedTitles -join ' | ')) -ForegroundColor Yellow
+    } else {
+        Write-Host ("Created {0} child stories under Feature #{1}: {2}" -f $createdCount, $ParentId, $idsList) -ForegroundColor Green
+    }
+
+    foreach ($url in $createdUrls) {
+        Write-Host "  $url" -ForegroundColor Cyan
+    }
+
+    return $createdIds
 }
 
 
