@@ -17,9 +17,11 @@
 #   az-Confirm-AzDevOpsCli              - step 1 (CLI on PATH + version echo)
 #   az-Confirm-AzDevOpsExtension        - step 2 (azure-devops extension; offers install)
 #   az-Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
-#   az-Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
-#   az-Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
-#   az-Confirm-AzDevOpsSmokeQuery       - step 6 (az boards query smoke test)
+#   az-Confirm-AzDevOpsProjectMap       - step 4 ($global:AzDevOpsProjectMap;
+#                                              opt-in, no-op when unset)
+#   az-Confirm-AzDevOpsLogin            - step 5 (az login session; offers login)
+#   az-Set-AzDevOpsDefaults             - step 6 (az devops configure --defaults)
+#   az-Confirm-AzDevOpsSmokeQuery       - step 7 (az boards query smoke test)
 #
 # Silent diagnostic helpers (pure checks, no I/O — used by az-Test-AzDevOpsAuth):
 #   Test-AzDevOpsCliPresent          - is the `az` CLI on PATH?
@@ -201,6 +203,71 @@ function az-Confirm-AzDevOpsEnvVars {
 }
 
 
+function az-Confirm-AzDevOpsProjectMap {
+    # Project-map step in the az-Connect-AzDevOps orchestrator. The map is
+    # opt-in, so the default verdict when no map is defined is Ok=$true with
+    # an informational status line.
+    #
+    # When the map is defined:
+    #   - $global:AzDevOpsActiveProject set + active entry has Org + Project
+    #     non-empty: Ok=$true
+    #   - $global:AzDevOpsDefaultProject set but ActiveProject unset: hydrate
+    #     via az-Use-AzDevOpsProject -Quiet, then verify Org + Project keys
+    #   - Map defined but neither default nor active set: prompt the user to
+    #     pick one (numbered menu) and call az-Use-AzDevOpsProject -Quiet on
+    #     the choice
+    #   - Map defined but the active project entry is missing Org or Project:
+    #     Ok=$false with a clear FailMessage
+    if (-not $global:AzDevOpsProjectMap) {
+        Write-Host "  -  No `$global:AzDevOpsProjectMap defined (single-project mode)" -ForegroundColor DarkGray
+        return New-AzDevOpsStepResult -Ok $true
+    }
+
+    if (-not $global:AzDevOpsActiveProject -and $global:AzDevOpsDefaultProject) {
+        if ($global:AzDevOpsProjectMap.ContainsKey($global:AzDevOpsDefaultProject)) {
+            az-Use-AzDevOpsProject -Name $global:AzDevOpsDefaultProject -Quiet
+        }
+    }
+
+    if (-not $global:AzDevOpsActiveProject) {
+        $names = az-Get-AzDevOpsProjects
+        if (-not $names -or $names.Count -eq 0) {
+            return New-AzDevOpsStepResult -Ok $false -FailMessage '$global:AzDevOpsProjectMap is empty'
+        }
+
+        Write-Host '  ?  No active Azure DevOps project. Pick one:' -ForegroundColor Yellow
+        for ($i = 0; $i -lt $names.Count; $i++) {
+            Write-Host ("    {0}. {1}" -f ($i + 1), $names[$i])
+        }
+
+        $idx = 0
+        while ($true) {
+            $resp = Read-Host "    Pick 1..$($names.Count)"
+            if ([int]::TryParse($resp, [ref]$idx) -and $idx -ge 1 -and $idx -le $names.Count) {
+                break
+            }
+            Write-Host "    Please enter a number between 1 and $($names.Count)." -ForegroundColor Yellow
+        }
+
+        az-Use-AzDevOpsProject -Name $names[$idx - 1] -Quiet
+    }
+
+    $active = Get-AzDevOpsActiveProject
+    if ($null -eq $active) {
+        return New-AzDevOpsStepResult -Ok $false -FailMessage "active project '$global:AzDevOpsActiveProject' not found in map"
+    }
+    if (-not $active.Org) {
+        return New-AzDevOpsStepResult -Ok $false -FailMessage "active project '$global:AzDevOpsActiveProject' is missing required key 'Org'"
+    }
+    if (-not $active.Project) {
+        return New-AzDevOpsStepResult -Ok $false -FailMessage "active project '$global:AzDevOpsActiveProject' is missing required key 'Project'"
+    }
+
+    Write-Host "  OK  Active project: $global:AzDevOpsActiveProject (org=$($active.Org) project=$($active.Project))" -ForegroundColor Green
+    return New-AzDevOpsStepResult -Ok $true
+}
+
+
 function az-Confirm-AzDevOpsLogin {
     if (-not (Test-AzDevOpsLoggedIn)) {
         Write-Host "  !  No active az login session" -ForegroundColor Yellow
@@ -261,9 +328,10 @@ function az-Connect-AzDevOps {
         @{ Num = 1; Name = 'Azure CLI';                     Action = { az-Confirm-AzDevOpsCli } },
         @{ Num = 2; Name = 'azure-devops extension';        Action = { az-Confirm-AzDevOpsExtension } },
         @{ Num = 3; Name = 'Profile environment variables'; Action = { az-Confirm-AzDevOpsEnvVars } },
-        @{ Num = 4; Name = 'Azure login session';           Action = { az-Confirm-AzDevOpsLogin } },
-        @{ Num = 5; Name = 'Configure az devops defaults';  Action = { az-Set-AzDevOpsDefaults } },
-        @{ Num = 6; Name = 'Smoke test (az boards query)';  Action = { az-Confirm-AzDevOpsSmokeQuery } }
+        @{ Num = 4; Name = 'Azure DevOps project map';      Action = { az-Confirm-AzDevOpsProjectMap } },
+        @{ Num = 5; Name = 'Azure login session';           Action = { az-Confirm-AzDevOpsLogin } },
+        @{ Num = 6; Name = 'Configure az devops defaults';  Action = { az-Set-AzDevOpsDefaults } },
+        @{ Num = 7; Name = 'Smoke test (az boards query)';  Action = { az-Confirm-AzDevOpsSmokeQuery } }
     )
 
     foreach ($step in $steps) {
@@ -304,7 +372,25 @@ function az-Connect-AzDevOps {
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsCachePaths {
-    $cacheDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    # When $global:AzDevOpsProjectMap is in play, the cache splits into
+    # per-project subdirs under ~/.bashcuts-cache/azure-devops/<slug>/ so
+    # switching projects loads the right assigned/mentions/hierarchy set.
+    # Get-AzDevOpsProjectCacheSlug returns '' for single-project users so
+    # the legacy path stays put.
+    $base = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+
+    $slug = if (Get-Command Get-AzDevOpsProjectCacheSlug -ErrorAction SilentlyContinue) {
+        Get-AzDevOpsProjectCacheSlug
+    } else {
+        ''
+    }
+
+    $cacheDir = if ($slug) {
+        Join-Path $base $slug
+    } else {
+        $base
+    }
+
     return [PSCustomObject]@{
         Dir        = $cacheDir
         Assigned   = Join-Path $cacheDir 'assigned.json'
@@ -435,7 +521,11 @@ function Get-AzDevOpsSyncDatasets {
     # Project scope is supplied by --project on the az invocation
     # (Invoke-AzDevOpsAzJson injects it from $env:AZ_PROJECT), so the WIQL
     # itself no longer needs a [System.TeamProject] = @Project clause.
-    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
+    # [System.AreaPath] is included so the Phase B parent picker can filter
+    # candidates against $global:AzDevOpsProjectMap..Types..ParentScope.AreaPaths.
+    # Older caches written without AreaPath stay valid - the filter is a
+    # silent no-op when the field is missing on a row.
+    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
 
     $rowCounter  = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
@@ -1397,12 +1487,19 @@ function ConvertFrom-AzDevOpsHierarchyItem {
         [int]$Raw.id
     }
 
+    $area = if ($null -ne $f.'System.AreaPath' -and "$($f.'System.AreaPath')" -ne '') {
+        [string]$f.'System.AreaPath'
+    } else {
+        $null
+    }
+
     $item = [PSCustomObject]@{
         Id        = $id
         Type      = $f.'System.WorkItemType'
         State     = $f.'System.State'
         Title     = $f.'System.Title'
         Iteration = $f.'System.IterationPath'
+        AreaPath  = $area
         Parent    = $parent
     }
     return $item
@@ -2248,6 +2345,41 @@ function Read-AzDevOpsAcceptanceCriteria {
 }
 
 
+function Test-AzDevOpsAreaPathMatch {
+    # True when $RowArea is equal to, or a sub-path of, any path in
+    # $ScopePaths. Sub-path comparison uses backslash boundaries so
+    # 'Project ABC\Portfolio' matches 'Project ABC\Portfolio\R&D' but
+    # does NOT match 'Project ABC\PortfolioOther'. Case-insensitive to
+    # match Azure DevOps's own path semantics.
+    param(
+        [string]   $RowArea,
+        [string[]] $ScopePaths
+    )
+
+    if (-not $RowArea) {
+        return $false
+    }
+    if (-not $ScopePaths -or $ScopePaths.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($scope in $ScopePaths) {
+        if (-not $scope) {
+            continue
+        }
+        if ($RowArea -ieq $scope) {
+            return $true
+        }
+        $prefix = "$scope\"
+        if ($RowArea.Length -gt $prefix.Length -and $RowArea.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+
 function Read-AzDevOpsParentPick {
     # Generic parent picker shared by Read-AzDevOpsFeaturePick (story -> Feature)
     # and Read-AzDevOpsEpicPick (Feature -> Epic). Lists active rows of the
@@ -2255,15 +2387,25 @@ function Read-AzDevOpsParentPick {
     # or 0 when the user picks 'orphan' / cancels. Out-ConsoleGridView TUI when
     # available, Read-Host numbered menu otherwise.
     #
+    # -AreaPaths narrows the candidate list to rows whose AreaPath equals or
+    # is a sub-path of any provided path - sourced from
+    # $global:AzDevOpsProjectMap..Types..ParentScope.AreaPaths by
+    # the type-aware wrappers below. Silent no-op when the hierarchy cache
+    # was written before the AreaPath field was added (older rows -> the
+    # filter sees $null and treats them as non-matches; we then surface
+    # the empty list via the existing "no active parents" path).
+    #
     # Limitation: Basic-template projects skip the Feature tier entirely
     # (Epic -> Issue, no Feature). For -ParentType Feature this filter
     # returns zero rows on Basic projects and the caller falls through to
     # the orphan path - acceptable while the create flow stays Agile/Scrum/
     # CMMI-focused.
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [ValidateSet('Feature','Epic')] [string] $ParentType,
         [Parameter(Mandatory)] $Hierarchy,
-        [string] $ChildLabel = 'item'
+        [string]   $ChildLabel = 'item',
+        [string[]] $AreaPaths
     )
 
     $closedStates = Get-AzDevOpsClosedStates
@@ -2276,6 +2418,29 @@ function Read-AzDevOpsParentPick {
     if ($candidates.Count -eq 0) {
         Write-Host "(no active ${ParentType}s in hierarchy.json - $ChildLabel will be orphaned)" -ForegroundColor Yellow
         return 0
+    }
+
+    if ($AreaPaths -and $AreaPaths.Count -gt 0) {
+        # ConvertFrom-AzDevOpsHierarchyItem always defines an AreaPath property,
+        # but cache files written before the WIQL schema bump have it set to
+        # $null on every row. Detect that case (no row carries a non-empty
+        # AreaPath) and skip the filter silently to preserve current behavior
+        # until the user re-runs az-Sync-AzDevOpsCache.
+        $hasAreaField = @($candidates | Where-Object { $_.AreaPath }).Count -gt 0
+        if (-not $hasAreaField) {
+            Write-Verbose "ParentScope.AreaPaths filter skipped - hierarchy cache rows do not carry AreaPath. Run az-Sync-AzDevOpsCache to refresh."
+        } else {
+            $filtered = @($candidates | Where-Object {
+                Test-AzDevOpsAreaPathMatch -RowArea $_.AreaPath -ScopePaths $AreaPaths
+            })
+
+            if ($filtered.Count -eq 0) {
+                Write-Host "(no ${ParentType}s match ParentScope.AreaPaths - $ChildLabel will be orphaned)" -ForegroundColor Yellow
+                return 0
+            }
+
+            $candidates = $filtered
+        }
     }
 
     if (Test-AzDevOpsGridAvailable) {
@@ -2336,22 +2501,62 @@ function Read-AzDevOpsParentPick {
 }
 
 
+function Get-AzDevOpsTypeParentScopeAreaPaths {
+    # Looks up the AreaPaths array off Types..ParentScope for the
+    # given child type and returns it (or $null when no map / no scope).
+    # Centralizes the resolver call so the Feature/Epic pickers stay one-liners.
+    param([Parameter(Mandatory)] [string] $ChildType)
+
+    if (-not (Get-Command Resolve-AzDevOpsTypeParentScope -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    $scope = Resolve-AzDevOpsTypeParentScope -Type $ChildType
+    if ($null -eq $scope) {
+        return $null
+    }
+    if ($null -eq $scope.AreaPaths) {
+        return $null
+    }
+
+    $paths = [string[]]@($scope.AreaPaths)
+    return ,$paths
+}
+
+
 function Read-AzDevOpsFeaturePick {
     # Story -> Feature parent picker. Thin wrapper over Read-AzDevOpsParentPick
     # so az-New-AzDevOpsUserStory keeps its current call site unchanged.
+    # Looks up Types.USER_STORY.ParentScope.AreaPaths to narrow the candidate
+    # list when configured (Phase B multi-project support).
     param([Parameter(Mandatory)] $Hierarchy)
 
-    $featureId = Read-AzDevOpsParentPick -ParentType 'Feature' -Hierarchy $Hierarchy -ChildLabel 'story'
+    $areaPaths = Get-AzDevOpsTypeParentScopeAreaPaths -ChildType 'USER_STORY'
+
+    $featureId = if ($areaPaths -and $areaPaths.Count -gt 0) {
+        Read-AzDevOpsParentPick -ParentType 'Feature' -Hierarchy $Hierarchy -ChildLabel 'story' -AreaPaths $areaPaths
+    } else {
+        Read-AzDevOpsParentPick -ParentType 'Feature' -Hierarchy $Hierarchy -ChildLabel 'story'
+    }
+
     return $featureId
 }
 
 
 function Read-AzDevOpsEpicPick {
     # Feature -> Epic parent picker. Thin wrapper over Read-AzDevOpsParentPick
-    # used by az-New-AzDevOpsFeature.
+    # used by az-New-AzDevOpsFeature. Looks up Types.FEATURE.ParentScope.AreaPaths
+    # to narrow the candidate list when configured.
     param([Parameter(Mandatory)] $Hierarchy)
 
-    $epicId = Read-AzDevOpsParentPick -ParentType 'Epic' -Hierarchy $Hierarchy -ChildLabel 'Feature'
+    $areaPaths = Get-AzDevOpsTypeParentScopeAreaPaths -ChildType 'FEATURE'
+
+    $epicId = if ($areaPaths -and $areaPaths.Count -gt 0) {
+        Read-AzDevOpsParentPick -ParentType 'Epic' -Hierarchy $Hierarchy -ChildLabel 'Feature' -AreaPaths $areaPaths
+    } else {
+        Read-AzDevOpsParentPick -ParentType 'Epic' -Hierarchy $Hierarchy -ChildLabel 'Feature'
+    }
+
     return $epicId
 }
 
@@ -2484,7 +2689,9 @@ function Invoke-AzDevOpsWorkItemCreate {
         [string] $AcceptanceCriteria,
         [Parameter(Mandatory)] [string] $Iteration,
         [Parameter(Mandatory)] [string] $Area,
-        [string] $Type = 'User Story'
+        [string]    $Type = 'User Story',
+        [string[]]  $Tags,
+        [hashtable] $ExtraFields
     )
 
     $fields = @(
@@ -2494,6 +2701,25 @@ function Invoke-AzDevOpsWorkItemCreate {
 
     if ($StoryPoints -ge 0) {
         $fields += "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints"
+    }
+
+    # Tags: appended only when non-empty so the field is not touched on
+    # creates that don't opt in (preserves today's "don't pass System.Tags"
+    # behavior for users without $global:AzDevOpsProjectMap).
+    if ($Tags -and $Tags.Count -gt 0) {
+        $tagList = ($Tags -join '; ')
+        $fields += "System.Tags=$tagList"
+    }
+
+    # ExtraFields: any RefName -> value pair the caller wants merged into the
+    # `--fields` list (e.g. Types.<TYPE>.RequiredFields resolved upstream).
+    # Values are passed through verbatim; the caller is responsible for
+    # turning 'prompt' into a real user-supplied value before getting here.
+    if ($ExtraFields -and $ExtraFields.Count -gt 0) {
+        foreach ($refName in $ExtraFields.Keys) {
+            $value = $ExtraFields[$refName]
+            $fields += "$refName=$value"
+        }
     }
 
     $result = New-AzDevOpsWorkItem `
@@ -2586,16 +2812,31 @@ function Test-AzDevOpsCreateGate {
 
 function Resolve-AzDevOpsIterationArea {
     # Picker + env-var fallback shared by every az-New-AzDevOps* creator. For
-    # each kind: if the caller already passed a value, keep it; otherwise prompt
-    # via Read-AzDevOpsKindPick. Missing-after-pick prints the standard "Set
+    # each kind: if the caller already passed a value, keep it; otherwise
+    # consult the active project's Types..Area / Iteration overrides
+    # (Phase B multi-project support); if still empty, prompt via
+    # Read-AzDevOpsKindPick. Missing-after-pick prints the standard "Set
     # `$env:AZ_* or run az-Sync-AzDevOpsCache" abort. Returns a result object
     # with .Ok / .Iteration / .Area so callers can short-circuit with a single
     # `if (-not $resolved.Ok) { return }`.
+    #
+    # -Type names the work-item type the resolver should look up in
+    # $global:AzDevOpsProjectMap..Types.. When unset (or no map
+    # defined), the resolver layer returns $null and the function falls
+    # through to today's env-var + prompt flow - preserving single-project
+    # behavior for users who never opt into the map.
     param(
         [string] $Iteration,
-        [string] $Area
+        [string] $Area,
+        [string] $Type
     )
 
+    if (-not $Iteration -and $Type) {
+        $typeIteration = Resolve-AzDevOpsTypeIteration -Type $Type
+        if ($typeIteration) {
+            $Iteration = $typeIteration
+        }
+    }
     if (-not $Iteration) {
         $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
     }
@@ -2604,6 +2845,12 @@ function Resolve-AzDevOpsIterationArea {
         return [PSCustomObject]@{ Ok = $false; Iteration = $null; Area = $null }
     }
 
+    if (-not $Area -and $Type) {
+        $typeArea = Resolve-AzDevOpsTypeArea -Type $Type
+        if ($typeArea) {
+            $Area = $typeArea
+        }
+    }
     if (-not $Area) {
         $Area = Read-AzDevOpsKindPick -Kind 'Area'
     }
@@ -2613,6 +2860,42 @@ function Resolve-AzDevOpsIterationArea {
     }
 
     $resolved = [PSCustomObject]@{ Ok = $true; Iteration = $Iteration; Area = $Area }
+    return $resolved
+}
+
+
+function Resolve-AzDevOpsRequiredFieldValues {
+    # Walks the Types..RequiredFields hashtable returned by
+    # Resolve-AzDevOpsTypeRequiredFields and produces a flat hashtable of
+    # RefName -> value ready to splat as Invoke-AzDevOpsWorkItemCreate
+    # -ExtraFields. Values equal to 'prompt' (case-insensitive) are turned
+    # into a Read-Host so the user supplies the value at create time; any
+    # other value is passed through verbatim.
+    #
+    # Returns an empty hashtable when no map / no override, so callers can
+    # skip the parameter entirely when .Count is 0.
+    param([string] $Type)
+
+    if (-not (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue)) {
+        return @{}
+    }
+
+    $required = Resolve-AzDevOpsTypeRequiredFields -Type $Type
+    if ($null -eq $required -or $required.Count -eq 0) {
+        return @{}
+    }
+
+    $resolved = @{}
+    foreach ($refName in $required.Keys) {
+        $value = $required[$refName]
+        if ("$value" -ieq 'prompt') {
+            $entered = Read-Host "Enter $refName"
+            $resolved[$refName] = $entered
+        } else {
+            $resolved[$refName] = $value
+        }
+    }
+
     return $resolved
 }
 
@@ -2717,11 +3000,21 @@ function az-New-AzDevOpsUserStory {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Read-AzDevOpsPriority
+        $typePriority = Resolve-AzDevOpsTypeDefaultPriority -Type 'USER_STORY'
+        if ($typePriority -ge 1 -and $typePriority -le 4) {
+            $Priority = $typePriority
+        } else {
+            $Priority = Read-AzDevOpsPriority
+        }
     }
 
     if ($StoryPoints -lt 0) {
-        $StoryPoints = Read-AzDevOpsStoryPoints
+        $typeStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type 'USER_STORY'
+        if ($typeStoryPoints -ge 0) {
+            $StoryPoints = $typeStoryPoints
+        } else {
+            $StoryPoints = Read-AzDevOpsStoryPoints
+        }
     }
 
     if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
@@ -2732,12 +3025,15 @@ function az-New-AzDevOpsUserStory {
         $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
     if (-not $resolved.Ok) {
         return
     }
     $Iteration = $resolved.Iteration
     $Area      = $resolved.Area
+
+    $typeTags     = Resolve-AzDevOpsTypeTags -Type 'USER_STORY'
+    $extraFields  = Resolve-AzDevOpsRequiredFieldValues -Type 'USER_STORY'
 
     $createArgs = @{
         Title              = $Title
@@ -2747,6 +3043,13 @@ function az-New-AzDevOpsUserStory {
         AcceptanceCriteria = $AcceptanceCriteria
         Iteration          = $Iteration
         Area               = $Area
+    }
+
+    if ($typeTags -and $typeTags.Count -gt 0) {
+        $createArgs['Tags'] = $typeTags
+    }
+    if ($extraFields -and $extraFields.Count -gt 0) {
+        $createArgs['ExtraFields'] = $extraFields
     }
 
     $outcome = Invoke-AzDevOpsCreateAndLink `
@@ -2814,7 +3117,12 @@ function az-New-AzDevOpsFeature {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Read-AzDevOpsPriority
+        $typePriority = Resolve-AzDevOpsTypeDefaultPriority -Type 'FEATURE'
+        if ($typePriority -ge 1 -and $typePriority -le 4) {
+            $Priority = $typePriority
+        } else {
+            $Priority = Read-AzDevOpsPriority
+        }
     }
 
     if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
@@ -2825,12 +3133,15 @@ function az-New-AzDevOpsFeature {
         $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'FEATURE'
     if (-not $resolved.Ok) {
         return
     }
     $Iteration = $resolved.Iteration
     $Area      = $resolved.Area
+
+    $typeTags    = Resolve-AzDevOpsTypeTags -Type 'FEATURE'
+    $extraFields = Resolve-AzDevOpsRequiredFieldValues -Type 'FEATURE'
 
     $createArgs = @{
         Type               = 'Feature'
@@ -2840,6 +3151,13 @@ function az-New-AzDevOpsFeature {
         AcceptanceCriteria = $AcceptanceCriteria
         Iteration          = $Iteration
         Area               = $Area
+    }
+
+    if ($typeTags -and $typeTags.Count -gt 0) {
+        $createArgs['Tags'] = $typeTags
+    }
+    if ($extraFields -and $extraFields.Count -gt 0) {
+        $createArgs['ExtraFields'] = $extraFields
     }
 
     $outcome = Invoke-AzDevOpsCreateAndLink `
@@ -2954,12 +3272,23 @@ function az-New-AzDevOpsFeatureStories {
         return $createdIds
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
     if (-not $resolved.Ok) {
         return $createdIds
     }
     $Iteration = $resolved.Iteration
     $Area      = $resolved.Area
+
+    # Tags are static across the batch (board + type config is invariant for
+    # the duration of the loop). RequiredFields with literal values are also
+    # static; 'prompt' entries get re-asked per story so each child can carry
+    # its own value when that is what the schema requires.
+    $typeTags        = Resolve-AzDevOpsTypeTags -Type 'USER_STORY'
+    $requiredRaw     = if (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue) {
+        Resolve-AzDevOpsTypeRequiredFields -Type 'USER_STORY'
+    } else {
+        @{}
+    }
 
     Write-Host ""
     Write-Host "Batch-creating child User Stories under Feature $ParentId" -ForegroundColor Cyan
@@ -2967,10 +3296,21 @@ function az-New-AzDevOpsFeatureStories {
     Write-Host "  Iteration : $Iteration"
     Write-Host "  (empty title at the next prompt ends the batch cleanly)"
 
+    $typeDefaultPriority    = Resolve-AzDevOpsTypeDefaultPriority    -Type 'USER_STORY'
+    $typeDefaultStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type 'USER_STORY'
+
     $failedTitles        = @()
     $createdUrls         = @()
-    $previousPriority    = -1
-    $previousStoryPoints = -1
+    $previousPriority    = if ($typeDefaultPriority -ge 1 -and $typeDefaultPriority -le 4) {
+        $typeDefaultPriority
+    } else {
+        -1
+    }
+    $previousStoryPoints = if ($typeDefaultStoryPoints -ge 0) {
+        $typeDefaultStoryPoints
+    } else {
+        -1
+    }
     $iterationNumber     = 1
 
     while ($true) {
@@ -2986,6 +3326,18 @@ function az-New-AzDevOpsFeatureStories {
         $priority           = Read-AzDevOpsPriority    -Previous $previousPriority
         $storyPoints        = Read-AzDevOpsStoryPoints -Previous $previousStoryPoints
 
+        # Resolve RequiredFields per child so 'prompt' entries are re-asked.
+        $extraFields = @{}
+        foreach ($refName in $requiredRaw.Keys) {
+            $value = $requiredRaw[$refName]
+            if ("$value" -ieq 'prompt') {
+                $entered = Read-Host "Enter $refName"
+                $extraFields[$refName] = $entered
+            } else {
+                $extraFields[$refName] = $value
+            }
+        }
+
         $createArgs = @{
             Title              = $title
             Description        = ''
@@ -2994,6 +3346,13 @@ function az-New-AzDevOpsFeatureStories {
             AcceptanceCriteria = $acceptanceCriteria
             Iteration          = $Iteration
             Area               = $Area
+        }
+
+        if ($typeTags -and $typeTags.Count -gt 0) {
+            $createArgs['Tags'] = $typeTags
+        }
+        if ($extraFields.Count -gt 0) {
+            $createArgs['ExtraFields'] = $extraFields
         }
 
         $outcome = Invoke-AzDevOpsCreateAndLink `
