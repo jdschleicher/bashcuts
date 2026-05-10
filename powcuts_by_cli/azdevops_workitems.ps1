@@ -2886,8 +2886,8 @@ function az-New-AzDevOpsFeatureStories {
     # one that failed via az-New-AzDevOpsUserStory -ParentId $ParentId.
     #
     # Designed to be invoked stand-alone, or chained off the end of
-    # az-New-AzDevOpsFeature once that ships (issue #49). Returns [int[]]
-    # of successfully-created story ids.
+    # az-New-AzDevOpsFeature via its "Add child stories now?" hand-off prompt.
+    # Returns [int[]] of successfully-created story ids.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [int]    $ParentId,

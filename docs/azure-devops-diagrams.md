@@ -760,19 +760,6 @@ graph LR
     Find --> ActionRow
     Find --> OpenUrl
 
-    NewS --> TestAuth
-    NewS --> ReadH
-    NewS --> Pri
-    NewS --> Pts
-    NewS --> AC
-    NewS --> PFeat
-    NewS --> PKind --> ReadCls
-    PKind --> InvCls --> ClassList
-    ReadCls --> Paths
-    PKind --> GetCPaths --> ToCPaths --> ToWIPath
-    PFeat --> PCls
-    PFeat --> GridPick
-    PCls --> GridPick
     NewS --> CGate
     NewS --> ReadH
     NewS --> Pri
@@ -781,6 +768,15 @@ graph LR
     NewS --> PFeat
     NewS --> ResIA
     NewS --> CrLink
+
+    %% Classification-pick fan-out (consumed by ResIA via Read-AzDevOpsKindPick)
+    PKind --> ReadCls
+    PKind --> InvCls --> ClassList
+    ReadCls --> Paths
+    PKind --> GetCPaths --> ToCPaths --> ToWIPath
+    PFeat --> PCls
+    PFeat --> GridPick
+    PCls --> GridPick
 
     NewF --> CGate
     NewF --> ReadH
