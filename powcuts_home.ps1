@@ -62,3 +62,10 @@ if ($azdevops_workitems -ne $NULL) {
 } else {
     Write-Host "no azdevops_workitems.ps1"
 }
+
+$azdevops_projects = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_projects.ps1"
+if ($azdevops_projects -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_projects.ps1"
+} else {
+    Write-Host "no azdevops_projects.ps1"
+}
