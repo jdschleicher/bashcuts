@@ -57,6 +57,7 @@ Read the current PR body and detect which `## Heading` sections exist:
 
 | Section | How to determine status |
 |---|---|
+| How it works | Has a `<!-- pr-diagram:start -->` / `<!-- pr-diagram:end -->` block with a non-empty mermaid fence between the markers |
 | Summary | Has content beyond placeholder `-` |
 | Issue | Contains `Closes #N` with an actual number |
 | Changes | Has content beyond placeholder `-` |
@@ -70,6 +71,7 @@ Read the current PR body and detect which `## Heading` sections exist:
 ```markdown
 | Section | Status |
 |---------|--------|
+| [How it works](#how-it-works) | ✅ Diagram (N nodes) |
 | [Summary](#summary) | ✅ |
 | [Issue](#issue) | Closes #N |
 | [Changes](#changes) | ✅ N files |

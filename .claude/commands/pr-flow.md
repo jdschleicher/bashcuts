@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, pr-body ToC. One command to ship.
+description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, AzDO diagrams check, per-PR mermaid diagram, pr-body ToC. One command to ship.
 ---
 
 You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortcuts repo). Run every check in the correct order, gate on failures, and produce a fully reviewed, documented PR.
@@ -11,11 +11,12 @@ You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortc
 
 1. **Phase 1** — Pre-commit checks (bash syntax, PowerShell parse, shell parity, sourcing wire-up)
 2. **Phase 2** — Commit, push, create PR
-3. **Phase 3** — Triple code review (`/code-review` — bash + PowerShell + security in parallel)
+3. **Phase 3** — Quad code review (`/code-review` — bash + PowerShell + security + clean-code in parallel)
 4. **Phase 4** — Docs check (`/docs-check`)
 5. **Phase 5** — Criteria check (`/criteria-check`)
 6. **Phase 5b** — AzDO diagrams check (`/azdevops-diagrams-check`) — runs only when Azure DevOps source files changed
-7. **Phase 6** — PR body ToC (`/pr-body`)
+7. **Phase 5c** — Per-PR mermaid diagram (`/pr-diagram`) — embeds a focused flow of the new functionality in the PR body
+8. **Phase 6** — PR body ToC (`/pr-body`)
 
 Each phase gates on the previous. If Phase 1 fails, stop.
 
@@ -186,9 +187,19 @@ When triggered, the skill compares `docs/azure-devops-diagrams.md` against the c
 
 ---
 
+## Phase 5c — Per-PR Mermaid Diagram
+
+Invoke `/pr-diagram`. The skill compares the branch tip against the PR's base ref, identifies the net-new public functions and the supporting helpers / external I/O they touch, and embeds a focused mermaid flowchart in the PR body between `<!-- pr-diagram:start -->` / `<!-- pr-diagram:end -->` markers. Idempotent — re-running on the same branch refreshes the same block.
+
+Runs **before** Phase 6 so that `/pr-body`'s ToC picks up the new `## How it works` section and links to it.
+
+**Gate:** non-blocking. If the PR adds zero net-new public functions (pure refactor / docs-only PR), the skill emits a "no diagram needed" note and Phase 5c is a no-op.
+
+---
+
 ## Phase 6 — PR Body ToC
 
-Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body navigation hub.
+Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body navigation hub. The ToC scan picks up the `## How it works` section embedded by Phase 5c, so the diagram gets a top-of-PR link alongside Summary / Issues / Changes.
 
 ---
 
@@ -212,6 +223,7 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 | Docs Check | ✅ CURRENT / ⚠️ <stale items> |
 | Criteria Check | ✅ PASS / ⏭️ no AC section |
 | AzDO Diagrams Check | ✅ CURRENT / ⏭️ N/A / ⚠️ <stale sections> |
+| PR Diagram | ✅ Embedded N nodes / ⏭️ no new public functions |
 | PR Body | ✅ Updated |
 
 ### PR
