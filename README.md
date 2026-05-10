@@ -158,7 +158,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 # <a name="azure-devops"></a>Azure DevOps work-item shortcuts
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), area- and iteration-path tree views (`az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), area- and iteration-path tree views (`az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), an interactive new-Feature creator one tier up (parent-Epic picker, area / iteration / priority / AC) with a hand-off prompt to spawn child stories (`az-New-AzDevOpsFeature`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
@@ -251,6 +251,28 @@ az-New-AzDevOpsUserStory `
 ```
 
 `-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts. The existing `az-create-userstory` in `pow_az_cli.ps1` is left in place for users who prefer the original flow.
+
+### Creating a new Feature
+
+`az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority / acceptance criteria, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. Story points are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates.
+
+After it creates the Feature and links the chosen Epic, it asks `Add child stories now? [Y/n]`; on yes it hands off to `az-New-AzDevOpsFeatureStories -ParentId <newFeatureId>` with the same area / iteration pre-seeded so you can decompose the Feature into its child stories in the same flow. Pass `-NoChildStoriesPrompt` to skip the hand-off (useful in scripts).
+
+```powershell
+az-New-AzDevOpsFeature                                  # full interactive walk-through
+az-New-AzDevOpsFeature `
+    -Title              "Customer impact dashboard" `
+    -Description        "Surface customer-impact rollups on the team home page." `
+    -Priority           2 `
+    -AcceptanceCriteria "- Rollup widget renders for all team members`n- Updates within 60s of new deploy" `
+    -ParentEpicId       1180 `
+    -Iteration          "My Project\Sprint 42" `
+    -Area               "My Project\My Team" `
+    -NoOpen `
+    -NoChildStoriesPrompt
+```
+
+`-ParentEpicId 0` creates an orphan (no parent link).
 
 ### Batch-creating child stories under a Feature
 

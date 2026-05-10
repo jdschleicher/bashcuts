@@ -9,9 +9,10 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
 - [6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render](#6-az-show-azdevopstree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
-- [8. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#8-az-new-azdevopsfeaturestories--batch-child-story-loop)
-- [9. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#9-az-register-az-unregister-azdevopssyncschedule--platform-branch)
-- [10. Function dependency map](#10-function-dependency-map)
+- [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
+- [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
+- [10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#10-az-register-az-unregister-azdevopssyncschedule--platform-branch)
+- [11. Function dependency map](#11-function-dependency-map)
 
 ---
 
@@ -42,6 +43,7 @@ flowchart LR
         ShowIters["az-Show-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
         NewStory["az-New-AzDevOpsUserStory"]
+        NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
     end
 
@@ -369,7 +371,66 @@ Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (us
 
 ---
 
-## 8. `az-New-AzDevOpsFeatureStories` — batch child-story loop
+## 8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off
+
+Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from the cached hierarchy, fills `title / description / priority / area / iteration / AC`, creates the Feature, links to the Epic, then asks "Add child stories now?" — on yes hands off to `az-New-AzDevOpsFeatureStories -ParentId $newFeatureId` with the captured `area / iteration` pre-seeded. Story points are intentionally skipped (Features don't carry story points in default Agile / Scrum templates).
+
+```mermaid
+flowchart TD
+    Start([az-New-AzDevOpsFeature]) --> Auth{az-Test-AzDevOpsAuth}
+    Auth -- false --> Abort1([abort])
+    Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
+    Email -- no --> Abort2([abort])
+    Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
+    Hier --> Title{Title param?}
+    Title -- no --> ReadTitle["Read-Host 'title'"]
+    Title -- yes --> Desc{Description param?}
+    ReadTitle --> Desc
+    Desc -- no --> ReadDesc["Read-Host 'description'"]
+    Desc -- yes --> Prio{Priority 1-4?}
+    ReadDesc --> Prio
+    Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
+    Prio -- yes --> AC{AC param?}
+    ReadPrio --> AC
+    AC -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
+    AC -- yes --> Epic{ParentEpicId >= 0?}
+    ReadAC --> Epic
+    Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
+    Epic -- yes --> Iter{Iteration param?}
+    PickEpic --> Iter
+    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
+    Iter -- yes --> Area{Area param?}
+    PickIter --> Area
+    Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
+    Area -- yes --> Create
+    PickArea --> Create
+
+    Create["Invoke-AzDevOpsWorkItemCreate -Type 'Feature'<br/>(StoryPoints field omitted)"]
+    Create --> CreateOk{Ok?}
+    CreateOk -- no --> CreateFail([STEP FAILED])
+    CreateOk -- yes --> Link{ParentEpicId > 0?}
+    Link -- yes --> InvokeLink["Invoke-AzDevOpsParentLink"]
+    Link -- no --> Orphan["print '(orphan Feature)'"]
+    InvokeLink --> Open
+    Orphan --> Open
+    Open{NoOpen switch?}
+    Open -- no --> SP2["Start-Process $newUrl"]
+    Open -- yes --> Handoff
+    SP2 --> Handoff
+
+    Handoff{NoChildStoriesPrompt?}
+    Handoff -- yes --> Done
+    Handoff -- no --> AskKids[Read-AzDevOpsYesNo 'Add child stories now?']
+    AskKids -- no --> Done
+    AskKids -- yes --> Loop["az-New-AzDevOpsFeatureStories -ParentId $newId<br/>-Iteration $Iteration -Area $Area"]
+    Loop --> Done([return $newId])
+```
+
+DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrappers over a shared `Read-AzDevOpsParentPick -ParentType 'Epic'|'Feature'` helper (per CLAUDE.md "extract repeated branches"). The single-shot story creator's parent picker did not regress — it still exists as `Read-AzDevOpsFeaturePick`.
+
+---
+
+## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
 Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
 
@@ -418,7 +479,7 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 9. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
+## 10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
 
 Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
 
@@ -449,7 +510,7 @@ Shared private helpers (named in CLAUDE.md):
 
 ---
 
-## 10. Function dependency map
+## 11. Function dependency map
 
 Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs.
 
@@ -473,6 +534,7 @@ graph LR
     ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
     ShowIters(["az-Show-AzDevOpsIterations"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
+    NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
 
@@ -573,6 +635,8 @@ graph LR
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
+    PEpic[Read-AzDevOpsEpicPick]:::priv
+    PParent[Read-AzDevOpsParentPick]:::priv
     PCls[Read-AzDevOpsClassificationPick]:::priv
     PKind[Read-AzDevOpsKindPick]:::priv
     InvCreate[Invoke-AzDevOpsWorkItemCreate]:::priv
@@ -706,6 +770,24 @@ graph LR
     PCls --> GridPick
     NewS --> InvCreate --> NewWI --> AzJson
     NewS --> InvLink --> AddRel --> AzJson
+
+    PFeat --> PParent
+    PEpic --> PParent
+    PParent --> Closed
+    PParent --> Trunc
+    PParent --> GridAvail
+    PParent --> GridPick
+
+    NewF --> TestAuth
+    NewF --> ReadH
+    NewF --> Pri
+    NewF --> AC
+    NewF --> PEpic
+    NewF --> PKind
+    NewF --> InvCreate
+    NewF --> InvLink
+    NewF --> YN
+    NewF -.hand-off on yes.-> NewSB
 
     NewSB --> TestAuth
     NewSB --> ReadH
