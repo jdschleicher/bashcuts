@@ -107,7 +107,16 @@ function Invoke-AzDevOpsAzJson {
     # (e.g. New-AzDevOpsWorkItem passes its own --project). The echo prints
     # the post-injection command so the user sees the actual flags being
     # sent to az, not the pre-scoped ArgList from the caller.
-    param([Parameter(Mandatory)] [string[]] $ArgList)
+    #
+    # -SkipProjectFlag opts out of the --project auto-injection for callers
+    # whose subcommand rejects --project as a top-level flag (e.g.
+    # `az devops invoke`, which carries the project in --route-parameters
+    # instead). --organization auto-injection still applies since
+    # `az devops invoke` accepts it.
+    param(
+        [Parameter(Mandatory)] [string[]] $ArgList,
+        [switch] $SkipProjectFlag
+    )
 
     $scopedArgs = @($ArgList)
 
@@ -115,7 +124,7 @@ function Invoke-AzDevOpsAzJson {
         $scopedArgs += @('--organization', $env:AZ_DEVOPS_ORG)
     }
 
-    if ($env:AZ_PROJECT -and ($scopedArgs -notcontains '--project')) {
+    if (-not $SkipProjectFlag -and $env:AZ_PROJECT -and ($scopedArgs -notcontains '--project')) {
         $scopedArgs += @('--project', $env:AZ_PROJECT)
     }
 
@@ -274,11 +283,25 @@ function Add-AzDevOpsWorkItemRelation {
 
 
 function Get-AzDevOpsWorkItemTypeDefinition {
-    # `az boards work-item-type show --type <T>` wrapper. Returns the type's
-    # field-instance definitions inside the canonical envelope so callers can
-    # walk fieldInstances[] without re-doing the az + parse dance.
+    # `az devops invoke --area wit --resource workitemtypes` wrapper. Returns
+    # the type's field-instance definitions inside the canonical envelope so
+    # callers can walk fieldInstances[] without re-doing the az + parse dance.
+    #
+    # The azure-devops extension does NOT expose a `boards work-item-type`
+    # subgroup, so we go through `az devops invoke` (REST passthrough) against
+    # the WIT workitemtypes endpoint. Project scope rides in --route-parameters
+    # rather than --project, so we pass -SkipProjectFlag to bypass the
+    # Invoke-AzDevOpsAzJson auto-injection that `az devops invoke` would reject.
     param([Parameter(Mandatory)] [string] $Type)
 
-    $result = Invoke-AzDevOpsAzJson -ArgList @('boards', 'work-item-type', 'show', '--type', $Type)
+    $apiVersion = '7.1'
+
+    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag -ArgList @(
+        'devops', 'invoke',
+        '--area',             'wit',
+        '--resource',         'workitemtypes',
+        '--route-parameters', "project=$env:AZ_PROJECT", "type=$Type",
+        '--api-version',      $apiVersion
+    )
     return $result
 }

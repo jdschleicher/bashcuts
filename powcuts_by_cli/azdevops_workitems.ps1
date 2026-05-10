@@ -3077,9 +3077,9 @@ function az-New-AzDevOpsFeatureStories {
 #                                  code / notepad / nano. Creates a stub
 #                                  if the file does not exist.
 #   az-Initialize-AzDevOpsSchema   - introspect the org via
-#                                  `az boards work-item-type show` and
-#                                  write a starter schema. User refines
-#                                  afterward via az-Edit-AzDevOpsSchema.
+#                                  `az devops invoke --area wit --resource
+#                                  workitemtypes` and write a starter schema.
+#                                  User refines afterward via az-Edit-AzDevOpsSchema.
 #   az-Test-AzDevOpsSchema         - validate JSON parses, every ref still
 #                                  exists in the org, and picklist options
 #                                  are a subset of allowedValues. Verdict:
@@ -3401,9 +3401,10 @@ function az-Edit-AzDevOpsSchema {
 
 
 function Invoke-AzDevOpsWorkItemTypeShow {
-    # Wraps `az boards work-item-type show --type <T>`. Returns Ok / Error /
-    # Type so callers can react to a missing type (org's process doesn't have
-    # one of the standards) without taking down the whole flow.
+    # Wraps `az devops invoke --area wit --resource workitemtypes` for one
+    # type. Returns Ok / Error / Type so callers can react to a missing type
+    # (org's process doesn't have one of the standards) without taking down
+    # the whole flow.
     param([Parameter(Mandatory)] [string] $Type)
 
     $result = Get-AzDevOpsWorkItemTypeDefinition -Type $Type
@@ -3423,7 +3424,7 @@ function Invoke-AzDevOpsWorkItemTypeShow {
 
 function ConvertTo-AzDevOpsSchemaFieldEntry {
     # Maps one fieldInstances[] element to our { name, ref, type, options? }
-    # shape. Type defaults to 'string' since `az boards work-item-type show`
+    # shape. Type defaults to 'string' since the workitemtypes REST response
     # doesn't surface the underlying field type; presence of allowedValues
     # promotes it to 'picklist'. Users refine via az-Edit-AzDevOpsSchema.
     param([Parameter(Mandatory)] $FieldInstance)

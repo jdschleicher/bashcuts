@@ -303,7 +303,8 @@ Every Azure DevOps org configures its own required + custom fields via process t
 The schema lives at `$HOME/.bashcuts/azure-devops/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
 ```powershell
-az-Initialize-AzDevOpsSchema     # introspect your org via `az boards work-item-type show`
+az-Initialize-AzDevOpsSchema     # introspect your org via
+                              #   `az devops invoke --area wit --resource workitemtypes`
                               #   and write a starter schema. Refine afterward.
 az-Get-AzDevOpsSchema            # print summary table of every required/optional field
 az-Get-AzDevOpsSchema -PassThru  # return objects (pipeable / scriptable)
