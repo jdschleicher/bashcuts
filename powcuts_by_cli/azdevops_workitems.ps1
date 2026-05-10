@@ -304,7 +304,21 @@ function az-Connect-AzDevOps {
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsCachePaths {
-    $cacheDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    # Cache directory is segmented by active project slug when one is set, so
+    # az-Use-AzDevOpsProject can flip boards without contaminating cached
+    # hierarchy / assigned / mentions data across projects. Falls back to the
+    # legacy unsegmented layout when no project map is active, which keeps
+    # single-project users unaffected (no migration needed for them).
+    $rootDir  = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    $cacheDir = $rootDir
+
+    if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
+        $slug = Get-AzDevOpsActiveProjectSlug
+        if ($slug) {
+            $cacheDir = Join-Path $rootDir $slug
+        }
+    }
+
     return [PSCustomObject]@{
         Dir        = $cacheDir
         Assigned   = Join-Path $cacheDir 'assigned.json'
