@@ -510,8 +510,10 @@ function Get-AzDevOpsSyncDatasets {
     # populates the cache shape so downstream commands keep working.
     $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
 
+    $areaPathToken = $env:AZ_AREA
+
     $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
-    $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
+    $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
     # Flat work-items query (not link-mode): az boards query resolves
     # System.Parent + the rest of the fields for each item in one shot,
     # giving az-Show-AzDevOpsTree everything it needs without re-calling az.
@@ -521,7 +523,7 @@ function Get-AzDevOpsSyncDatasets {
     # Project scope is supplied by --project on the az invocation
     # (Invoke-AzDevOpsAzJson injects it from $env:AZ_PROJECT), so the WIQL
     # itself no longer needs a [System.TeamProject] = @Project clause.
-    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
+    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '$areaPathToken' AND ([System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory')"
 
     $rowCounter = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
