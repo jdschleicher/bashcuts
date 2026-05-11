@@ -192,7 +192,7 @@ After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps
 
 ### Day-to-day work-item shortcuts
 
-These read the local cache populated by `az-Sync-AzDevOpsCache` (and the recurring `az-Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
+These read the local cache populated by `az-Sync-AzDevOpsCache` (and the recurring `az-Register-AzDevOpsSyncSchedule` job, which self-registers on first PowerShell terminal so you don't have to remember to run it). They never call `az` directly, so they return instantly.
 
 ```powershell
 az-Get-AzDevOpsAssigned                       # everything assigned to you (excludes Closed/Removed)
