@@ -124,7 +124,9 @@ function Invoke-AzDevOpsAzJson {
         $scopedArgs += @('--organization', $env:AZ_DEVOPS_ORG)
     }
 
-    if (-not $SkipProjectFlag -and $env:AZ_PROJECT -and ($scopedArgs -notcontains '--project')) {
+    if (-not $SkipProjectFlag `
+            -and $env:AZ_PROJECT `
+            -and ($scopedArgs -notcontains '--project') ) {
         $scopedArgs += @('--project', $env:AZ_PROJECT)
     }
 
@@ -272,7 +274,7 @@ function Add-AzDevOpsWorkItemRelation {
         [Parameter(Mandatory)] [string] $RelationType
     )
 
-    $result = Invoke-AzDevOpsAzJson -ArgList @(
+    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag $true -ArgList @(
         'boards', 'work-item', 'relation', 'add',
         '--id',            "$Id",
         '--relation-type', $RelationType,
