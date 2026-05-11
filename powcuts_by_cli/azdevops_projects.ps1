@@ -158,12 +158,17 @@ function Get-AzDevOpsProjectCacheSlug {
     # layer can namespace assigned.json / mentions.json / hierarchy.json
     # under ~/.bashcuts-cache/azure-devops/<slug>/. Returns '' when no
     # project is active so the legacy single-project cache path stays put.
+    #
+    # The regex strips dots so a hostile project name like '..' cannot
+    # escape the cache root via Join-Path; an entirely-stripped name
+    # collapses to '' which also falls back to the legacy path rather
+    # than the silently-attacker-controlled one.
     if (-not $global:AzDevOpsActiveProject) {
         return ''
     }
 
     $raw  = "$global:AzDevOpsActiveProject"
-    $safe = ($raw -replace '[^A-Za-z0-9._-]+', '-').Trim('-')
+    $safe = ($raw -replace '[^A-Za-z0-9_-]+', '-').Trim('-')
     return $safe
 }
 
@@ -172,23 +177,73 @@ function Get-AzDevOpsProjectCacheSlug {
 # Per-type defaults resolvers (consumed by Phase B creators)
 # ---------------------------------------------------------------------------
 
+function Get-AzDevOpsTypeStringProperty {
+    # Shared "type override -> project default -> null" walk used by every
+    # per-type Resolve-AzDevOpsType<X> helper that returns a string (Area,
+    # Iteration). Extracted so the public Resolve-* layer stays one-liners
+    # and the lookup chain lives in one place (CLAUDE.md extract-repeated
+    # -branches rule).
+    param(
+        [Parameter(Mandatory)] [string] $Type,
+        [Parameter(Mandatory)] [string] $Property
+    )
+
+    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
+    if ($entry -and $entry.$Property) {
+        $typeValue = [string]$entry.$Property
+        return $typeValue
+    }
+
+    $project = Get-AzDevOpsActiveProject
+    if ($project -and $project.$Property) {
+        $projectValue = [string]$project.$Property
+        return $projectValue
+    }
+
+    return $null
+}
+
+
+function Get-AzDevOpsTypeIntegerDefault {
+    # Shared "TryParse + range-clamp -> sentinel -1" walk used by every
+    # integer-default resolver (DefaultPriority, DefaultStoryPoints). The
+    # caller picks the valid range; out-of-range values collapse to -1
+    # so the consumer treats them as "no override; fall through to prompt".
+    param(
+        [Parameter(Mandatory)] [string] $Type,
+        [Parameter(Mandatory)] [string] $Property,
+        [int] $Min = 0,
+        [int] $Max = [int]::MaxValue
+    )
+
+    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
+    if ($null -eq $entry) {
+        return -1
+    }
+    if ($null -eq $entry.$Property) {
+        return -1
+    }
+
+    $value = 0
+    if (-not [int]::TryParse("$($entry.$Property)", [ref]$value)) {
+        return -1
+    }
+    if ($value -lt $Min -or $value -gt $Max) {
+        return -1
+    }
+
+    return $value
+}
+
+
 function Resolve-AzDevOpsTypeArea {
     # Returns Types.<TYPE>.Area when configured, falling back to the
     # project-level Area, then $null. Phase B's Resolve-AzDevOpsIterationArea
     # treats $null as "no map override; keep current env-var + prompt flow".
     param([string] $Type)
 
-    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
-    if ($entry -and $entry.Area) {
-        return [string]$entry.Area
-    }
-
-    $project = Get-AzDevOpsActiveProject
-    if ($project -and $project.Area) {
-        return [string]$project.Area
-    }
-
-    return $null
+    $value = Get-AzDevOpsTypeStringProperty -Type $Type -Property 'Area'
+    return $value
 }
 
 
@@ -196,17 +251,8 @@ function Resolve-AzDevOpsTypeIteration {
     # Mirror of Resolve-AzDevOpsTypeArea for the iteration path.
     param([string] $Type)
 
-    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
-    if ($entry -and $entry.Iteration) {
-        return [string]$entry.Iteration
-    }
-
-    $project = Get-AzDevOpsActiveProject
-    if ($project -and $project.Iteration) {
-        return [string]$project.Iteration
-    }
-
-    return $null
+    $value = Get-AzDevOpsTypeStringProperty -Type $Type -Property 'Iteration'
+    return $value
 }
 
 
@@ -248,22 +294,7 @@ function Resolve-AzDevOpsTypeDefaultPriority {
     # "fall through to Read-AzDevOpsPriority".
     param([string] $Type)
 
-    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
-    if ($null -eq $entry) {
-        return -1
-    }
-    if ($null -eq $entry.DefaultPriority) {
-        return -1
-    }
-
-    $value = 0
-    if (-not [int]::TryParse("$($entry.DefaultPriority)", [ref]$value)) {
-        return -1
-    }
-    if ($value -lt 1 -or $value -gt 4) {
-        return -1
-    }
-
+    $value = Get-AzDevOpsTypeIntegerDefault -Type $Type -Property 'DefaultPriority' -Min 1 -Max 4
     return $value
 }
 
@@ -274,22 +305,7 @@ function Resolve-AzDevOpsTypeDefaultStoryPoints {
     # to Read-AzDevOpsStoryPoints".
     param([string] $Type)
 
-    $entry = Get-AzDevOpsActiveTypeEntry -Type $Type
-    if ($null -eq $entry) {
-        return -1
-    }
-    if ($null -eq $entry.DefaultStoryPoints) {
-        return -1
-    }
-
-    $value = 0
-    if (-not [int]::TryParse("$($entry.DefaultStoryPoints)", [ref]$value)) {
-        return -1
-    }
-    if ($value -lt 0) {
-        return -1
-    }
-
+    $value = Get-AzDevOpsTypeIntegerDefault -Type $Type -Property 'DefaultStoryPoints' -Min 0
     return $value
 }
 
@@ -419,10 +435,19 @@ function az-Use-AzDevOpsProject {
     $global:AzDevOpsActiveProject = $Name
 
     if (-not $Quiet) {
+        $configureFailed = $false
         if ($env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
-            $null = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
+            $configureOutput = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $configureFailed = $true
+                Write-Host "az devops configure --defaults failed for project '$Name'" -ForegroundColor Red
+                Write-Host "  $configureOutput" -ForegroundColor Red
+            }
         }
-        Write-Host "Active Azure DevOps project: $Name (org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT)" -ForegroundColor Green
+
+        if (-not $configureFailed) {
+            Write-Host "Active Azure DevOps project: $Name (org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT)" -ForegroundColor Green
+        }
     }
 }
 

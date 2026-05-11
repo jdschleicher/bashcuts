@@ -2864,6 +2864,53 @@ function Resolve-AzDevOpsIterationArea {
 }
 
 
+function Resolve-AzDevOpsPriorityWithDefault {
+    # Three-step priority resolution shared by every az-New-AzDevOps* creator
+    # (CLAUDE.md extract-repeated-branches): explicit -Priority param wins,
+    # then the active project's Types.<TYPE>.DefaultPriority, then an
+    # interactive Read-AzDevOpsPriority prompt.
+    param(
+        [int]    $Current,
+        [Parameter(Mandatory)] [string] $Type
+    )
+
+    if ($Current -ge 1 -and $Current -le 4) {
+        return $Current
+    }
+
+    $typePriority = Resolve-AzDevOpsTypeDefaultPriority -Type $Type
+    if ($typePriority -ge 1 -and $typePriority -le 4) {
+        return $typePriority
+    }
+
+    $picked = Read-AzDevOpsPriority
+    return $picked
+}
+
+
+function Resolve-AzDevOpsStoryPointsWithDefault {
+    # Three-step story-points resolution shared by az-New-AzDevOps* creators
+    # that carry story points. Mirrors Resolve-AzDevOpsPriorityWithDefault's
+    # explicit -> type-default -> prompt walk.
+    param(
+        [int]    $Current,
+        [Parameter(Mandatory)] [string] $Type
+    )
+
+    if ($Current -ge 0) {
+        return $Current
+    }
+
+    $typeStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type $Type
+    if ($typeStoryPoints -ge 0) {
+        return $typeStoryPoints
+    }
+
+    $picked = Read-AzDevOpsStoryPoints
+    return $picked
+}
+
+
 function Resolve-AzDevOpsRequiredFieldValues {
     # Walks the Types..RequiredFields hashtable returned by
     # Resolve-AzDevOpsTypeRequiredFields and produces a flat hashtable of
@@ -2999,23 +3046,8 @@ function az-New-AzDevOpsUserStory {
         $Description = Read-Host 'What is the description?'
     }
 
-    if ($Priority -lt 1 -or $Priority -gt 4) {
-        $typePriority = Resolve-AzDevOpsTypeDefaultPriority -Type 'USER_STORY'
-        if ($typePriority -ge 1 -and $typePriority -le 4) {
-            $Priority = $typePriority
-        } else {
-            $Priority = Read-AzDevOpsPriority
-        }
-    }
-
-    if ($StoryPoints -lt 0) {
-        $typeStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type 'USER_STORY'
-        if ($typeStoryPoints -ge 0) {
-            $StoryPoints = $typeStoryPoints
-        } else {
-            $StoryPoints = Read-AzDevOpsStoryPoints
-        }
-    }
+    $Priority    = Resolve-AzDevOpsPriorityWithDefault    -Current $Priority    -Type 'USER_STORY'
+    $StoryPoints = Resolve-AzDevOpsStoryPointsWithDefault -Current $StoryPoints -Type 'USER_STORY'
 
     if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
         $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
@@ -3116,14 +3148,7 @@ function az-New-AzDevOpsFeature {
         $Description = Read-Host 'What is the description?'
     }
 
-    if ($Priority -lt 1 -or $Priority -gt 4) {
-        $typePriority = Resolve-AzDevOpsTypeDefaultPriority -Type 'FEATURE'
-        if ($typePriority -ge 1 -and $typePriority -le 4) {
-            $Priority = $typePriority
-        } else {
-            $Priority = Read-AzDevOpsPriority
-        }
-    }
+    $Priority = Resolve-AzDevOpsPriorityWithDefault -Current $Priority -Type 'FEATURE'
 
     if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
         $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
@@ -3296,21 +3321,15 @@ function az-New-AzDevOpsFeatureStories {
     Write-Host "  Iteration : $Iteration"
     Write-Host "  (empty title at the next prompt ends the batch cleanly)"
 
-    $typeDefaultPriority    = Resolve-AzDevOpsTypeDefaultPriority    -Type 'USER_STORY'
-    $typeDefaultStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type 'USER_STORY'
-
+    # Resolve-AzDevOpsTypeDefault{Priority,StoryPoints} already returns -1
+    # when no map / no override / out-of-range, so the values can seed the
+    # Read-* "previous" reuse hint directly. The first iteration's Enter
+    # accepts the default; subsequent iterations roll forward the user's
+    # last answer (existing behavior preserved).
     $failedTitles        = @()
     $createdUrls         = @()
-    $previousPriority    = if ($typeDefaultPriority -ge 1 -and $typeDefaultPriority -le 4) {
-        $typeDefaultPriority
-    } else {
-        -1
-    }
-    $previousStoryPoints = if ($typeDefaultStoryPoints -ge 0) {
-        $typeDefaultStoryPoints
-    } else {
-        -1
-    }
+    $previousPriority    = Resolve-AzDevOpsTypeDefaultPriority    -Type 'USER_STORY'
+    $previousStoryPoints = Resolve-AzDevOpsTypeDefaultStoryPoints -Type 'USER_STORY'
     $iterationNumber     = 1
 
     while ($true) {
