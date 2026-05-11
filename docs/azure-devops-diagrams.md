@@ -481,28 +481,27 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
+## 10. Schedule helpers (`az-Register-/az-Unregister-AzDevOpsSyncSchedule`, `Test-AzDevOpsSyncScheduleRegistered`) — platform dispatch
 
-Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
+All three functions delegate the OS branch to `Invoke-AzDevOpsByPlatform`, which routes to one of three caller-supplied scriptblocks (`-OnWindows / -OnPosix / -OnUnsupported`) and returns the result. `Test-AzDevOpsSyncScheduleRegistered` is called from `powcuts_home.ps1` on every shell startup; if it returns `$false`, the profile silently calls `az-Register-AzDevOpsSyncSchedule -Quiet` so the schedule self-installs on the first terminal after install. On unsupported OSes `Test-` returns `$true` to keep the bootstrap a no-op.
 
 ```mermaid
 flowchart TD
-    Reg([az-Register-AzDevOpsSyncSchedule]) --> P1{Get-AzDevOpsPlatform}
-    P1 -- Windows --> WReg["New-ScheduledTaskAction + Trigger<br/>Register-ScheduledTask -TaskName<br/>Get-AzDevOpsScheduledTaskName<br/>(every Get-AzDevOpsSyncIntervalHours)"]
-    P1 -- Posix --> PReg["Get-AzDevOpsCronLine -PwshPath<br/>+ Get-AzDevOpsCrontabSplit<br/>append + crontab -"]
-    P1 -- Unknown --> ErrR([Unsupported OS])
+    Reg([az-Register-AzDevOpsSyncSchedule]) --> Disp{Invoke-AzDevOpsByPlatform}
+    Unreg([az-Unregister-AzDevOpsSyncSchedule]) --> Disp
+    TestReg([Test-AzDevOpsSyncScheduleRegistered]) --> Disp
 
-    Unreg([az-Unregister-AzDevOpsSyncSchedule]) --> P2{Get-AzDevOpsPlatform}
-    P2 -- Windows --> WUn["Get-ScheduledTask?<br/>Unregister-ScheduledTask -Confirm:$false"]
-    P2 -- Posix --> PUn["Get-AzDevOpsCrontabSplit<br/>(filter Get-AzDevOpsCronTag)<br/>crontab -"]
-    P2 -- Unknown --> ErrU([Unsupported OS])
+    Disp -- Windows --> Win["Register: New-ScheduledTaskAction + Register-ScheduledTask<br/>Unregister: Get-ScheduledTask? + Unregister-ScheduledTask<br/>Test: Get-ScheduledTask -ErrorAction SilentlyContinue"]
+    Disp -- Posix --> Pos["Register: Get-AzDevOpsCronLine + Get-AzDevOpsCrontabSplit + crontab -<br/>Unregister: Get-AzDevOpsCrontabSplit + crontab -<br/>Test: Get-AzDevOpsCrontabSplit.HadBashcuts"]
+    Disp -- Unknown --> Unk["Register / Unregister: Unsupported OS message<br/>Test: returns $true (prevents bootstrap loop)"]
 
     classDef shared fill:#3a2a5f,stroke:#a070ff,color:#fff
-    class P1,P2 shared
+    class Disp shared
 ```
 
 Shared private helpers (named in CLAUDE.md):
 
+- `Invoke-AzDevOpsByPlatform -OnWindows -OnPosix [-OnUnsupported]` → centralized dispatch; each scriptblock returns the per-platform result
 - `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'`
 - `Get-AzDevOpsScheduledTaskName` → `'BashcutsAzDevOpsSync'`
 - `Get-AzDevOpsSyncIntervalHours` → `5`
@@ -528,6 +527,7 @@ graph LR
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     Reg(["az-Register-AzDevOpsSyncSchedule"]):::pub
     Unreg(["az-Unregister-AzDevOpsSyncSchedule"]):::pub
+    TestReg(["Test-AzDevOpsSyncScheduleRegistered"]):::pub
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
     OpenA(["az-Open-AzDevOpsAssigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
@@ -586,6 +586,7 @@ graph LR
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
 
     %% Schedule helpers
+    Disp[Invoke-AzDevOpsByPlatform]:::priv
     Plat[Get-AzDevOpsPlatform]:::priv
     TaskName[Get-AzDevOpsScheduledTaskName]:::priv
     Interval[Get-AzDevOpsSyncIntervalHours]:::priv
@@ -695,14 +696,18 @@ graph LR
 
     Status --> Age --> Paths
     Status --> StatusRows --> ShowRows
-    Reg --> Plat
+    Reg --> Disp
+    Unreg --> Disp
+    TestReg --> Disp
+    Disp --> Plat
     Reg --> TaskName
     Reg --> Interval
     Reg --> CronLine --> CronTag
     Reg --> CronSplit --> CronTag
-    Unreg --> Plat
     Unreg --> TaskName
     Unreg --> CronSplit
+    TestReg --> TaskName
+    TestReg --> CronSplit
 
     ReadA --> ReadJson --> Paths
     ReadA --> ConvA
