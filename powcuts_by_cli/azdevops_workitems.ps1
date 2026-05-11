@@ -853,7 +853,29 @@ function Get-AzDevOpsCrontabSplit {
 }
 
 
+function Test-AzDevOpsSyncScheduleRegistered {
+    # Cheap "is the schedule already in place?" check so the profile bootstrap
+    # can no-op on every shell startup after the first one.
+    $platform = Get-AzDevOpsPlatform
+
+    if ($platform -eq 'Windows') {
+        $taskName = Get-AzDevOpsScheduledTaskName
+        $task     = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        return ($null -ne $task)
+    }
+
+    if ($platform -eq 'Posix') {
+        $split = Get-AzDevOpsCrontabSplit
+        return $split.HadBashcuts
+    }
+
+    return $false
+}
+
+
 function az-Register-AzDevOpsSyncSchedule {
+    param([switch] $Quiet)
+
     $platform = Get-AzDevOpsPlatform
     # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
     # available; without -NoProfile, the scheduled invocation has the same
@@ -867,7 +889,9 @@ function az-Register-AzDevOpsSyncSchedule {
         $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
                         -RepetitionInterval (New-TimeSpan -Hours $hours)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
-        Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
+        if (-not $Quiet) {
+            Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
+        }
         return
     }
 
@@ -876,7 +900,9 @@ function az-Register-AzDevOpsSyncSchedule {
         $split    = Get-AzDevOpsCrontabSplit
         $newCron  = (@($split.Other) + $cronLine) -join "`n"
         $newCron | crontab -
-        Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
+        if (-not $Quiet) {
+            Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
+        }
         return
     }
 

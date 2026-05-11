@@ -69,3 +69,13 @@ if ($azdevops_projects -ne $NULL) {
 } else {
     Write-Host "no azdevops_projects.ps1"
 }
+
+# Auto-register the Azure DevOps cache sync schedule on first shell startup so
+# the user doesn't have to remember to run az-Register-AzDevOpsSyncSchedule.
+# Subsequent terminals see the existing task/cron entry and no-op.
+if ((Get-Command Test-AzDevOpsSyncScheduleRegistered -ErrorAction SilentlyContinue) -and
+    (Get-Command az-Register-AzDevOpsSyncSchedule -ErrorAction SilentlyContinue)) {
+    if (-not (Test-AzDevOpsSyncScheduleRegistered)) {
+        az-Register-AzDevOpsSyncSchedule -Quiet
+    }
+}
