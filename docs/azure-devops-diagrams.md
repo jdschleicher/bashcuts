@@ -3,7 +3,7 @@
 Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_workitems.ps1`. Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
-- [2. `az-Connect-AzDevOps` — 6-step orchestrator](#2-az-connect-azdevops--6-step-orchestrator)
+- [2. `az-Connect-AzDevOps` — 7-step orchestrator](#2-az-connect-azdevops--7-step-orchestrator)
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
@@ -107,9 +107,9 @@ flowchart LR
 
 ---
 
-## 2. `az-Connect-AzDevOps` — 6-step orchestrator
+## 2. `az-Connect-AzDevOps` — 7-step orchestrator
 
-Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`.
+Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently.
 
 ```mermaid
 flowchart TD
@@ -118,9 +118,10 @@ flowchart TD
     S1["Step 1 — az-Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
     S2["Step 2 — az-Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
     S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>uses Get-AzDevOpsMissingEnvVars"]
-    S4["Step 4 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
-    S5["Step 5 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S6["Step 6 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
+    S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
+    S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
+    S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
+    S7["Step 7 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
     NotReady([NOT READY — blocked at step N])
@@ -130,7 +131,8 @@ flowchart TD
     S3 -- Ok --> S4
     S4 -- Ok --> S5
     S5 -- Ok --> S6
-    S6 -- Ok --> Ready
+    S6 -- Ok --> S7
+    S7 -- Ok --> Ready
 
     S1 -- fail --> NotReady
     S2 -- fail --> NotReady
@@ -138,9 +140,10 @@ flowchart TD
     S4 -- fail --> NotReady
     S5 -- fail --> NotReady
     S6 -- fail --> NotReady
+    S7 -- fail --> NotReady
 
     classDef step fill:#1f3a5f,stroke:#4ea3ff,color:#fff
-    class S1,S2,S3,S4,S5,S6 step
+    class S1,S2,S3,S4,S5,S6,S7 step
 ```
 
 Helpers used by every step:
@@ -514,7 +517,7 @@ Shared private helpers (named in CLAUDE.md):
 
 ## 11. Function dependency map
 
-Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs.
+Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@{}` and the create paths fall through to today's prompt-driven flow.
 
 ```mermaid
 graph LR
@@ -541,10 +544,16 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
 
+    %% Multi-project switcher (azdevops_projects.ps1)
+    UseProj(["az-Use-AzDevOpsProject"]):::pub
+    ShowProj(["az-Show-AzDevOpsProject"]):::pub
+    GetProjs(["az-Get-AzDevOpsProjects"]):::pub
+
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
     C2[az-Confirm-AzDevOpsExtension]:::priv
     C3[az-Confirm-AzDevOpsEnvVars]:::priv
+    CMap[az-Confirm-AzDevOpsProjectMap]:::priv
     C4[az-Confirm-AzDevOpsLogin]:::priv
     C5[az-Set-AzDevOpsDefaults]:::priv
     C6[az-Confirm-AzDevOpsSmokeQuery]:::priv
@@ -655,6 +664,26 @@ graph LR
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
     CrLink[Invoke-AzDevOpsCreateAndLink]:::priv
 
+    %% Multi-project resolver layer (azdevops_projects.ps1 + Phase B wiring)
+    TypeKey[Get-AzDevOpsProjectTypeKey]:::priv
+    ActProj[Get-AzDevOpsActiveProject]:::priv
+    ActType[Get-AzDevOpsActiveTypeEntry]:::priv
+    Slug[Get-AzDevOpsProjectCacheSlug]:::priv
+    TypeStr[Get-AzDevOpsTypeStringProperty]:::priv
+    TypeInt[Get-AzDevOpsTypeIntegerDefault]:::priv
+    RArea[Resolve-AzDevOpsTypeArea]:::priv
+    RIter[Resolve-AzDevOpsTypeIteration]:::priv
+    RTags[Resolve-AzDevOpsTypeTags]:::priv
+    RPri[Resolve-AzDevOpsTypeDefaultPriority]:::priv
+    RPts[Resolve-AzDevOpsTypeDefaultStoryPoints]:::priv
+    RReq[Resolve-AzDevOpsTypeRequiredFields]:::priv
+    RScope[Resolve-AzDevOpsTypeParentScope]:::priv
+    RPriDef[Resolve-AzDevOpsPriorityWithDefault]:::priv
+    RPtsDef[Resolve-AzDevOpsStoryPointsWithDefault]:::priv
+    RReqVal[Resolve-AzDevOpsRequiredFieldValues]:::priv
+    ScopePaths[Get-AzDevOpsTypeParentScopeAreaPaths]:::priv
+    AreaMatch[Test-AzDevOpsAreaPathMatch]:::priv
+
     %% I/O sinks
     Az[(az CLI)]:::io
     FS[(cache files)]:::io
@@ -662,11 +691,14 @@ graph LR
     Connect --> C1 --> TCli
     Connect --> C2 --> TExt
     Connect --> C3 --> TEnv
+    Connect --> CMap
     Connect --> C4 --> TLog
     Connect --> C5
     Connect --> C6 --> TSmoke
-    C1 & C2 & C3 & C4 & C5 & C6 --> StepRes
+    C1 & C2 & C3 & CMap & C4 & C5 & C6 --> StepRes
     C2 & C4 --> YN
+    CMap --> ActProj
+    CMap --> UseProj
 
     TestAuth --> TCli
     TestAuth --> TEnv
@@ -824,6 +856,56 @@ graph LR
     %% Reusable-prompt hint
     Pri --> ReuseHint
     Pts --> ReuseHint
+
+    %% Multi-project switcher fan-out
+    UseProj --> GetProjs
+    UseProj --> Az
+    ShowProj --> ActProj
+    GetProjs --> ActProj
+    Paths --> Slug
+    ActType --> ActProj
+    ActType --> TypeKey
+
+    %% Resolver layer (shared lookup chain)
+    TypeStr --> ActType
+    TypeStr --> ActProj
+    TypeInt --> ActType
+    RArea --> TypeStr
+    RIter --> TypeStr
+    RTags --> ActType
+    RTags --> ActProj
+    RPri --> TypeInt
+    RPts --> TypeInt
+    RReq --> ActType
+    RScope --> ActType
+
+    %% Type-aware creator wiring (Phase B)
+    ResIA --> RArea
+    ResIA --> RIter
+    RPriDef --> RPri
+    RPriDef --> Pri
+    RPtsDef --> RPts
+    RPtsDef --> Pts
+    RReqVal --> RReq
+
+    NewS --> RPriDef
+    NewS --> RPtsDef
+    NewS --> RTags
+    NewS --> RReqVal
+    NewF --> RPriDef
+    NewF --> RTags
+    NewF --> RReqVal
+    NewSB --> RPri
+    NewSB --> RPts
+    NewSB --> RTags
+    NewSB --> RReq
+
+    InvCreate -.System.Tags + ExtraFields.-> NewWI
+
+    %% ParentScope.AreaPaths filter (Phase B)
+    PFeat --> ScopePaths --> RScope
+    PEpic --> ScopePaths
+    PParent --> AreaMatch
 ```
 
 ---
