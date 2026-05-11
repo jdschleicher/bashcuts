@@ -853,89 +853,125 @@ function Get-AzDevOpsCrontabSplit {
 }
 
 
-function Test-AzDevOpsSyncScheduleRegistered {
-    # Cheap "is the schedule already in place?" check so the profile bootstrap
-    # can no-op on every shell startup after the first one.
+function Invoke-AzDevOpsByPlatform {
+    # Centralizes the Windows / Posix / Unsupported branch shape used by the
+    # schedule helpers (Test-/Register-/Unregister-AzDevOpsSyncSchedule) so
+    # each function supplies only the platform-specific work. CLAUDE.md's
+    # "extract repeated branches into private helpers" rule.
+    param(
+        [Parameter(Mandatory)] [scriptblock] $OnWindows,
+        [Parameter(Mandatory)] [scriptblock] $OnPosix,
+        [scriptblock] $OnUnsupported
+    )
+
     $platform = Get-AzDevOpsPlatform
 
     if ($platform -eq 'Windows') {
-        $taskName = Get-AzDevOpsScheduledTaskName
-        $task     = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        return ($null -ne $task)
+        $windowsResult = & $OnWindows
+        return $windowsResult
     }
 
     if ($platform -eq 'Posix') {
-        $split = Get-AzDevOpsCrontabSplit
-        return $split.HadBashcuts
+        $posixResult = & $OnPosix
+        return $posixResult
     }
 
-    return $false
+    if ($OnUnsupported) {
+        $unsupportedResult = & $OnUnsupported
+        return $unsupportedResult
+    }
+
+    return $null
+}
+
+
+function Test-AzDevOpsSyncScheduleRegistered {
+    # Cheap "is the schedule already in place?" check so the profile bootstrap
+    # can no-op on every shell startup after the first one. Unsupported
+    # platforms report registered=$true so the bootstrap doesn't loop into
+    # az-Register-...'s red error message on every new shell.
+    $registered = Invoke-AzDevOpsByPlatform `
+        -OnWindows {
+            $taskName = Get-AzDevOpsScheduledTaskName
+            $task     = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            $exists   = ($null -ne $task)
+            return $exists
+        } `
+        -OnPosix {
+            $split    = Get-AzDevOpsCrontabSplit
+            $hasEntry = $split.HadBashcuts
+            return $hasEntry
+        } `
+        -OnUnsupported {
+            return $true
+        }
+
+    return $registered
 }
 
 
 function az-Register-AzDevOpsSyncSchedule {
+    [CmdletBinding()]
     param([switch] $Quiet)
 
-    $platform = Get-AzDevOpsPlatform
     # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
     # available; without -NoProfile, the scheduled invocation has the same
     # context as an interactive shell.
     $pwshPath = (Get-Process -Id $PID).Path
     $hours    = Get-AzDevOpsSyncIntervalHours
 
-    if ($platform -eq 'Windows') {
-        $taskName = Get-AzDevOpsScheduledTaskName
-        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
-        $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-                        -RepetitionInterval (New-TimeSpan -Hours $hours)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
-        if (-not $Quiet) {
-            Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
-        }
-        return
-    }
+    Invoke-AzDevOpsByPlatform `
+        -OnWindows {
+            $taskName = Get-AzDevOpsScheduledTaskName
+            $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
+            $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
+                            -RepetitionInterval (New-TimeSpan -Hours $hours)
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
 
-    if ($platform -eq 'Posix') {
-        $cronLine = Get-AzDevOpsCronLine -PwshPath $pwshPath
-        $split    = Get-AzDevOpsCrontabSplit
-        $newCron  = (@($split.Other) + $cronLine) -join "`n"
-        $newCron | crontab -
-        if (-not $Quiet) {
-            Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
-        }
-        return
-    }
+            if (-not $Quiet) {
+                Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
+            }
+        } `
+        -OnPosix {
+            $cronLine = Get-AzDevOpsCronLine -PwshPath $pwshPath
+            $split    = Get-AzDevOpsCrontabSplit
+            $newCron  = (@($split.Other) + $cronLine) -join "`n"
+            $newCron | crontab -
 
-    Write-Host "Unsupported OS for az-Register-AzDevOpsSyncSchedule" -ForegroundColor Red
+            if (-not $Quiet) {
+                Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
+            }
+        } `
+        -OnUnsupported {
+            Write-Host "Unsupported OS for az-Register-AzDevOpsSyncSchedule" -ForegroundColor Red
+        }
 }
 
 
 function az-Unregister-AzDevOpsSyncSchedule {
-    $platform = Get-AzDevOpsPlatform
+    Invoke-AzDevOpsByPlatform `
+        -OnWindows {
+            $taskName = Get-AzDevOpsScheduledTaskName
+            if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
+            } else {
+                Write-Host "No scheduled task '$taskName' to remove" -ForegroundColor Yellow
+            }
+        } `
+        -OnPosix {
+            $split = Get-AzDevOpsCrontabSplit
+            if (-not $split.HadBashcuts) {
+                Write-Host "No bashcuts-azdevops-sync cron entry to remove" -ForegroundColor Yellow
+                return
+            }
 
-    if ($platform -eq 'Windows') {
-        $taskName = Get-AzDevOpsScheduledTaskName
-        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-            Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
-        } else {
-            Write-Host "No scheduled task '$taskName' to remove" -ForegroundColor Yellow
+            ($split.Other -join "`n") | crontab -
+            Write-Host "Unregistered: removed bashcuts-azdevops-sync cron entry" -ForegroundColor Green
+        } `
+        -OnUnsupported {
+            Write-Host "Unsupported OS for az-Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
         }
-        return
-    }
-
-    if ($platform -eq 'Posix') {
-        $split = Get-AzDevOpsCrontabSplit
-        if (-not $split.HadBashcuts) {
-            Write-Host "No bashcuts-azdevops-sync cron entry to remove" -ForegroundColor Yellow
-            return
-        }
-        ($split.Other -join "`n") | crontab -
-        Write-Host "Unregistered: removed bashcuts-azdevops-sync cron entry" -ForegroundColor Green
-        return
-    }
-
-    Write-Host "Unsupported OS for az-Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
 }
 
 
