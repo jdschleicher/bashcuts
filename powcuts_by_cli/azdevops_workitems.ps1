@@ -63,9 +63,13 @@ function Test-AzDevOpsExtensionInstalled {
 
 function Get-AzDevOpsMissingEnvVars {
     $missing = @()
-    if (-not $env:AZ_DEVOPS_ORG) { $missing += 'AZ_DEVOPS_ORG' }
-    if (-not $env:AZ_PROJECT)    { $missing += 'AZ_PROJECT' }
-    return ,$missing
+    if (-not $env:AZ_DEVOPS_ORG) { 
+        $missing += 'AZ_DEVOPS_ORG'
+    }
+    if (-not $env:AZ_PROJECT) { 
+        $missing += 'AZ_PROJECT'
+    }
+    return , $missing
 }
 
 
@@ -85,16 +89,24 @@ function Invoke-AzDevOpsSmokeQuery {
     try {
         $items = $result.Json | ConvertFrom-Json
         return @($items).Count
-    } catch {
+    }
+    catch {
         return $null
     }
 }
 
 
 function az-Test-AzDevOpsAuth {
-    if (-not (Test-AzDevOpsCliPresent))                { return $false }
-    if ((Get-AzDevOpsMissingEnvVars).Count -gt 0)      { return $false }
-    if ($null -eq (Invoke-AzDevOpsSmokeQuery))         { return $false }
+    if (-not (Test-AzDevOpsCliPresent)) {
+        return $false 
+    }
+    if ((Get-AzDevOpsMissingEnvVars).Count -gt 0) {
+        return $false 
+    }
+    if ($null -eq (Invoke-AzDevOpsSmokeQuery)) {
+        return $false 
+    }
+
     return $true
 }
 
@@ -148,10 +160,12 @@ function az-Confirm-AzDevOpsCli {
         if ($IsWindows) {
             Write-Host "    Install via: winget install Microsoft.AzureCLI"
             Write-Host "    Or see: https://aka.ms/installazurecli"
-        } elseif ($IsMacOS) {
+        }
+        elseif ($IsMacOS) {
             Write-Host "    Install via: brew install azure-cli"
             Write-Host "    Or see: https://aka.ms/installazurecli-mac"
-        } else {
+        }
+        else {
             Write-Host "    See: https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
         }
         return New-AzDevOpsStepResult -Ok $false -FailMessage 'az CLI missing'
@@ -315,13 +329,13 @@ function az-Connect-AzDevOps {
     # hardcoded scriptblock invoking a known function; nothing here accepts
     # untrusted input, so & $step.Action below has no injection surface.
     $steps = @(
-        @{ Num = 1; Name = 'Azure CLI';                     Action = { az-Confirm-AzDevOpsCli } },
-        @{ Num = 2; Name = 'azure-devops extension';        Action = { az-Confirm-AzDevOpsExtension } },
+        @{ Num = 1; Name = 'Azure CLI'; Action = { az-Confirm-AzDevOpsCli } },
+        @{ Num = 2; Name = 'azure-devops extension'; Action = { az-Confirm-AzDevOpsExtension } },
         @{ Num = 3; Name = 'Profile environment variables'; Action = { az-Confirm-AzDevOpsEnvVars } },
-        @{ Num = 4; Name = 'Project map (multi-project)';   Action = { az-Confirm-AzDevOpsProjectMap } },
-        @{ Num = 5; Name = 'Azure login session';           Action = { az-Confirm-AzDevOpsLogin } },
-        @{ Num = 6; Name = 'Configure az devops defaults';  Action = { az-Set-AzDevOpsDefaults } },
-        @{ Num = 7; Name = 'Smoke test (az boards query)';  Action = { az-Confirm-AzDevOpsSmokeQuery } }
+        @{ Num = 4; Name = 'Project map (multi-project)'; Action = { az-Confirm-AzDevOpsProjectMap } },
+        @{ Num = 5; Name = 'Azure login session'; Action = { az-Confirm-AzDevOpsLogin } },
+        @{ Num = 6; Name = 'Configure az devops defaults'; Action = { az-Set-AzDevOpsDefaults } },
+        @{ Num = 7; Name = 'Smoke test (az boards query)'; Action = { az-Confirm-AzDevOpsSmokeQuery } }
     )
 
     foreach ($step in $steps) {
@@ -367,7 +381,7 @@ function Get-AzDevOpsCachePaths {
     # hierarchy / assigned / mentions data across projects. Falls back to the
     # legacy unsegmented layout when no project map is active, which keeps
     # single-project users unaffected (no migration needed for them).
-    $rootDir  = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    $rootDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
     $cacheDir = $rootDir
 
     if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
@@ -496,8 +510,8 @@ function Get-AzDevOpsSyncDatasets {
     # populates the cache shape so downstream commands keep working.
     $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
 
-    $assignedWiql  = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
-    $mentionsWiql  = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
+    $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
+    $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
     # Flat work-items query (not link-mode): az boards query resolves
     # System.Parent + the rest of the fields for each item in one shot,
     # giving az-Show-AzDevOpsTree everything it needs without re-calling az.
@@ -509,7 +523,7 @@ function Get-AzDevOpsSyncDatasets {
     # itself no longer needs a [System.TeamProject] = @Project clause.
     $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'"
 
-    $rowCounter  = { param($parsed) @($parsed).Count }
+    $rowCounter = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
 
     $datasets = @(
@@ -573,15 +587,15 @@ function Invoke-AzDevOpsAzDataset {
         [Parameter(Mandatory)] [string]      $Label,
         [Parameter(Mandatory)] [string]      $Path,
         [Parameter(Mandatory)] [scriptblock] $Fetch,
-        [scriptblock] $Counter   = { param($parsed) @($parsed).Count },
-        [string]      $RowLabel  = 'rows',
+        [scriptblock] $Counter = { param($parsed) @($parsed).Count },
+        [string]      $RowLabel = 'rows',
         [int]         $JsonDepth = 10
     )
 
     Write-Host "-> Querying $Name ($Label)..." -ForegroundColor Cyan
 
-    $sw      = [System.Diagnostics.Stopwatch]::StartNew()
-    $result  = & $Fetch
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $result = & $Fetch
     $sw.Stop()
     $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
 
@@ -598,7 +612,8 @@ function Invoke-AzDevOpsAzDataset {
 
     try {
         $parsed = $result.Json | ConvertFrom-Json
-    } catch {
+    }
+    catch {
         $msg = $_.Exception.Message
         Write-Host "  X $Name - parse failed: $msg (in $elapsed)" -ForegroundColor Red
         Write-AzDevOpsSyncLog "ERROR $Name parse failed (elapsed=$elapsed): $msg"
@@ -606,7 +621,7 @@ function Invoke-AzDevOpsAzDataset {
         return $parseErrStatus
     }
 
-    $count  = & $Counter $parsed
+    $count = & $Counter $parsed
     $pretty = $parsed | ConvertTo-Json -Depth $JsonDepth
     Write-AzDevOpsCacheFile -Path $Path -Content $pretty
     Write-Host "  OK  $Name - $count $RowLabel in $elapsed" -ForegroundColor Green
@@ -646,9 +661,9 @@ function az-Sync-AzDevOpsCache {
 
     $datasets = Get-AzDevOpsSyncDatasets -Paths $paths
 
-    $counts   = [ordered]@{}
+    $counts = [ordered]@{}
     $statuses = [ordered]@{}
-    $errored  = 0
+    $errored = 0
 
     foreach ($ds in $datasets) {
         $status = Invoke-AzDevOpsAzDataset @ds
@@ -656,7 +671,8 @@ function az-Sync-AzDevOpsCache {
 
         if ($status.Status -eq 'ok') {
             $counts[$ds.Name] = $status.Rows
-        } else {
+        }
+        else {
             $errored++
         }
     }
@@ -681,15 +697,17 @@ function Get-AzDevOpsCacheAge {
     $paths = Get-AzDevOpsCachePaths
     if (-not (Test-Path -LiteralPath $paths.LastSync)) { return $null }
 
-    $info     = Get-Content -LiteralPath $paths.LastSync -Raw | ConvertFrom-Json
-    $synced   = [datetime]$info.Timestamp
-    $age      = (Get-Date) - $synced
+    $info = Get-Content -LiteralPath $paths.LastSync -Raw | ConvertFrom-Json
+    $synced = [datetime]$info.Timestamp
+    $age = (Get-Date) - $synced
 
-    $ageText  = if ($age.TotalMinutes -lt 60) {
+    $ageText = if ($age.TotalMinutes -lt 60) {
         "$([int]$age.TotalMinutes) min ago"
-    } elseif ($age.TotalHours -lt 24) {
+    }
+    elseif ($age.TotalHours -lt 24) {
         "$([math]::Round($age.TotalHours, 1)) hours ago"
-    } else {
+    }
+    else {
         "$([int]$age.TotalDays) days ago"
     }
 
@@ -713,18 +731,20 @@ function Get-AzDevOpsCacheStatusRows {
 
     $rows = New-Object System.Collections.Generic.List[PSCustomObject]
 
-    $countsObj   = $CacheAge.Counts
+    $countsObj = $CacheAge.Counts
     $datasetsObj = $CacheAge.Datasets
 
     $countNames = if ($countsObj) {
         @($countsObj.PSObject.Properties.Name)
-    } else {
+    }
+    else {
         @()
     }
 
     $datasetNames = if ($datasetsObj) {
         @($datasetsObj.PSObject.Properties.Name)
-    } else {
+    }
+    else {
         @()
     }
 
@@ -733,25 +753,29 @@ function Get-AzDevOpsCacheStatusRows {
     foreach ($name in $allNames) {
         $count = if ($countsObj -and $countsObj.PSObject.Properties[$name]) {
             $countsObj.$name
-        } else {
+        }
+        else {
             $null
         }
 
         $datasetEntry = if ($datasetsObj -and $datasetsObj.PSObject.Properties[$name]) {
             $datasetsObj.$name
-        } else {
+        }
+        else {
             $null
         }
 
         $status = if ($datasetEntry -and $datasetEntry.Status) {
             $datasetEntry.Status
-        } else {
+        }
+        else {
             'ok'
         }
 
         $errorText = if ($datasetEntry -and $datasetEntry.Error) {
             Get-AzDevOpsFirstStderrLine -Stderr $datasetEntry.Error
-        } else {
+        }
+        else {
             ''
         }
 
@@ -764,7 +788,7 @@ function Get-AzDevOpsCacheStatusRows {
         $rows.Add($row)
     }
 
-    $result = ,@($rows)
+    $result = , @($rows)
     return $result
 }
 
@@ -778,7 +802,8 @@ function az-Get-AzDevOpsCacheStatus {
 
     if ($cacheAge.IsStale) {
         Write-Host "STALE - last synced $($cacheAge.AgeText)" -ForegroundColor Yellow
-    } else {
+    }
+    else {
         Write-Host "OK fresh - synced $($cacheAge.AgeText)" -ForegroundColor Green
     }
 
@@ -805,7 +830,7 @@ function az-Get-AzDevOpsCacheStatus {
 
 function Get-AzDevOpsPlatform {
     if ($IsWindows -or ($env:OS -eq 'Windows_NT')) { return 'Windows' }
-    if ($IsMacOS -or $IsLinux)                     { return 'Posix' }
+    if ($IsMacOS -or $IsLinux) { return 'Posix' }
     return 'Unknown'
 }
 
@@ -827,7 +852,7 @@ function Get-AzDevOpsCronTag {
 
 function Get-AzDevOpsCronLine {
     param([Parameter(Mandatory)] [string] $PwshPath)
-    $tag   = Get-AzDevOpsCronTag
+    $tag = Get-AzDevOpsCronTag
     $hours = Get-AzDevOpsSyncIntervalHours
     return "0 */$hours * * * $PwshPath -Command `"az-Sync-AzDevOpsCache`" $tag"
 }
@@ -838,15 +863,15 @@ function Get-AzDevOpsCrontabSplit {
     # vs everything else. Returns the non-bashcuts lines plus a HadBashcuts
     # flag so Unregister doesn't have to re-grep to know whether it changed
     # anything. crontab returning no output / nonzero is normalized to empty.
-    $tag         = Get-AzDevOpsCronTag
+    $tag = Get-AzDevOpsCronTag
     $existingRaw = crontab -l 2>$null
 
     if (-not $existingRaw) {
         return [PSCustomObject]@{ Other = @(); HadBashcuts = $false }
     }
 
-    $allLines    = @($existingRaw -split "`n" | Where-Object { $_ })
-    $otherLines  = @($allLines | Where-Object { $_ -notmatch [regex]::Escape($tag) })
+    $allLines = @($existingRaw -split "`n" | Where-Object { $_ })
+    $otherLines = @($allLines | Where-Object { $_ -notmatch [regex]::Escape($tag) })
     $hadBashcuts = ($otherLines.Count -lt $allLines.Count)
 
     return [PSCustomObject]@{ Other = $otherLines; HadBashcuts = $hadBashcuts }
@@ -859,13 +884,13 @@ function az-Register-AzDevOpsSyncSchedule {
     # available; without -NoProfile, the scheduled invocation has the same
     # context as an interactive shell.
     $pwshPath = (Get-Process -Id $PID).Path
-    $hours    = Get-AzDevOpsSyncIntervalHours
+    $hours = Get-AzDevOpsSyncIntervalHours
 
     if ($platform -eq 'Windows') {
         $taskName = Get-AzDevOpsScheduledTaskName
-        $action   = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
-        $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-                        -RepetitionInterval (New-TimeSpan -Hours $hours)
+        $action = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
+            -RepetitionInterval (New-TimeSpan -Hours $hours)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
         Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
         return
@@ -873,8 +898,8 @@ function az-Register-AzDevOpsSyncSchedule {
 
     if ($platform -eq 'Posix') {
         $cronLine = Get-AzDevOpsCronLine -PwshPath $pwshPath
-        $split    = Get-AzDevOpsCrontabSplit
-        $newCron  = (@($split.Other) + $cronLine) -join "`n"
+        $split = Get-AzDevOpsCrontabSplit
+        $newCron = (@($split.Other) + $cronLine) -join "`n"
         $newCron | crontab -
         Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
         return
@@ -892,7 +917,8 @@ function az-Unregister-AzDevOpsSyncSchedule {
         if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
             Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "No scheduled task '$taskName' to remove" -ForegroundColor Yellow
         }
         return
@@ -933,7 +959,7 @@ function az-Unregister-AzDevOpsSyncSchedule {
 # ---------------------------------------------------------------------------
 
 function Test-AzDevOpsGridAvailable {
-    $cmd       = Get-Command Out-ConsoleGridView -ErrorAction SilentlyContinue
+    $cmd = Get-Command Out-ConsoleGridView -ErrorAction SilentlyContinue
     $available = ($null -ne $cmd)
     return $available
 }
@@ -1040,7 +1066,8 @@ function Read-AzDevOpsJsonCache {
 
     try {
         $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    } catch {
+    }
+    catch {
         Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
         return $null
     }
@@ -1090,7 +1117,8 @@ function Select-AzDevOpsActiveItems {
 
     $filtered = if ($State) {
         $Items | Where-Object { $_.State -in $State }
-    } else {
+    }
+    else {
         $Items | Where-Object { $_.State -notin $closedStates }
     }
 
@@ -1111,8 +1139,8 @@ function Sort-AzDevOpsByDateDesc {
     )
 
     $sorted = $Items | Sort-Object `
-        @{ Expression = { $null -ne $_.$Field }; Descending = $true }, `
-        @{ Expression = $Field;                  Descending = $true }
+    @{ Expression = { $null -ne $_.$Field }; Descending = $true }, `
+    @{ Expression = $Field; Descending = $true }
 
     return @($sorted)
 }
@@ -1122,7 +1150,7 @@ function Format-AzDevOpsTruncatedTitle {
     param([string] $Title)
 
     $titleMaxLen = 80
-    $ellipsis    = '...'
+    $ellipsis = '...'
 
     if ($Title -and $Title.Length -gt $titleMaxLen) {
         $truncated = $Title.Substring(0, $titleMaxLen - $ellipsis.Length) + $ellipsis
@@ -1188,9 +1216,9 @@ function Get-AzDevOpsWorkItemUrlPrefix {
         return ''
     }
 
-    $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+    $org = $env:AZ_DEVOPS_ORG.TrimEnd('/')
     $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    $prefix     = "$org/$projectEnc/_workitems/edit/"
+    $prefix = "$org/$projectEnc/_workitems/edit/"
     return $prefix
 }
 
@@ -1235,7 +1263,7 @@ function Read-AzDevOpsAssignedCache {
     $items = Read-AzDevOpsJsonCache `
         -Path        $paths.Assigned `
         -Description 'assigned-items' `
-        -Converter   { param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r }
+        -Converter { param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r }
     return $items
 }
 
@@ -1252,9 +1280,9 @@ function az-Get-AzDevOpsAssigned {
     Write-AzDevOpsStaleBanner
 
     $filtered = Select-AzDevOpsActiveItems -Items $items -State $State
-    $sorted   = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
+    $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
 
-    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
     $title = "Assigned to me - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -1317,13 +1345,15 @@ function ConvertFrom-AzDevOpsMentionItem {
 
     $id = if ($f.'System.Id') {
         [int]$f.'System.Id'
-    } else {
+    }
+    else {
         [int]$Raw.id
     }
 
     $mentionedAt = if ($f.'System.ChangedDate') {
         [datetime]$f.'System.ChangedDate'
-    } else {
+    }
+    else {
         $null
     }
 
@@ -1345,7 +1375,7 @@ function Read-AzDevOpsMentionsCache {
     $items = Read-AzDevOpsJsonCache `
         -Path        $paths.Mentions `
         -Description 'mentions' `
-        -Converter   { param($r) ConvertFrom-AzDevOpsMentionItem -Raw $r }
+        -Converter { param($r) ConvertFrom-AzDevOpsMentionItem -Raw $r }
     return $items
 }
 
@@ -1368,7 +1398,8 @@ function az-Get-AzDevOpsMentions {
 
         $assignedIds = if ($assigned) {
             @($assigned | ForEach-Object { $_.Id })
-        } else {
+        }
+        else {
             @()
         }
 
@@ -1387,7 +1418,7 @@ function az-Get-AzDevOpsMentions {
 
     $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'MentionedAt'
 
-    $rows  = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
+    $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), MentionedBy, MentionedAt)
     $title = "Mentions - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -1459,13 +1490,15 @@ function ConvertFrom-AzDevOpsHierarchyItem {
 
     $parent = if ($null -ne $f.'System.Parent' -and "$($f.'System.Parent')" -ne '') {
         [int]$f.'System.Parent'
-    } else {
+    }
+    else {
         $null
     }
 
     $id = if ($f.'System.Id') {
         [int]$f.'System.Id'
-    } else {
+    }
+    else {
         [int]$Raw.id
     }
 
@@ -1487,7 +1520,7 @@ function Read-AzDevOpsHierarchyCache {
     $items = Read-AzDevOpsJsonCache `
         -Path        $paths.Hierarchy `
         -Description 'hierarchy' `
-        -Converter   { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
+        -Converter { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
     return $items
 }
 
@@ -1496,7 +1529,7 @@ function Get-AzDevOpsTreeIndent {
     param([Parameter(Mandatory)] [int] $Depth)
 
     $indentUnit = '    '   # 4 spaces per tree level
-    $indent     = $indentUnit * $Depth
+    $indent = $indentUnit * $Depth
     return $indent
 }
 
@@ -1504,9 +1537,9 @@ function Get-AzDevOpsTreeIndent {
 function Get-AzDevOpsTreeIcon {
     param([Parameter(Mandatory)] [string] $Type)
 
-    $iconEpic    = "$([char]0x1F4E6)"   # package
+    $iconEpic = "$([char]0x1F4E6)"   # package
     $iconFeature = "$([char]0x1F3AF)"   # bullseye
-    $iconStory   = "$([char]0x1F4DD)"   # memo
+    $iconStory = "$([char]0x1F4DD)"   # memo
     $iconUnknown = '*'
 
     if ($Type -in $script:AzDevOpsRequirementTypes) {
@@ -1535,8 +1568,8 @@ function Format-AzDevOpsTreeNode {
         [Parameter(Mandatory)] [int] $Depth
     )
 
-    $indent    = Get-AzDevOpsTreeIndent -Depth $Depth
-    $icon      = Get-AzDevOpsTreeIcon -Type $Item.Type
+    $indent = Get-AzDevOpsTreeIndent -Depth $Depth
+    $icon = Get-AzDevOpsTreeIcon -Type $Item.Type
     $separator = "$([char]0x2014)"   # em-dash
 
     # Requirement-tier lines drop the type label per the issue spec; epics +
@@ -1559,7 +1592,7 @@ function Get-AzDevOpsTreeRows {
         [Parameter(Mandatory)] $ByParent
     )
 
-    $rows  = New-Object System.Collections.Generic.List[PSCustomObject]
+    $rows = New-Object System.Collections.Generic.List[PSCustomObject]
     $epics = @($Items | Where-Object { $_.Type -eq 'Epic' } | Sort-Object Id)
 
     # Build the URL prefix once instead of resolving env vars + escaping the
@@ -1569,64 +1602,67 @@ function Get-AzDevOpsTreeRows {
 
     foreach ($epic in $epics) {
         $epicPath = "Epic $($epic.Id) / $($epic.Title)"
-        $epicUrl  = if ($urlPrefix) {
+        $epicUrl = if ($urlPrefix) {
             "$urlPrefix$($epic.Id)"
-        } else {
+        }
+        else {
             ''
         }
 
         $rows.Add([PSCustomObject]@{
-            Type  = 'Epic'
-            Id    = $epic.Id
-            Title = $epic.Title
-            State = $epic.State
-            Depth = 0
-            Path  = $epicPath
-            Url   = $epicUrl
-        })
+                Type  = 'Epic'
+                Id    = $epic.Id
+                Title = $epic.Title
+                State = $epic.State
+                Depth = 0
+                Path  = $epicPath
+                Url   = $epicUrl
+            })
 
         $features = @($ByParent[$epic.Id] | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
         foreach ($feature in $features) {
             $featurePath = "$epicPath / Feature $($feature.Id) / $($feature.Title)"
-            $featureUrl  = if ($urlPrefix) {
+            $featureUrl = if ($urlPrefix) {
                 "$urlPrefix$($feature.Id)"
-            } else {
+            }
+            else {
                 ''
             }
 
             $rows.Add([PSCustomObject]@{
-                Type  = 'Feature'
-                Id    = $feature.Id
-                Title = $feature.Title
-                State = $feature.State
-                Depth = 1
-                Path  = $featurePath
-                Url   = $featureUrl
-            })
+                    Type  = 'Feature'
+                    Id    = $feature.Id
+                    Title = $feature.Title
+                    State = $feature.State
+                    Depth = 1
+                    Path  = $featurePath
+                    Url   = $featureUrl
+                })
 
             $stories = @($ByParent[$feature.Id] | Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes } | Sort-Object Id)
             foreach ($story in $stories) {
                 $storyPath = "$featurePath / Story $($story.Id) / $($story.Title)"
-                $storyUrl  = if ($urlPrefix) {
+                $storyUrl = if ($urlPrefix) {
                     "$urlPrefix$($story.Id)"
-                } else {
+                }
+                else {
                     ''
                 }
 
                 $rows.Add([PSCustomObject]@{
-                    Type  = $story.Type
-                    Id    = $story.Id
-                    Title = $story.Title
-                    State = $story.State
-                    Depth = 2
-                    Path  = $storyPath
-                    Url   = $storyUrl
-                })
+                        Type  = $story.Type
+                        Id    = $story.Id
+                        Title = $story.Title
+                        State = $story.State
+                        Depth = 2
+                        Path  = $storyPath
+                        Url   = $storyUrl
+                    })
             }
         }
     }
 
-    $result = ,@($rows)
+    $result = , @($rows)
     return $result
 }
 
@@ -1644,7 +1680,8 @@ function az-Show-AzDevOpsTree {
     foreach ($item in $items) {
         $key = if ($null -ne $item.Parent) {
             $item.Parent
-        } else {
+        }
+        else {
             0
         }
 
@@ -1709,7 +1746,7 @@ function az-Show-AzDevOpsTree {
 function az-Show-AzDevOpsBoard {
     [CmdletBinding()]
     param(
-        [string[]] $Type  = @('Epic', 'Feature', 'User Story'),
+        [string[]] $Type = @('Epic', 'Feature', 'User Story'),
         [string[]] $State
     )
 
@@ -1718,7 +1755,7 @@ function az-Show-AzDevOpsBoard {
 
     Write-AzDevOpsStaleBanner
 
-    $byType  = @($items | Where-Object { $_.Type -in $Type })
+    $byType = @($items | Where-Object { $_.Type -in $Type })
     $byState = Select-AzDevOpsActiveItems -Items $byType -State $State
 
     $rows = @($byState | Sort-Object State, Type, Id | Select-Object State, Id, Type, (Get-AzDevOpsTitleColumn), Iteration)
@@ -1785,7 +1822,8 @@ function az-Find-AzDevOpsWorkItem {
     $closedStates = Get-AzDevOpsClosedStates
     $visibleItems = if ($IncludeClosed) {
         $items
-    } else {
+    }
+    else {
         $items | Where-Object { $_.State -notin $closedStates }
     }
 
@@ -1793,7 +1831,8 @@ function az-Find-AzDevOpsWorkItem {
     foreach ($item in $visibleItems) {
         $key = if ($null -ne $item.Parent) {
             $item.Parent
-        } else {
+        }
+        else {
             0
         }
 
@@ -1809,23 +1848,23 @@ function az-Find-AzDevOpsWorkItem {
         return
     }
 
-    $exitLabel        = 'EXIT'
-    $backLabel        = '.. [Go Back]'
-    $openEpicLabel    = '.. [Open this Epic]'
+    $exitLabel = 'EXIT'
+    $backLabel = '.. [Go Back]'
+    $openEpicLabel = '.. [Open this Epic]'
     $openFeatureLabel = '.. [Open this Feature]'
-    $openStoryLabel   = '.. [Open this Story]'
+    $openStoryLabel = '.. [Open this Story]'
 
-    $running        = $true
-    $tier           = 1
-    $currentEpic    = $null
+    $running = $true
+    $tier = 1
+    $currentEpic = $null
     $currentFeature = $null
-    $currentStory   = $null
+    $currentStory = $null
 
     while ($running) {
 
         if ($tier -eq 1) {
-            $rows   = @(New-AzDevOpsActionRow -Title $exitLabel) + $epics
-            $title  = "ALM Browser - pick an Epic ('EXIT' or Esc to quit)"
+            $rows = @(New-AzDevOpsActionRow -Title $exitLabel) + $epics
+            $title = "ALM Browser - pick an Epic ('EXIT' or Esc to quit)"
             $picked = $rows | Out-ConsoleGridView -Title $title -OutputMode Single
 
             if ($null -eq $picked -or $picked.Title -eq $exitLabel) {
@@ -1834,15 +1873,15 @@ function az-Find-AzDevOpsWorkItem {
             }
 
             $currentEpic = $picked
-            $tier        = 2
+            $tier = 2
             continue
         }
 
         if ($tier -eq 2) {
             $features = @($byParent[$currentEpic.Id] | Where-Object { $_.Type -eq 'Feature' } | Sort-Object Id)
-            $rows     = @(New-AzDevOpsActionRow -Title $backLabel) + $features + @(New-AzDevOpsActionRow -Title $openEpicLabel)
+            $rows = @(New-AzDevOpsActionRow -Title $backLabel) + $features + @(New-AzDevOpsActionRow -Title $openEpicLabel)
 
-            $title  = "Epic $($currentEpic.Id) - $($currentEpic.Title) - pick a Feature"
+            $title = "Epic $($currentEpic.Id) - $($currentEpic.Title) - pick a Feature"
             $picked = $rows | Out-ConsoleGridView -Title $title -OutputMode Single
 
             if ($null -eq $picked -or $picked.Title -eq $backLabel) {
@@ -1857,15 +1896,15 @@ function az-Find-AzDevOpsWorkItem {
             }
 
             $currentFeature = $picked
-            $tier           = 3
+            $tier = 3
             continue
         }
 
         if ($tier -eq 3) {
             $stories = @($byParent[$currentFeature.Id] | Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes } | Sort-Object Id)
-            $rows    = @(New-AzDevOpsActionRow -Title $backLabel) + $stories + @(New-AzDevOpsActionRow -Title $openFeatureLabel)
+            $rows = @(New-AzDevOpsActionRow -Title $backLabel) + $stories + @(New-AzDevOpsActionRow -Title $openFeatureLabel)
 
-            $title  = "Feature $($currentFeature.Id) - $($currentFeature.Title) - pick a Story"
+            $title = "Feature $($currentFeature.Id) - $($currentFeature.Title) - pick a Story"
             $picked = $rows | Out-ConsoleGridView -Title $title -OutputMode Single
 
             if ($null -eq $picked -or $picked.Title -eq $backLabel) {
@@ -1880,7 +1919,7 @@ function az-Find-AzDevOpsWorkItem {
             }
 
             $currentStory = $picked
-            $tier         = 4
+            $tier = 4
             continue
         }
 
@@ -1890,7 +1929,7 @@ function az-Find-AzDevOpsWorkItem {
                 New-AzDevOpsActionRow -Title $openStoryLabel
             )
 
-            $title  = "Story $($currentStory.Id) - $($currentStory.Title) - choose action"
+            $title = "Story $($currentStory.Id) - $($currentStory.Title) - choose action"
             $picked = $rows | Out-ConsoleGridView -Title $title -OutputMode Single
 
             if ($null -eq $picked -or $picked.Title -eq $backLabel) {
@@ -1929,10 +1968,11 @@ function Read-AzDevOpsClassificationCache {
     # callers can fall back to a live `az` fetch.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $paths    = Get-AzDevOpsCachePaths
+    $paths = Get-AzDevOpsCachePaths
     $cachePath = if ($Kind -eq 'Iteration') {
         $paths.Iterations
-    } else {
+    }
+    else {
         $paths.Areas
     }
 
@@ -1943,7 +1983,8 @@ function Read-AzDevOpsClassificationCache {
     try {
         $tree = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
         return $tree
-    } catch {
+    }
+    catch {
         return $null
     }
 }
@@ -1963,7 +2004,8 @@ function Invoke-AzDevOpsClassificationLive {
     try {
         $tree = $result.Json | ConvertFrom-Json
         return $tree
-    } catch {
+    }
+    catch {
         return $null
     }
 }
@@ -2006,7 +2048,7 @@ function ConvertTo-AzDevOpsClassificationPaths {
     }
 
     $collected = New-Object System.Collections.Generic.List[string]
-    $stack     = New-Object System.Collections.Stack
+    $stack = New-Object System.Collections.Stack
     $stack.Push($Root)
 
     while ($stack.Count -gt 0) {
@@ -2027,8 +2069,8 @@ function ConvertTo-AzDevOpsClassificationPaths {
         }
     }
 
-    $unique     = $collected | Sort-Object -Unique
-    $uniqueList = ,@($unique)
+    $unique = $collected | Sort-Object -Unique
+    $uniqueList = , @($unique)
     return $uniqueList
 }
 
@@ -2080,7 +2122,7 @@ function Get-AzDevOpsClassificationRows {
 
     $rows = New-Object System.Collections.Generic.List[PSCustomObject]
     if ($null -eq $Root) {
-        $empty = ,@($rows)
+        $empty = , @($rows)
         return $empty
     }
 
@@ -2096,13 +2138,15 @@ function Get-AzDevOpsClassificationRows {
             $row = if ($Kind -eq 'Iteration') {
                 $startIso = if ($Node.attributes -and $Node.attributes.startDate) {
                     ($Node.attributes.startDate -as [datetime]).ToString('yyyy-MM-dd')
-                } else {
+                }
+                else {
                     ''
                 }
 
                 $finishIso = if ($Node.attributes -and $Node.attributes.finishDate) {
                     ($Node.attributes.finishDate -as [datetime]).ToString('yyyy-MM-dd')
-                } else {
+                }
+                else {
                     ''
                 }
 
@@ -2113,7 +2157,8 @@ function Get-AzDevOpsClassificationRows {
                     StartDate  = $startIso
                     FinishDate = $finishIso
                 }
-            } else {
+            }
+            else {
                 [PSCustomObject]@{
                     Depth = $Depth
                     Name  = $Node.name
@@ -2133,7 +2178,7 @@ function Get-AzDevOpsClassificationRows {
 
     & $walk $Root 0
 
-    $result = ,@($rows)
+    $result = , @($rows)
     return $result
 }
 
@@ -2148,9 +2193,9 @@ function Format-AzDevOpsClassificationNode {
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind
     )
 
-    $indent     = Get-AzDevOpsTreeIndent -Depth ($Row.Depth - 1)
+    $indent = Get-AzDevOpsTreeIndent -Depth ($Row.Depth - 1)
     $arrowGlyph = "$([char]0x2192)"   # rightwards arrow
-    $line       = "$indent$($Row.Name)"
+    $line = "$indent$($Row.Name)"
 
     if ($Kind -eq 'Iteration' -and $Row.StartDate -and $Row.FinishDate) {
         $line = "$line`t$($Row.StartDate) $arrowGlyph $($Row.FinishDate)"
@@ -2169,9 +2214,9 @@ function Show-AzDevOpsClassification {
     # az-Show-AzDevOpsTree post-#36 shape so the Show- family stays uniform.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $azKind        = $Kind.ToLower()
+    $azKind = $Kind.ToLower()
     $publicCommand = "az-Show-AzDevOps$($Kind)s"
-    $kindLabelLow  = "${azKind}s"
+    $kindLabelLow = "${azKind}s"
 
     $tree = Read-AzDevOpsClassificationCache -Kind $Kind
     $cameFromCache = $true
@@ -2253,7 +2298,8 @@ function Read-AzDevOpsPriority {
     $hasPrevious = $Previous -ge 1 -and $Previous -le 4
     $hint = if ($hasPrevious) {
         Get-AzDevOpsReuseHint -Previous $Previous
-    } else {
+    }
+    else {
         ''
     }
 
@@ -2278,7 +2324,8 @@ function Read-AzDevOpsStoryPoints {
     $hasPrevious = $Previous -ge 0
     $hint = if ($hasPrevious) {
         Get-AzDevOpsReuseHint -Previous $Previous
-    } else {
+    }
+    else {
         ''
     }
 
@@ -2303,9 +2350,9 @@ function Read-AzDevOpsAcceptanceCriteria {
     # any non-'n' reply (empty Enter, 'yes', 'q'); this version exits on
     # anything that isn't an affirmative yes/y.
     $first = Read-Host 'Acceptance criterion #1'
-    $dash  = '-'
+    $dash = '-'
     $break = '<br/><br/>'
-    $ac    = "$dash $first"
+    $ac = "$dash $first"
 
     while ($true) {
         $resp = Read-Host 'More AC? (Y/N)'
@@ -2314,7 +2361,7 @@ function Read-AzDevOpsAcceptanceCriteria {
         }
 
         $next = Read-Host 'Enter additional AC'
-        $ac   = "$ac $break $dash $next"
+        $ac = "$ac $break $dash $next"
     }
 
     return $ac
@@ -2372,14 +2419,14 @@ function Read-AzDevOpsParentPick {
     # the orphan path - acceptable while the create flow stays Agile/Scrum/
     # CMMI-focused.
     param(
-        [Parameter(Mandatory)] [ValidateSet('Feature','Epic')] [string] $ParentType,
+        [Parameter(Mandatory)] [ValidateSet('Feature', 'Epic')] [string] $ParentType,
         [Parameter(Mandatory)] $Hierarchy,
         [string]   $ChildLabel = 'item',
         [string[]] $AreaPaths
     )
 
     $closedStates = Get-AzDevOpsClosedStates
-    $candidates   = @($Hierarchy |
+    $candidates = @($Hierarchy |
         Where-Object { $_.Type -eq $ParentType -and $_.State -notin $closedStates } |
         Sort-Object Id)
 
@@ -2401,7 +2448,8 @@ function Read-AzDevOpsParentPick {
 
         if (-not $hasAreaField) {
             Write-Verbose "Read-AzDevOpsParentPick: hierarchy rows lack AreaPath; ParentScope.AreaPaths filter skipped. Run az-Sync-AzDevOpsCache to refresh."
-        } else {
+        }
+        else {
             $filtered = @($candidates |
                 Where-Object { Test-AzDevOpsAreaPathMatch -CandidatePath $_.AreaPath -AllowedPaths $AreaPaths })
 
@@ -2431,7 +2479,7 @@ function Read-AzDevOpsParentPick {
         }
 
         $gridRows = @($orphanRow) + @($candidateRows)
-        $picked   = Read-AzDevOpsGridPick -Rows $gridRows -Title "Pick a parent $ParentType (Esc = orphan $ChildLabel)"
+        $picked = Read-AzDevOpsGridPick -Rows $gridRows -Title "Pick a parent $ParentType (Esc = orphan $ChildLabel)"
 
         if ($null -eq $picked) {
             return 0
@@ -2445,7 +2493,7 @@ function Read-AzDevOpsParentPick {
     Write-Host "Active ${ParentType}s:" -ForegroundColor Cyan
     Write-Host "  0. $orphanLabel"
     for ($i = 0; $i -lt $candidates.Count; $i++) {
-        $c     = $candidates[$i]
+        $c = $candidates[$i]
         $title = Format-AzDevOpsTruncatedTitle -Title $c.Title
         Write-Host ("  {0}. {1} - {2} [{3}]" -f ($i + 1), $c.Id, $title, $c.State)
     }
@@ -2545,7 +2593,8 @@ function Read-AzDevOpsClassificationPick {
 
         $title = if ($Default) {
             "Pick $Kind (Esc = use default '$Default')"
-        } else {
+        }
+        else {
             "Pick $Kind"
         }
 
@@ -2564,7 +2613,8 @@ function Read-AzDevOpsClassificationPick {
     for ($i = 0; $i -lt $Paths.Count; $i++) {
         $marker = if ($Default -and $Paths[$i] -eq $Default) {
             ' (default)'
-        } else {
+        }
+        else {
             ''
         }
         Write-Host ("  {0}. {1}{2}" -f ($i + 1), $Paths[$i], $marker)
@@ -2572,7 +2622,8 @@ function Read-AzDevOpsClassificationPick {
 
     $defaultPrompt = if ($Default) {
         " (Enter for default '$Default')"
-    } else {
+    }
+    else {
         ''
     }
 
@@ -2608,13 +2659,15 @@ function Read-AzDevOpsKindPick {
 
     $envName = if ($Kind -eq 'Iteration') {
         'AZ_ITERATION'
-    } else {
+    }
+    else {
         'AZ_AREA'
     }
 
     $envFallback = if ($Kind -eq 'Iteration') {
         $env:AZ_ITERATION
-    } else {
+    }
+    else {
         $env:AZ_AREA
     }
 
@@ -2649,8 +2702,8 @@ function Invoke-AzDevOpsWorkItemCreate {
         [Parameter(Mandatory)] [int]    $Priority,
         [int]    $StoryPoints = -1,
         [string] $AcceptanceCriteria,
-        [Parameter(Mandatory)] [string] $Iteration,
-        [Parameter(Mandatory)] [string] $Area,
+        [string] $Iteration,
+        [string] $Area = $env:AZ_AREA,
         [string] $Type = 'User Story',
         [string[]]  $Tags,
         [hashtable] $ExtraFields
@@ -2703,7 +2756,8 @@ function Invoke-AzDevOpsWorkItemCreate {
 
     try {
         $created = $result.Json | ConvertFrom-Json
-    } catch {
+    }
+    catch {
         return [PSCustomObject]@{
             Ok    = $false
             Error = "parse failed: $($_.Exception.Message)"
@@ -2715,10 +2769,11 @@ function Invoke-AzDevOpsWorkItemCreate {
     $newId = [int]$created.id
 
     $url = if ($env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
-        $org        = $env:AZ_DEVOPS_ORG.TrimEnd('/')
+        $org = $env:AZ_DEVOPS_ORG.TrimEnd('/')
         $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
         "$org/$projectEnc/_workitems/edit/$newId"
-    } else {
+    }
+    else {
         $null
     }
 
@@ -2796,7 +2851,8 @@ function Read-AzDevOpsRequiredFields {
             if ($answer) {
                 $result[$refName] = $answer
             }
-        } else {
+        }
+        else {
             $result[$refName] = $value
         }
     }
@@ -2922,7 +2978,7 @@ function Invoke-AzDevOpsCreateAndLink {
         [Parameter(Mandatory)] [string]    $ChildLabel,
         [Parameter(Mandatory)] [string]    $ParentLabel,
         [Parameter(Mandatory)] [hashtable] $CreateArgs,
-        [int]    $ParentId      = 0,
+        [int]    $ParentId = 0,
         [string] $OrphanLabel,
         [switch] $OpenInBrowser
     )
@@ -2941,7 +2997,7 @@ function Invoke-AzDevOpsCreateAndLink {
         return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
     }
 
-    $newId  = $createResult.Id
+    $newId = $createResult.Id
     $newUrl = $createResult.Url
     Write-Host "OK Created $ChildLabel $newId" -ForegroundColor Green
 
@@ -2951,10 +3007,12 @@ function Invoke-AzDevOpsCreateAndLink {
         if (-not $linkResult.Ok) {
             Write-Host "STEP FAILED: az boards work-item relation add ($OrphanLabel $newId is orphaned, fix manually)" -ForegroundColor Red
             Write-Host "  $($linkResult.Error)" -ForegroundColor Red
-        } else {
+        }
+        else {
             Write-Host "OK Linked $newId -> $ParentLabel $ParentId" -ForegroundColor Green
         }
-    } else {
+    }
+    else {
         Write-Host "(no parent linked - orphan $OrphanLabel)" -ForegroundColor Yellow
     }
 
@@ -2975,10 +3033,10 @@ function az-New-AzDevOpsUserStory {
     param(
         [string] $Title,
         [string] $Description,
-        [int]    $Priority    = -1,
+        [int]    $Priority = -1,
         [int]    $StoryPoints = -1,
         [string] $AcceptanceCriteria,
-        [int]    $FeatureId   = -1,
+        [int]    $FeatureId = -1,
         [string] $Iteration,
         [string] $Area,
         [switch] $NoOpen
@@ -3026,9 +3084,9 @@ function az-New-AzDevOpsUserStory {
         return
     }
     $Iteration = $resolved.Iteration
-    $Area      = $resolved.Area
+    $Area = $resolved.Area
 
-    $tags        = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
     $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
 
     $createArgs = @{
@@ -3077,7 +3135,7 @@ function az-New-AzDevOpsFeature {
     param(
         [string] $Title,
         [string] $Description,
-        [int]    $Priority    = -1,
+        [int]    $Priority = -1,
         [string] $AcceptanceCriteria,
         [int]    $ParentEpicId = -1,
         [string] $Iteration,
@@ -3124,9 +3182,9 @@ function az-New-AzDevOpsFeature {
         return
     }
     $Iteration = $resolved.Iteration
-    $Area      = $resolved.Area
+    $Area = $resolved.Area
 
-    $tags        = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
 
     $createArgs = @{
@@ -3258,7 +3316,7 @@ function az-New-AzDevOpsFeatureStories {
         return $createdIds
     }
     $Iteration = $resolved.Iteration
-    $Area      = $resolved.Area
+    $Area = $resolved.Area
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'USER_STORY'
 
@@ -3268,11 +3326,11 @@ function az-New-AzDevOpsFeatureStories {
     Write-Host "  Iteration : $Iteration"
     Write-Host "  (empty title at the next prompt ends the batch cleanly)"
 
-    $failedTitles        = @()
-    $createdUrls         = @()
-    $previousPriority    = -1
+    $failedTitles = @()
+    $createdUrls = @()
+    $previousPriority = -1
     $previousStoryPoints = -1
-    $iterationNumber     = 1
+    $iterationNumber = 1
 
     while ($true) {
         Write-Host ""
@@ -3284,9 +3342,9 @@ function az-New-AzDevOpsFeatureStories {
         }
 
         $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
-        $priority           = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
-        $storyPoints        = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints
-        $extraFields        = Read-AzDevOpsRequiredFields             -Type 'USER_STORY'
+        $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
+        $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints
+        $extraFields = Read-AzDevOpsRequiredFields             -Type 'USER_STORY'
 
         $createArgs = @{
             Title              = $title
@@ -3309,13 +3367,14 @@ function az-New-AzDevOpsFeatureStories {
 
         if (-not $outcome.Ok) {
             $failedTitles += $title
-        } else {
+        }
+        else {
             if ($outcome.Url) {
                 $createdUrls += $outcome.Url
             }
-            $createdIds          += $outcome.Id
-            $previousPriority     = $priority
-            $previousStoryPoints  = $storyPoints
+            $createdIds += $outcome.Id
+            $previousPriority = $priority
+            $previousStoryPoints = $storyPoints
         }
 
         $iterationNumber++
@@ -3343,17 +3402,19 @@ function az-New-AzDevOpsFeatureStories {
 
     Write-Host ""
     $createdCount = $createdIds.Count
-    $failedCount  = $failedTitles.Count
+    $failedCount = $failedTitles.Count
     $idsList = if ($createdCount -gt 0) {
         ($createdIds -join ', ')
-    } else {
+    }
+    else {
         '(none)'
     }
 
     if ($failedCount -gt 0) {
         Write-Host ("Created {0}, Failed {1} child stories under Feature #{2}: {3}" -f $createdCount, $failedCount, $ParentId, $idsList) -ForegroundColor Yellow
         Write-Host ("Failed titles: {0}" -f ($failedTitles -join ' | ')) -ForegroundColor Yellow
-    } else {
+    }
+    else {
         Write-Host ("Created {0} child stories under Feature #{1}: {2}" -f $createdCount, $ParentId, $idsList) -ForegroundColor Green
     }
 
@@ -3475,11 +3536,12 @@ function Get-AzDevOpsSchemaOrgSlug {
 
 function Get-AzDevOpsSchemaPaths {
     $configDir = Join-Path (Join-Path $HOME '.bashcuts') 'azure-devops'
-    $slug      = Get-AzDevOpsSchemaOrgSlug
+    $slug = Get-AzDevOpsSchemaOrgSlug
 
     $fileName = if ($slug) {
         "schema-$slug.json"
-    } else {
+    }
+    else {
         'schema.json'
     }
 
@@ -3516,7 +3578,7 @@ function Write-AzDevOpsSchemaFile {
     )
 
     $json = $Schema | ConvertTo-Json -Depth 6
-    $tmp  = "$Path.tmp"
+    $tmp = "$Path.tmp"
     Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
@@ -3532,10 +3594,11 @@ function Read-AzDevOpsSchemaFile {
     }
 
     try {
-        $raw    = Get-Content -LiteralPath $paths.File -Raw
+        $raw = Get-Content -LiteralPath $paths.File -Raw
         $schema = $raw | ConvertFrom-Json
         return $schema
-    } catch {
+    }
+    catch {
         Write-Host "Could not parse schema at $($paths.File): $_" -ForegroundColor Red
         return $null
     }
@@ -3574,12 +3637,12 @@ function New-AzDevOpsSchemaStub {
             optional = @()
         }
 
-        'Feature' = [ordered]@{
+        'Feature'    = [ordered]@{
             required = @()
             optional = @()
         }
 
-        'Bug' = [ordered]@{
+        'Bug'        = [ordered]@{
             required = @()
             optional = @()
         }
@@ -3596,7 +3659,7 @@ function ConvertFrom-AzDevOpsSchemaToRows {
 
     foreach ($prop in $Schema.PSObject.Properties) {
         $wiType = $prop.Name
-        $entry  = $prop.Value
+        $entry = $prop.Value
 
         foreach ($section in @('required', 'optional')) {
             $sectionList = $entry.$section
@@ -3605,7 +3668,8 @@ function ConvertFrom-AzDevOpsSchemaToRows {
             foreach ($f in $sectionList) {
                 $optionsText = if ($f.type -eq 'picklist' -and $f.options) {
                     ($f.options -join ', ')
-                } else {
+                }
+                else {
                     ''
                 }
 
@@ -3622,7 +3686,7 @@ function ConvertFrom-AzDevOpsSchemaToRows {
         }
     }
 
-    $result = ,@($rows)
+    $result = , @($rows)
     return $result
 }
 
@@ -3683,7 +3747,7 @@ function az-Edit-AzDevOpsSchema {
         Write-Host "  Edit and run az-Test-AzDevOpsSchema to validate against your org." -ForegroundColor Cyan
     }
 
-    $editor       = Resolve-AzDevOpsEditor
+    $editor = Resolve-AzDevOpsEditor
     $editorTokens = @($editor -split '\s+' | Where-Object { $_ })
 
     if ($editorTokens.Count -eq 0) {
@@ -3695,7 +3759,8 @@ function az-Edit-AzDevOpsSchema {
 
     $extraArgs = if ($editorTokens.Count -gt 1) {
         $editorTokens[1..($editorTokens.Count - 1)]
-    } else {
+    }
+    else {
         @()
     }
 
@@ -3719,7 +3784,8 @@ function Invoke-AzDevOpsWorkItemTypeShow {
     try {
         $parsed = $result.Json | ConvertFrom-Json
         return [PSCustomObject]@{ Ok = $true; Error = $null; Type = $parsed }
-    } catch {
+    }
+    catch {
         $msg = "parse failed: $($_.Exception.Message)"
         return [PSCustomObject]@{ Ok = $false; Error = $msg; Type = $null }
     }
@@ -3734,7 +3800,7 @@ function ConvertTo-AzDevOpsSchemaFieldEntry {
     param([Parameter(Mandatory)] $FieldInstance)
 
     $name = $FieldInstance.field.name
-    $ref  = $FieldInstance.field.referenceName
+    $ref = $FieldInstance.field.referenceName
 
     $allowed = @()
     if ($FieldInstance.allowedValues) {
@@ -3743,7 +3809,8 @@ function ConvertTo-AzDevOpsSchemaFieldEntry {
 
     $type = if ($allowed.Count -gt 0) {
         'picklist'
-    } else {
+    }
+    else {
         'string'
     }
 
@@ -3769,9 +3836,9 @@ function az-Initialize-AzDevOpsSchema {
         return
     }
 
-    $paths     = Initialize-AzDevOpsSchemaDir
+    $paths = Initialize-AzDevOpsSchemaDir
     $knownRefs = Get-AzDevOpsSchemaSystemRefs
-    $wiTypes   = Get-AzDevOpsSchemaWorkItemTypes
+    $wiTypes = Get-AzDevOpsSchemaWorkItemTypes
 
     $schema = [ordered]@{}
 
@@ -3798,7 +3865,8 @@ function az-Initialize-AzDevOpsSchema {
 
             if ($fi.alwaysRequired) {
                 $required += $entry
-            } else {
+            }
+            else {
                 $optional += $entry
             }
         }
@@ -3839,14 +3907,14 @@ function az-Test-AzDevOpsSchema {
         return
     }
 
-    $validTypes         = Get-AzDevOpsSchemaValidTypes
-    $unknownRefs        = New-Object System.Collections.Generic.List[string]
+    $validTypes = Get-AzDevOpsSchemaValidTypes
+    $unknownRefs = New-Object System.Collections.Generic.List[string]
     $picklistMismatches = New-Object System.Collections.Generic.List[string]
-    $unknownTypes       = New-Object System.Collections.Generic.List[string]
+    $unknownTypes = New-Object System.Collections.Generic.List[string]
 
     foreach ($wiTypeProp in $schema.PSObject.Properties) {
         $wiType = $wiTypeProp.Name
-        $entry  = $wiTypeProp.Value
+        $entry = $wiTypeProp.Value
 
         $showResult = Invoke-AzDevOpsWorkItemTypeShow -Type $wiType
         if (-not $showResult.Ok) {
