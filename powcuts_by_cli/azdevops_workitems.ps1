@@ -654,7 +654,18 @@ function Invoke-AzDevOpsHierarchyQueries {
             return $errEnvelope
         }
 
-        $parsed = $result.Json | ConvertFrom-Json
+        try {
+            $parsed = $result.Json | ConvertFrom-Json
+        }
+        catch {
+            $parseErrEnvelope = [PSCustomObject]@{
+                Json     = ''
+                Error    = "[$name] parse failed: $($_.Exception.Message)"
+                ExitCode = 1
+            }
+            return $parseErrEnvelope
+        }
+
         foreach ($item in @($parsed)) {
             if ($null -ne $item) {
                 $merged.Add($item)
@@ -662,8 +673,11 @@ function Invoke-AzDevOpsHierarchyQueries {
         }
     }
 
-    # -AsArray forces [{...}] shape even for zero/one items so hierarchy.json
-    # stays a JSON array and downstream Read-AzDevOpsJsonCache iterates cleanly.
+    # Invoke-AzDevOpsAzDataset re-parses + re-serializes Json before writing
+    # the cache, and it applies its own -AsArray when the descriptor sets
+    # AsArray=$true (the hierarchy descriptor does). The -Depth 10 here is
+    # only for the in-flight envelope passed back to that helper; downstream
+    # depth is governed by the descriptor's JsonDepth.
     $mergedJson = ConvertTo-Json -InputObject @($merged) -Depth 10 -AsArray
 
     $envelope = [PSCustomObject]@{
@@ -797,6 +811,7 @@ function Get-AzDevOpsSyncDatasets {
             Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $assignedWiql }.GetNewClosure()
             Counter  = $rowCounter
             RowLabel = 'rows'
+            AsArray  = $true
         },
         @{
             Name     = 'mentions'
@@ -805,6 +820,7 @@ function Get-AzDevOpsSyncDatasets {
             Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $mentionsWiql }.GetNewClosure()
             Counter  = $rowCounter
             RowLabel = 'rows'
+            AsArray  = $true
         },
         @{
             Name     = 'hierarchy'
@@ -813,6 +829,7 @@ function Get-AzDevOpsSyncDatasets {
             Fetch    = { Invoke-AzDevOpsHierarchyQueries }
             Counter  = $rowCounter
             RowLabel = 'rows'
+            AsArray  = $true
         },
         @{
             Name      = 'iterations'
@@ -845,6 +862,12 @@ function Invoke-AzDevOpsAzDataset {
     # for the count noun (rows / nodes), and the on-disk JSON depth. Replaces
     # the previously-duplicated WIQL- and classification-specific sync paths
     # per CLAUDE.md's extract-repeated-branches rule.
+    #
+    # -AsArray forces the on-disk JSON to keep [{...}] shape even when the
+    # parsed payload is a single object or $null. Required for the WIQL-style
+    # datasets (assigned / mentions / hierarchy) whose downstream readers index
+    # the JSON as an array; classification trees (iterations / areas) leave it
+    # off so their root object stays an object.
     param(
         [Parameter(Mandatory)] [string]      $Name,
         [Parameter(Mandatory)] [string]      $Label,
@@ -852,7 +875,8 @@ function Invoke-AzDevOpsAzDataset {
         [Parameter(Mandatory)] [scriptblock] $Fetch,
         [scriptblock] $Counter = { param($parsed) @($parsed).Count },
         [string]      $RowLabel = 'rows',
-        [int]         $JsonDepth = 10
+        [int]         $JsonDepth = 10,
+        [switch]      $AsArray
     )
 
     Write-Host "-> Querying $Name ($Label)..." -ForegroundColor Cyan
@@ -885,7 +909,13 @@ function Invoke-AzDevOpsAzDataset {
     }
 
     $count = & $Counter $parsed
-    $pretty = $parsed | ConvertTo-Json -Depth $JsonDepth
+
+    $pretty = if ($AsArray) {
+        ConvertTo-Json -InputObject @($parsed) -Depth $JsonDepth -AsArray
+    } else {
+        $parsed | ConvertTo-Json -Depth $JsonDepth
+    }
+
     Write-AzDevOpsCacheFile -Path $Path -Content $pretty
     Write-Host "  OK  $Name - $count $RowLabel in $elapsed" -ForegroundColor Green
     Write-AzDevOpsSyncLog "$Name wrote $count $RowLabel in $elapsed"
