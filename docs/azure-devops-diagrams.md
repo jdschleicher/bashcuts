@@ -3,7 +3,7 @@
 Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_workitems.ps1`. Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
-- [2. `az-Connect-AzDevOps` — 7-step orchestrator](#2-az-connect-azdevops--7-step-orchestrator)
+- [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
@@ -107,9 +107,9 @@ flowchart LR
 
 ---
 
-## 2. `az-Connect-AzDevOps` — 7-step orchestrator
+## 2. `az-Connect-AzDevOps` — 8-step orchestrator
 
-Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently.
+Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the user-machine WIQL config under `~/.bashcuts-config/azure-devops/queries/` so subsequent `az-Sync-AzDevOpsCache` runs can read a customizable `hierarchy.wiql` rather than an inline string.
 
 ```mermaid
 flowchart TD
@@ -121,7 +121,8 @@ flowchart TD
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S7["Step 7 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
+    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-config/.../hierarchy.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
+    S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
     NotReady([NOT READY — blocked at step N])
@@ -132,7 +133,8 @@ flowchart TD
     S4 -- Ok --> S5
     S5 -- Ok --> S6
     S6 -- Ok --> S7
-    S7 -- Ok --> Ready
+    S7 -- Ok --> S8
+    S8 -- Ok --> Ready
 
     S1 -- fail --> NotReady
     S2 -- fail --> NotReady
@@ -141,9 +143,10 @@ flowchart TD
     S5 -- fail --> NotReady
     S6 -- fail --> NotReady
     S7 -- fail --> NotReady
+    S8 -- fail --> NotReady
 
     classDef step fill:#1f3a5f,stroke:#4ea3ff,color:#fff
-    class S1,S2,S3,S4,S5,S6,S7 step
+    class S1,S2,S3,S4,S5,S6,S7,S8 step
 ```
 
 Helpers used by every step:
@@ -214,7 +217,7 @@ flowchart TD
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
-        D3["hierarchy<br/>WIQL Epic/Feature/Story flat<br/>+ System.Parent"]
+        D3["hierarchy<br/>Get-AzDevOpsWiql -Name 'hierarchy'<br/>(reads ~/.bashcuts-config/.../hierarchy.wiql,<br/>substitutes {{AZ_AREA}})<br/>→ WIQL Epic/Feature/Story flat + System.Parent"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
     end
@@ -557,6 +560,7 @@ graph LR
     C4[az-Confirm-AzDevOpsLogin]:::priv
     C5[az-Set-AzDevOpsDefaults]:::priv
     C6[az-Confirm-AzDevOpsSmokeQuery]:::priv
+    C7[az-Confirm-AzDevOpsQueryFiles]:::priv
     StepRes[New-AzDevOpsStepResult]:::priv
     YN[Read-AzDevOpsYesNo]:::priv
 
@@ -581,6 +585,12 @@ graph LR
     DStatus[New-AzDevOpsDatasetStatus]:::priv
     StderrW[Write-AzDevOpsSyncStderr]:::priv
     Measure[Measure-AzDevOpsClassificationNodes]:::priv
+
+    %% Query config (azdevops_workitems.ps1)
+    QPaths[Get-AzDevOpsConfigPaths]:::priv
+    QInit[Initialize-AzDevOpsQueryFiles]:::priv
+    QWiql[Get-AzDevOpsWiql]:::priv
+    MkDir[New-AzDevOpsDirectoryIfMissing]:::priv
 
     %% Data-plane wrappers (azdevops_db.ps1)
     AzJson[Invoke-AzDevOpsAzJson]:::priv
@@ -698,8 +708,9 @@ graph LR
     Connect --> CMap
     Connect --> C4 --> TLog
     Connect --> C5
+    Connect --> C7 --> QInit
     Connect --> C6 --> TSmoke
-    C1 & C2 & C3 & CMap & C4 & C5 & C6 --> StepRes
+    C1 & C2 & C3 & CMap & C4 & C5 & C6 & C7 --> StepRes
     C2 & C4 --> YN
     CMap --> MapDef
     CMap --> ActName
@@ -713,8 +724,12 @@ graph LR
 
     Sync --> TestAuth
     Sync --> InitDir --> Paths
+    InitDir --> MkDir
     Sync --> LogFn --> Paths
     Sync --> DSets
+    DSets --> QWiql --> QInit
+    QInit --> QPaths
+    QInit --> MkDir
     Sync --> InvokeDS
     InvokeDS --> Boards
     InvokeDS --> ClassList
