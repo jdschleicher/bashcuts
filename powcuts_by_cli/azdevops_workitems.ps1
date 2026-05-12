@@ -19,7 +19,8 @@
 #   az-Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
 #   az-Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
 #   az-Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
-#   az-Confirm-AzDevOpsSmokeQuery       - step 6 (az boards query smoke test)
+#   az-Confirm-AzDevOpsQueryFiles       - step 6 (seed ~/.bashcuts-config WIQL files)
+#   az-Confirm-AzDevOpsSmokeQuery       - step 7 (az boards query smoke test)
 #
 # Silent diagnostic helpers (pure checks, no I/O — used by az-Test-AzDevOpsAuth):
 #   Test-AzDevOpsCliPresent          - is the `az` CLI on PATH?
@@ -302,6 +303,20 @@ function az-Set-AzDevOpsDefaults {
 }
 
 
+function az-Confirm-AzDevOpsQueryFiles {
+    $init = Initialize-AzDevOpsQueryFiles
+
+    if ($init.SeededHierarchy) {
+        Write-Host "  OK  Wrote default hierarchy.wiql to $($init.Paths.HierarchyQuery)" -ForegroundColor Green
+        Write-Host "      Edit this file to customize what az-Sync-AzDevOpsCache pulls into hierarchy.json." -ForegroundColor DarkGray
+    } else {
+        Write-Host "  OK  Query files at $($init.Paths.QueriesDir)" -ForegroundColor Green
+    }
+
+    return New-AzDevOpsStepResult -Ok $true
+}
+
+
 function az-Confirm-AzDevOpsSmokeQuery {
     $count = Invoke-AzDevOpsSmokeQuery
     if ($null -eq $count) {
@@ -335,7 +350,8 @@ function az-Connect-AzDevOps {
         @{ Num = 4; Name = 'Project map (multi-project)'; Action = { az-Confirm-AzDevOpsProjectMap } },
         @{ Num = 5; Name = 'Azure login session'; Action = { az-Confirm-AzDevOpsLogin } },
         @{ Num = 6; Name = 'Configure az devops defaults'; Action = { az-Set-AzDevOpsDefaults } },
-        @{ Num = 7; Name = 'Smoke test (az boards query)'; Action = { az-Confirm-AzDevOpsSmokeQuery } }
+        @{ Num = 7; Name = 'User-machine query files'; Action = { az-Confirm-AzDevOpsQueryFiles } },
+        @{ Num = 8; Name = 'Smoke test (az boards query)'; Action = { az-Confirm-AzDevOpsSmokeQuery } }
     )
 
     foreach ($step in $steps) {
@@ -410,6 +426,89 @@ function Initialize-AzDevOpsCacheDir {
         New-Item -ItemType Directory -Path $paths.Dir -Force | Out-Null
     }
     return $paths
+}
+
+
+# ---------------------------------------------------------------------------
+# User-machine config (queries)
+#
+# Config directory: $HOME/.bashcuts-config/azure-devops/queries/
+#   hierarchy.wiql  - WIQL pulled by the 'hierarchy' dataset in
+#                     Get-AzDevOpsSyncDatasets. Ships with a default that
+#                     filters by Epic/Feature/RequirementCategory under
+#                     {{AZ_AREA}}; users can edit this file to customize what
+#                     az-Sync-AzDevOpsCache writes into hierarchy.json without
+#                     touching tracked code.
+#
+# Placeholder tokens (substituted at read time by Get-AzDevOpsWiql):
+#   {{AZ_AREA}}  - $env:AZ_AREA. Keeps the file portable across machines /
+#                  projects without forcing users to hard-code their own area.
+# ---------------------------------------------------------------------------
+
+$script:AzDevOpsDefaultHierarchyWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND ([System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory')
+"@
+
+
+function Get-AzDevOpsConfigPaths {
+    $configDir  = Join-Path (Join-Path $HOME '.bashcuts-config') 'azure-devops'
+    $queriesDir = Join-Path $configDir 'queries'
+
+    return [PSCustomObject]@{
+        Dir            = $configDir
+        QueriesDir     = $queriesDir
+        HierarchyQuery = Join-Path $queriesDir 'hierarchy.wiql'
+    }
+}
+
+
+function Initialize-AzDevOpsQueryFiles {
+    # Idempotent: creates the queries directory if absent and seeds each
+    # default .wiql file only when the file does not already exist. Returns
+    # a hashtable describing what happened so callers (az-Connect-AzDevOps
+    # step + defensive call from Get-AzDevOpsSyncDatasets) can print a
+    # single, consistent status line.
+    $paths = Get-AzDevOpsConfigPaths
+
+    if (-not (Test-Path -LiteralPath $paths.QueriesDir)) {
+        New-Item -ItemType Directory -Path $paths.QueriesDir -Force | Out-Null
+    }
+
+    $seededHierarchy = $false
+    if (-not (Test-Path -LiteralPath $paths.HierarchyQuery)) {
+        Set-Content -LiteralPath $paths.HierarchyQuery -Value $script:AzDevOpsDefaultHierarchyWiql -Encoding UTF8
+        $seededHierarchy = $true
+    }
+
+    return [PSCustomObject]@{
+        Paths            = $paths
+        SeededHierarchy  = $seededHierarchy
+    }
+}
+
+
+function Get-AzDevOpsWiql {
+    # Reads a named WIQL file from the user-machine config dir, substituting
+    # known placeholder tokens. Defensively seeds defaults so callers don't
+    # need to remember to call Initialize-AzDevOpsQueryFiles first.
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('hierarchy')]
+        [string] $Name
+    )
+
+    $init = Initialize-AzDevOpsQueryFiles
+
+    $path = switch ($Name) {
+        'hierarchy' {
+            $init.Paths.HierarchyQuery
+        }
+    }
+
+    $raw = (Get-Content -LiteralPath $path -Raw).Trim()
+    $wiql = $raw.Replace('{{AZ_AREA}}', $env:AZ_AREA)
+
+    return $wiql
 }
 
 
@@ -510,20 +609,18 @@ function Get-AzDevOpsSyncDatasets {
     # populates the cache shape so downstream commands keep working.
     $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
 
-    $areaPathToken = $env:AZ_AREA
-
     $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
     $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
-    # Flat work-items query (not link-mode): az boards query resolves
-    # System.Parent + the rest of the fields for each item in one shot,
-    # giving az-Show-AzDevOpsTree everything it needs without re-calling az.
-    # IN GROUP queries by work-item-type *category* so this works on every
-    # process template - 'User Story' only exists in Agile; Scrum uses
-    # 'Product Backlog Item', CMMI uses 'Requirement', Basic uses 'Issue'.
-    # Project scope is supplied by --project on the az invocation
-    # (Invoke-AzDevOpsAzJson injects it from $env:AZ_PROJECT), so the WIQL
-    # itself no longer needs a [System.TeamProject] = @Project clause.
-    $hierarchyWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '$areaPathToken' AND ([System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory')"
+    # Hierarchy WIQL is sourced from ~/.bashcuts-config/azure-devops/queries/
+    # hierarchy.wiql so users can customize fields / filters per machine
+    # without modifying tracked code. Get-AzDevOpsWiql seeds the file with
+    # the default template-agnostic WIQL (Epic/Feature/RequirementCategory
+    # under {{AZ_AREA}}) on first call and substitutes {{AZ_AREA}} from
+    # $env:AZ_AREA at read time. Project scope is still supplied by
+    # --project on the az invocation (Invoke-AzDevOpsAzJson injects it from
+    # $env:AZ_PROJECT), so the WIQL itself does not need a
+    # [System.TeamProject] = @Project clause.
+    $hierarchyWiql = Get-AzDevOpsWiql -Name 'hierarchy'
 
     $rowCounter = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
