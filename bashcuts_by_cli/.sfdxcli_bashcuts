@@ -1424,4 +1424,29 @@ dx-bulk-results-by-job-id() {
     time sf data bulk results --job-id $JOB_ID --target-org $TARGET_ORG_ALIAS
 }
 
+dx-show-sandboxes-by-days-last-created() {
+    echo "What is the alias of the Production org? (--target-org)"
+    read PROD_ORG
+    
+    echo "How many days back should I look? (e.g., 10)"
+    read DAYS_COUNT
+    
+    # Create a unique filename with a timestamp
+    TIMESTAMP=$(date +%Y%m%d%H%M%S)
+    TEMP_QUERY_FILE="sandbox_query_${TIMESTAMP}.sql"
+    
+    # Write the query to the file
+    echo "SELECT SandboxName, LicenseType, Description, CreatedDate FROM SandboxInfo WHERE CreatedDate = LAST_N_DAYS:$DAYS_COUNT" > "$TEMP_QUERY_FILE"
+    
+    echo "Executing query from $TEMP_QUERY_FILE..."
+    
+    # Use the --file flag
+    time sf data query --use-tooling-api --file "$TEMP_QUERY_FILE" --target-org "$PROD_ORG"
+    
+    # Delete the unique temporary file
+    rm "$TEMP_QUERY_FILE"
+    echo "Cleaned up $TEMP_QUERY_FILE"
+}
+
+
 
