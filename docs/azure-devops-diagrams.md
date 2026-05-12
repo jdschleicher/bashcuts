@@ -48,7 +48,7 @@ flowchart LR
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
     end
 
-    subgraph Cache["$HOME/.bashcuts-cache/azure-devops/"]
+    subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
         AssignedJson["assigned.json"]
         MentionsJson["mentions.json"]
         HierJson["hierarchy.json"]
@@ -59,7 +59,7 @@ flowchart LR
     end
 
     subgraph AzCLI["Azure CLI"]
-        AzBoards["az boards query / work-item create / relation add"]
+        AzBoards["az boards query / work-item create / work-item update / relation add"]
         AzExt["az extension (azure-devops)"]
         AzAcct["az account show / az login"]
     end
@@ -109,7 +109,7 @@ flowchart LR
 
 ## 2. `az-Connect-AzDevOps` — 8-step orchestrator
 
-Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the three user-machine WIQL files under `~/.bashcuts-config/azure-devops/queries/` (`epics.wiql`, `features.wiql`, `user-stories.wiql`) so subsequent `az-Sync-AzDevOpsCache` runs can build the hierarchy from customizable per-tier queries rather than an inline string.
+Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the three user-machine WIQL files under `~/.bashcuts-az-devops-app/config/queries/` (`epics.wiql`, `features.wiql`, `user-stories.wiql`) so subsequent `az-Sync-AzDevOpsCache` runs can build the hierarchy from customizable per-tier queries rather than an inline string.
 
 ```mermaid
 flowchart TD
@@ -121,7 +121,7 @@ flowchart TD
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-config/.../{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
+    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
     S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
@@ -217,7 +217,7 @@ flowchart TD
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
-        D3["hierarchy<br/>Invoke-AzDevOpsHierarchyQueries<br/>(reads ~/.bashcuts-config/.../{epics,features,user-stories}.wiql,<br/>substitutes {{AZ_AREA}}, fires one WIQL per tier,<br/>merges into Epic + Feature + Story flat + System.Parent)"]
+        D3["hierarchy<br/>Invoke-AzDevOpsHierarchyQueries<br/>(reads ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql,<br/>substitutes {{AZ_AREA}}, fires one WIQL per tier,<br/>merges into Epic + Feature + Story flat + System.Parent)"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
     end
@@ -602,6 +602,7 @@ graph LR
     ClassList[Get-AzDevOpsClassificationList]:::priv
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
+    AddDisc[Add-AzDevOpsDiscussionComment]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
@@ -744,6 +745,7 @@ graph LR
     InvokeDS --> ClassList
     Boards --> AzJson
     ClassList --> AzJson
+    AddDisc --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead

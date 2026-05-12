@@ -69,7 +69,7 @@ function kill-by-port() {
 }
 
 function pow_remove_property_from_field {
-    param( 
+    param(
         [Parameter(Mandatory=$true)]
         $property,
         [Parameter(Mandatory=$true)]
@@ -80,4 +80,16 @@ function pow_remove_property_from_field {
 
     $object
 
+}
+
+
+function Test-ConsoleGridAvailable {
+    # $true iff Out-ConsoleGridView (from Microsoft.PowerShell.ConsoleGuiTools)
+    # is loaded. Used by every cross-platform interactive picker - the TUI
+    # grid is much friendlier than a numbered Read-Host menu, but it only
+    # exists when the user has installed the module. Callers check this and
+    # fall back to their own numbered prompt when it's missing.
+    $cmd = Get-Command Out-ConsoleGridView -ErrorAction SilentlyContinue
+    $available = ($null -ne $cmd)
+    return $available
 }
