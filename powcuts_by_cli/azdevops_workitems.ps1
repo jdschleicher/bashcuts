@@ -11,9 +11,10 @@
 #   az-Test-AzDevOpsAuth           - silent yes/no auth assertion intended for
 #                                    callers in later AzDevOps commands;
 #                                    returns $true / $false
-#   az-Open-AzDevOpsHierarchyWiql  - open ~/.bashcuts-config/azure-devops/
-#                                    queries/hierarchy.wiql in the default
-#                                    editor (seeds default WIQL on first run)
+#   az-Open-AzDevOpsHierarchyWiqls - open each ~/.bashcuts-config/azure-devops/
+#                                    queries/{epics,features,user-stories}.wiql
+#                                    in the default editor (seeds the defaults
+#                                    on first run)
 #
 # Step functions invoked by az-Connect-AzDevOps (also exposed for direct use,
 # e.g. to debug a single failing step). Each returns a [PSCustomObject]
@@ -311,9 +312,13 @@ function az-Set-AzDevOpsDefaults {
 function az-Confirm-AzDevOpsQueryFiles {
     $init = Initialize-AzDevOpsQueryFiles
 
-    if ($init.SeededHierarchy) {
-        Write-Host "  OK  Wrote default hierarchy.wiql to $($init.Paths.HierarchyQuery)" -ForegroundColor Green
-        Write-Host "      Edit this file to customize what az-Sync-AzDevOpsCache pulls into hierarchy.json." -ForegroundColor DarkGray
+    $newlySeeded = @($init.Seeded | Where-Object { $_.Seeded })
+
+    if ($newlySeeded.Count -gt 0) {
+        foreach ($entry in $newlySeeded) {
+            Write-Host "  OK  Wrote default $($entry.Name).wiql to $($entry.Path)" -ForegroundColor Green
+        }
+        Write-Host "      Edit these files to customize what az-Sync-AzDevOpsCache pulls into hierarchy.json." -ForegroundColor DarkGray
     } else {
         Write-Host "  OK  Query files at $($init.Paths.QueriesDir)" -ForegroundColor Green
     }
@@ -323,21 +328,23 @@ function az-Confirm-AzDevOpsQueryFiles {
 }
 
 
-function az-Open-AzDevOpsHierarchyWiql {
-    # Opens the user-machine hierarchy.wiql in the OS default editor. Defensively
-    # seeds the default WIQL via Initialize-AzDevOpsQueryFiles so a fresh
-    # machine that skipped az-Connect-AzDevOps can still discover and customize
-    # the query in one step (no "file not found" detour).
+function az-Open-AzDevOpsHierarchyWiqls {
+    # Opens each of the user-machine hierarchy WIQL files (epics, features,
+    # user-stories) in the OS default editor. Defensively seeds the defaults
+    # via Initialize-AzDevOpsQueryFiles so a fresh machine that skipped
+    # az-Connect-AzDevOps can still discover and customize the queries in one
+    # step (no "file not found" detour).
     $init = Initialize-AzDevOpsQueryFiles
-    $path = $init.Paths.HierarchyQuery
 
-    if ($init.SeededHierarchy) {
-        Write-Host "Wrote default hierarchy.wiql to $path - opening for editing" -ForegroundColor Green
-    } else {
-        Write-Host "Opening $path" -ForegroundColor DarkGray
+    foreach ($entry in $init.Seeded) {
+        if ($entry.Seeded) {
+            Write-Host "Wrote default $($entry.Name).wiql to $($entry.Path) - opening for editing" -ForegroundColor Green
+        } else {
+            Write-Host "Opening $($entry.Path)" -ForegroundColor DarkGray
+        }
+
+        Start-Process $entry.Path
     }
-
-    Start-Process $path
 }
 
 
@@ -467,22 +474,39 @@ function Initialize-AzDevOpsCacheDir {
 # User-machine config (queries)
 #
 # Config directory: $HOME/.bashcuts-config/azure-devops/queries/
-#   hierarchy.wiql  - WIQL pulled by the 'hierarchy' dataset in
-#                     Get-AzDevOpsSyncDatasets. Ships with a default that
-#                     filters by Epic/Feature/RequirementCategory under
-#                     {{AZ_AREA}}; users can edit this file to customize what
-#                     az-Sync-AzDevOpsCache writes into hierarchy.json without
-#                     touching tracked code.
+#   epics.wiql         - WIQL for the Epic tier of the hierarchy. Filtered by
+#                        [System.AreaPath] UNDER '{{AZ_AREA}}' and category
+#                        group 'Microsoft.EpicCategory'.
+#   features.wiql      - WIQL for the Feature tier. Same area filter, category
+#                        group 'Microsoft.FeatureCategory'.
+#   user-stories.wiql  - WIQL for the User Story tier. Same area filter,
+#                        category group 'Microsoft.RequirementCategory'
+#                        (covers User Story / Product Backlog Item /
+#                        Requirement / Issue across process templates).
+#
+# The three files together drive the 'hierarchy' dataset in
+# Get-AzDevOpsSyncDatasets: az-Sync-AzDevOpsCache fires one WIQL per tier and
+# merges the results into hierarchy.json. Splitting per-tier dodges the
+# combined-IN-GROUP query's partial-result behavior under large projects and
+# lets users tune each tier's filter independently.
 #
 # Placeholder tokens (substituted at read time by Get-AzDevOpsWiql):
-#   {{AZ_AREA}}  - $env:AZ_AREA. Keeps the file portable across machines /
+#   {{AZ_AREA}}  - $env:AZ_AREA. Keeps the files portable across machines /
 #                  projects without forcing users to hard-code their own area.
 # ---------------------------------------------------------------------------
 
 $script:AzDevOpsAreaToken = '{{AZ_AREA}}'
 
-$script:AzDevOpsDefaultHierarchyWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND ([System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory')
+$script:AzDevOpsDefaultEpicsWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory'
+"@
+
+$script:AzDevOpsDefaultFeaturesWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory'
+"@
+
+$script:AzDevOpsDefaultUserStoriesWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'
 "@
 
 
@@ -491,32 +515,82 @@ function Get-AzDevOpsConfigPaths {
     $queriesDir = Join-Path $configDir 'queries'
 
     return [PSCustomObject]@{
-        Dir            = $configDir
-        QueriesDir     = $queriesDir
-        HierarchyQuery = Join-Path $queriesDir 'hierarchy.wiql'
+        Dir              = $configDir
+        QueriesDir       = $queriesDir
+        EpicsQuery       = Join-Path $queriesDir 'epics.wiql'
+        FeaturesQuery    = Join-Path $queriesDir 'features.wiql'
+        UserStoriesQuery = Join-Path $queriesDir 'user-stories.wiql'
     }
+}
+
+
+function Get-AzDevOpsHierarchyQueryDefaults {
+    # Single source of truth for the three hierarchy-tier WIQL files: their
+    # logical name (also the -Name parameter for Get-AzDevOpsWiql), their
+    # on-disk path, and the default WIQL seeded on first run. Initialize,
+    # read, sync, and the user-facing open shortcut all iterate this list,
+    # so adding a fourth tier later is a one-place edit.
+    $paths = Get-AzDevOpsConfigPaths
+
+    $defaults = @(
+        [PSCustomObject]@{
+            Name    = 'epics'
+            Path    = $paths.EpicsQuery
+            Default = $script:AzDevOpsDefaultEpicsWiql
+        },
+        [PSCustomObject]@{
+            Name    = 'features'
+            Path    = $paths.FeaturesQuery
+            Default = $script:AzDevOpsDefaultFeaturesWiql
+        },
+        [PSCustomObject]@{
+            Name    = 'user-stories'
+            Path    = $paths.UserStoriesQuery
+            Default = $script:AzDevOpsDefaultUserStoriesWiql
+        }
+    )
+
+    return $defaults
 }
 
 
 function Initialize-AzDevOpsQueryFiles {
     # Idempotent: creates the queries directory if absent and seeds each
     # default .wiql file only when the file does not already exist. Returns
-    # a hashtable describing what happened so callers (az-Connect-AzDevOps
-    # step + defensive call from Get-AzDevOpsSyncDatasets) can print a
-    # single, consistent status line.
+    # the resolved paths plus per-file Seeded flags so callers (the
+    # az-Connect-AzDevOps step and az-Open-AzDevOpsHierarchyWiqls) can print
+    # consistent status lines.
     $paths = Get-AzDevOpsConfigPaths
     New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
 
-    $seededHierarchy = $false
-    if (-not (Test-Path -LiteralPath $paths.HierarchyQuery)) {
-        Set-Content -LiteralPath $paths.HierarchyQuery -Value $script:AzDevOpsDefaultHierarchyWiql -Encoding UTF8
-        $seededHierarchy = $true
+    $defaults = Get-AzDevOpsHierarchyQueryDefaults
+    $seeded = New-Object System.Collections.Generic.List[PSCustomObject]
+
+    foreach ($entry in $defaults) {
+        $wasSeeded = $false
+        if (-not (Test-Path -LiteralPath $entry.Path)) {
+            Set-Content -LiteralPath $entry.Path -Value $entry.Default -Encoding UTF8
+            $wasSeeded = $true
+        }
+
+        $seeded.Add([PSCustomObject]@{
+            Name   = $entry.Name
+            Path   = $entry.Path
+            Seeded = $wasSeeded
+        })
     }
 
     return [PSCustomObject]@{
-        Paths            = $paths
-        SeededHierarchy  = $seededHierarchy
+        Paths  = $paths
+        Seeded = @($seeded)
     }
+}
+
+
+function Get-AzDevOpsHierarchyQueryNames {
+    $defaults = Get-AzDevOpsHierarchyQueryDefaults
+    $names = @($defaults | ForEach-Object { $_.Name })
+    return $names
 }
 
 
@@ -526,17 +600,14 @@ function Get-AzDevOpsWiql {
     # need to remember to call Initialize-AzDevOpsQueryFiles first.
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('hierarchy')]
+        [ValidateSet('epics', 'features', 'user-stories')]
         [string] $Name
     )
 
     $init = Initialize-AzDevOpsQueryFiles
 
-    $path = switch ($Name) {
-        'hierarchy' {
-            $init.Paths.HierarchyQuery
-        }
-    }
+    $entry = $init.Seeded | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+    $path = $entry.Path
 
     if ([string]::IsNullOrWhiteSpace($env:AZ_AREA)) {
         throw "Get-AzDevOpsWiql: `$env:AZ_AREA must be set to substitute $script:AzDevOpsAreaToken in $path."
@@ -551,6 +622,56 @@ function Get-AzDevOpsWiql {
     $wiql = $raw.Replace($script:AzDevOpsAreaToken, $areaEscaped)
 
     return $wiql
+}
+
+
+function Invoke-AzDevOpsHierarchyQueries {
+    # Runs the three per-tier hierarchy WIQLs (epics, features, user-stories)
+    # sequentially, each filtered by [System.AreaPath] UNDER '{{AZ_AREA}}',
+    # and returns the merged work-item array in the same { Json, Error,
+    # ExitCode } envelope that Invoke-AzDevOpsBoardsQuery emits. Splitting the
+    # prior single-query hierarchy into three category-scoped calls dodges the
+    # combined IN-GROUP query's partial-result behavior under larger projects
+    # and lets each tier's filter be tuned independently.
+    #
+    # On the first failing tier we short-circuit and return the underlying
+    # exit code + stderr (prefixed with the tier name) so Invoke-AzDevOpsAzDataset
+    # treats the dataset as failed and skips the cache write.
+
+    $names = Get-AzDevOpsHierarchyQueryNames
+    $merged = New-Object System.Collections.Generic.List[object]
+
+    foreach ($name in $names) {
+        $wiql = Get-AzDevOpsWiql -Name $name
+        $result = Invoke-AzDevOpsBoardsQuery -Wiql $wiql
+
+        if ($result.ExitCode -ne 0) {
+            $errEnvelope = [PSCustomObject]@{
+                Json     = ''
+                Error    = "[$name] $($result.Error)"
+                ExitCode = $result.ExitCode
+            }
+            return $errEnvelope
+        }
+
+        $parsed = $result.Json | ConvertFrom-Json
+        foreach ($item in @($parsed)) {
+            if ($null -ne $item) {
+                $merged.Add($item)
+            }
+        }
+    }
+
+    # -AsArray forces [{...}] shape even for zero/one items so hierarchy.json
+    # stays a JSON array and downstream Read-AzDevOpsJsonCache iterates cleanly.
+    $mergedJson = ConvertTo-Json -InputObject @($merged) -Depth 10 -AsArray
+
+    $envelope = [PSCustomObject]@{
+        Json     = $mergedJson
+        Error    = ''
+        ExitCode = 0
+    }
+    return $envelope
 }
 
 
@@ -653,16 +774,17 @@ function Get-AzDevOpsSyncDatasets {
 
     $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
     $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
-    # Hierarchy WIQL is sourced from ~/.bashcuts-config/azure-devops/queries/
-    # hierarchy.wiql so users can customize fields / filters per machine
-    # without modifying tracked code. Get-AzDevOpsWiql seeds the file with
-    # the default template-agnostic WIQL (Epic/Feature/RequirementCategory
-    # under {{AZ_AREA}}) on first call and substitutes {{AZ_AREA}} from
-    # $env:AZ_AREA at read time. Project scope is still supplied by
-    # --project on the az invocation (Invoke-AzDevOpsAzJson injects it from
-    # $env:AZ_PROJECT), so the WIQL itself does not need a
-    # [System.TeamProject] = @Project clause.
-    $hierarchyWiql = Get-AzDevOpsWiql -Name 'hierarchy'
+    # Hierarchy is built from three per-tier WIQL files under
+    # ~/.bashcuts-config/azure-devops/queries/ (epics.wiql / features.wiql /
+    # user-stories.wiql). Invoke-AzDevOpsHierarchyQueries runs each WIQL
+    # sequentially via az boards query, then merges the work items into a
+    # single JSON array so hierarchy.json keeps its existing flat-list shape
+    # (Read-AzDevOpsHierarchyCache + az-Show-AzDevOpsTree are unchanged).
+    # Each WIQL filters by [System.AreaPath] UNDER '{{AZ_AREA}}' and one
+    # category group, which sidesteps the previous combined IN-GROUP query
+    # that returned partial results on larger projects. Project scope is
+    # still supplied by --project on each az invocation (Invoke-AzDevOpsAzJson
+    # injects it from $env:AZ_PROJECT).
 
     $rowCounter = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
@@ -686,9 +808,9 @@ function Get-AzDevOpsSyncDatasets {
         },
         @{
             Name     = 'hierarchy'
-            Label    = 'Epic/Feature/Requirement-tier hierarchy'
+            Label    = 'Epic + Feature + User Story tiers (3 area-filtered WIQLs)'
             Path     = $Paths.Hierarchy
-            Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $hierarchyWiql }.GetNewClosure()
+            Fetch    = { Invoke-AzDevOpsHierarchyQueries }
             Counter  = $rowCounter
             RowLabel = 'rows'
         },

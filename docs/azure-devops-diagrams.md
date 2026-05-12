@@ -109,7 +109,7 @@ flowchart LR
 
 ## 2. `az-Connect-AzDevOps` — 8-step orchestrator
 
-Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the user-machine WIQL config under `~/.bashcuts-config/azure-devops/queries/` so subsequent `az-Sync-AzDevOpsCache` runs can read a customizable `hierarchy.wiql` rather than an inline string.
+Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the three user-machine WIQL files under `~/.bashcuts-config/azure-devops/queries/` (`epics.wiql`, `features.wiql`, `user-stories.wiql`) so subsequent `az-Sync-AzDevOpsCache` runs can build the hierarchy from customizable per-tier queries rather than an inline string.
 
 ```mermaid
 flowchart TD
@@ -121,7 +121,7 @@ flowchart TD
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-config/.../hierarchy.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
+    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-config/.../{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
     S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
@@ -217,7 +217,7 @@ flowchart TD
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
-        D3["hierarchy<br/>Get-AzDevOpsWiql -Name 'hierarchy'<br/>(reads ~/.bashcuts-config/.../hierarchy.wiql,<br/>substitutes {{AZ_AREA}})<br/>→ WIQL Epic/Feature/Story flat + System.Parent"]
+        D3["hierarchy<br/>Invoke-AzDevOpsHierarchyQueries<br/>(reads ~/.bashcuts-config/.../{epics,features,user-stories}.wiql,<br/>substitutes {{AZ_AREA}}, fires one WIQL per tier,<br/>merges into Epic + Feature + Story flat + System.Parent)"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
     end
@@ -286,9 +286,9 @@ flowchart LR
 
 ## 6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render
 
-Pure cache read, no `az`. The hierarchy WIQL pulled `[System.Parent]` per row, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
+Pure cache read, no `az`. Each of the three hierarchy WIQLs (epics / features / user-stories) selects `[System.Parent]` per row, and `Invoke-AzDevOpsHierarchyQueries` merges them into a single flat array on disk, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
 
-The leaf-tier filter checks `Type -in $script:AzDevOpsRequirementTypes` — the four stock requirement-tier names across process templates (`User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic) — so the same render code works on every template the hierarchy WIQL fetches via `Microsoft.RequirementCategory`.
+The leaf-tier filter checks `Type -in $script:AzDevOpsRequirementTypes` — the four stock requirement-tier names across process templates (`User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic) — so the same render code works on every template the user-stories WIQL fetches via `Microsoft.RequirementCategory`.
 
 ```mermaid
 flowchart TD
@@ -546,7 +546,7 @@ graph LR
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
-    OpenHWiql(["az-Open-AzDevOpsHierarchyWiql"]):::pub
+    OpenHWiql(["az-Open-AzDevOpsHierarchyWiqls"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
     UseProj(["az-Use-AzDevOpsProject"]):::pub
