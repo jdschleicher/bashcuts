@@ -199,6 +199,14 @@ The `hierarchy` dataset that `az-Sync-AzDevOpsCache` writes into `hierarchy.json
 
 `az-Connect-AzDevOps` (and the first run of `az-Sync-AzDevOpsCache` if you skipped Connect) seeds the file with a sensible default — Epic / Feature / RequirementCategory items under `{{AZ_AREA}}`, where `{{AZ_AREA}}` is substituted from `$env:AZ_AREA` at read time. Edit the file to add fields to the SELECT clause, filter by state, scope by tag, or otherwise tailor what lands in `hierarchy.json`. Re-run `az-Sync-AzDevOpsCache` to pick up your changes — no `reinit` needed, since the file is read every sync.
 
+The fast way to open the file for editing is the dedicated shortcut:
+
+```powershell
+az-Open-AzDevOpsHierarchyWiql
+```
+
+It seeds the default WIQL if the file is missing (so it works on a fresh machine even before `az-Connect-AzDevOps`) and then opens the path in your OS default editor.
+
 If you delete the file, the next sync writes the default back. The placeholder `{{AZ_AREA}}` is the only one currently supported; everything else in the file is passed through to `az boards query --wiql` verbatim.
 
 ### Day-to-day work-item shortcuts
