@@ -7,13 +7,6 @@ if ($pow_sfdxcli -ne $NULL) {
     Write-Host "no sfdx cli"
 }
 
-$pow_azcli = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_az_cli.ps1"
-if ($pow_azcli -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\pow_az_cli.ps1"
-} else {
-    Write-Host "no az cli"
-}
-
 $pow_common = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_common.ps1"
 if ($pow_common -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\pow_common.ps1"
@@ -68,4 +61,11 @@ if ($azdevops_projects -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_projects.ps1"
 } else {
     Write-Host "no azdevops_projects.ps1"
+}
+
+$pow_timer = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
+if ($pow_timer -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
+} else {
+    Write-Host "no pow_timer.ps1"
 }
