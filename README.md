@@ -186,9 +186,20 @@ In a fresh PowerShell terminal:
 az-Connect-AzDevOps
 ```
 
-This walks through six checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
+This walks through seven checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, user-machine WIQL query files seeded, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
 
 After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `az-Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
+
+### Customizing WIQL queries
+
+The `hierarchy` dataset that `az-Sync-AzDevOpsCache` writes into `hierarchy.json` is driven by a WIQL file on your own machine, not by code in this repo:
+
+- POSIX: `~/.bashcuts-config/azure-devops/queries/hierarchy.wiql`
+- Windows: `%USERPROFILE%\.bashcuts-config\azure-devops\queries\hierarchy.wiql`
+
+`az-Connect-AzDevOps` (and the first run of `az-Sync-AzDevOpsCache` if you skipped Connect) seeds the file with a sensible default — Epic / Feature / RequirementCategory items under `{{AZ_AREA}}`, where `{{AZ_AREA}}` is substituted from `$env:AZ_AREA` at read time. Edit the file to add fields to the SELECT clause, filter by state, scope by tag, or otherwise tailor what lands in `hierarchy.json`. Re-run `az-Sync-AzDevOpsCache` to pick up your changes — no `reinit` needed, since the file is read every sync.
+
+If you delete the file, the next sync writes the default back. The placeholder `{{AZ_AREA}}` is the only one currently supported; everything else in the file is passed through to `az boards query --wiql` verbatim.
 
 ### Day-to-day work-item shortcuts
 
