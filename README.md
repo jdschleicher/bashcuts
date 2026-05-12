@@ -4,6 +4,7 @@
 * [System Setup for bash and PowerShell Profiles](#system-setup)
 * [How to use bashcuts](#how-to)
 * [Azure DevOps work-item shortcuts](#azure-devops)
+* [Timer sessions](#timer-sessions)
 
 <br>
 
@@ -354,4 +355,65 @@ Schema file format (one entry per work-item type, each with `required` and `opti
 ```
 
 Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline`. Unknown types are treated as `string` with a warning from `az-Test-AzDevOpsSchema`.
+
+<br>
+
+***
+
+<br>
+
+# <a name="timer-sessions"></a>Timer sessions
+
+`Start-TimerSession` runs a focus-timer Pomodoro against an item from one of your registered integrations and auto-posts your debrief notes as a discussion comment on the chosen item. The Azure DevOps integration is registered out of the box — it reads your cached assigned items (`az-Sync-AzDevOpsCache`), shows them sorted by State + Priority, and posts the debrief via `az boards work-item update --discussion`.
+
+### Run a session
+
+```powershell
+# 25-minute default
+Start-TimerSession
+
+# Custom duration
+Start-TimerSession -Minutes 45
+
+# Skip the integration picker (one registered integration is also auto-selected)
+Start-TimerSession -Integration 'Azure DevOps - User Stories'
+```
+
+Flow:
+1. Pick an integration (skipped when `-Integration` is supplied or only one is registered)
+2. Pick an item from the integration's grid
+3. Snake-animation countdown runs for `$Minutes`
+4. Debrief prompts (`debrief notes`, `what's next`) → comment posted on the picked item
+
+### Interrupting a session
+
+Press **Esc** during the countdown to end the session early and still go through the debrief prompts. The posted comment header reflects the outcome:
+
+- Completed: `Pomodoro complete — 25:00`
+- Interrupted: `Session interrupted at 04:30 of 25:00`
+
+After an interrupted session's comment posts, you're asked `Start a new session? [Y/n]` so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
+
+### Registering your own integration
+
+Add to your `$profile` (or any file dot-sourced from it). Registering with an existing `Name` replaces the prior entry, so you can override the built-in AzDO integration without touching tracked code.
+
+```powershell
+Register-TimerIntegration `
+    -Name        'My Tracker' `
+    -Description 'Items from my custom tracker' `
+    -FetchItems  {
+        # Return rows with at least Id, Type, State, Title.
+        # Optional: Priority, Iteration, anything else you want in the picker.
+        Get-MyTrackerItems | Where-Object { $_.Status -ne 'Done' }
+    } `
+    -AddComment  {
+        param([Parameter(Mandatory)] [int] $Id, [Parameter(Mandatory)] [string] $Body)
+        Add-MyTrackerComment -Id $Id -Body $Body
+    } `
+    -ViewHint    {
+        param([Parameter(Mandatory)] [int] $Id)
+        "View: my-tracker open $Id"
+    }
+```
 

@@ -59,7 +59,7 @@ flowchart LR
     end
 
     subgraph AzCLI["Azure CLI"]
-        AzBoards["az boards query / work-item create / relation add"]
+        AzBoards["az boards query / work-item create / work-item update / relation add"]
         AzExt["az extension (azure-devops)"]
         AzAcct["az account show / az login"]
     end
@@ -599,6 +599,7 @@ graph LR
     ClassList[Get-AzDevOpsClassificationList]:::priv
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
+    AddDisc[Add-AzDevOpsDiscussionComment]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
@@ -737,6 +738,7 @@ graph LR
     InvokeDS --> ClassList
     Boards --> AzJson
     ClassList --> AzJson
+    AddDisc --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead
