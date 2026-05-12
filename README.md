@@ -195,8 +195,8 @@ After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps
 
 The `hierarchy` dataset that `az-Sync-AzDevOpsCache` writes into `hierarchy.json` is driven by a WIQL file on your own machine, not by code in this repo:
 
-- POSIX: `~/.bashcuts-config/azure-devops/queries/hierarchy.wiql`
-- Windows: `%USERPROFILE%\.bashcuts-config\azure-devops\queries\hierarchy.wiql`
+- POSIX: `~/.bashcuts-az-devops-app/config/queries/hierarchy.wiql`
+- Windows: `%USERPROFILE%\.bashcuts-az-devops-app\config\queries\hierarchy.wiql`
 
 `az-Connect-AzDevOps` (and the first run of `az-Sync-AzDevOpsCache` if you skipped Connect) seeds the file with a sensible default — Epic / Feature / RequirementCategory items under `{{AZ_AREA}}`, where `{{AZ_AREA}}` is substituted from `$env:AZ_AREA` at read time. Edit the file to add fields to the SELECT clause, filter by state, scope by tag, or otherwise tailor what lands in `hierarchy.json`. Re-run `az-Sync-AzDevOpsCache` to pick up your changes — no `reinit` needed, since the file is read every sync.
 
@@ -320,7 +320,7 @@ az-New-AzDevOpsFeatureStories -ParentId 1240 `
 
 Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `az-New-AzDevOpsUserStory`, `az-Get-AzDevOpsAssigned`, `az-Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
 
-The schema lives at `$HOME/.bashcuts/azure-devops/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
+The schema lives at `$HOME/.bashcuts-az-devops-app/schema/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
 ```powershell
 az-Initialize-AzDevOpsSchema     # introspect your org via

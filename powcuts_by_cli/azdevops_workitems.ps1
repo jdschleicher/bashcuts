@@ -11,7 +11,7 @@
 #   az-Test-AzDevOpsAuth           - silent yes/no auth assertion intended for
 #                                    callers in later AzDevOps commands;
 #                                    returns $true / $false
-#   az-Open-AzDevOpsHierarchyWiql  - open ~/.bashcuts-config/azure-devops/
+#   az-Open-AzDevOpsHierarchyWiql  - open ~/.bashcuts-az-devops-app/config/
 #                                    queries/hierarchy.wiql in the default
 #                                    editor (seeds default WIQL on first run)
 #
@@ -24,7 +24,7 @@
 #   az-Confirm-AzDevOpsEnvVars          - step 3 (required $profile env vars set)
 #   az-Confirm-AzDevOpsLogin            - step 4 (az login session; offers login)
 #   az-Set-AzDevOpsDefaults             - step 5 (az devops configure --defaults)
-#   az-Confirm-AzDevOpsQueryFiles       - step 6 (seed ~/.bashcuts-config WIQL files)
+#   az-Confirm-AzDevOpsQueryFiles       - step 6 (seed ~/.bashcuts-az-devops-app/config WIQL files)
 #   az-Confirm-AzDevOpsSmokeQuery       - step 7 (az boards query smoke test)
 #
 # Silent diagnostic helpers (pure checks, no I/O — used by az-Test-AzDevOpsAuth):
@@ -395,9 +395,22 @@ function az-Connect-AzDevOps {
 
 
 # ---------------------------------------------------------------------------
+# Single hidden parent folder under $HOME that contains every AzDevOps state
+# subdirectory (cache/, config/, schema/). Consolidates what used to be three
+# separate top-level dotfolders (.bashcuts-cache, .bashcuts-config, .bashcuts)
+# into one easy-to-find location.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsAppRoot {
+    $root = Join-Path $HOME '.bashcuts-az-devops-app'
+    return $root
+}
+
+
+# ---------------------------------------------------------------------------
 # Local cache + scheduled refresh
 #
-# Cache directory: $HOME/.bashcuts-cache/azure-devops/
+# Cache directory: $HOME/.bashcuts-az-devops-app/cache/
 #   assigned.json   - items where [System.AssignedTo] = @Me
 #   mentions.json   - items where the user's email (or '@') appears in
 #                     [System.History] (best-effort - WIQL has no first-class
@@ -421,7 +434,7 @@ function Get-AzDevOpsCachePaths {
     # hierarchy / assigned / mentions data across projects. Falls back to the
     # legacy unsegmented layout when no project map is active, which keeps
     # single-project users unaffected (no migration needed for them).
-    $rootDir = Join-Path (Join-Path $HOME '.bashcuts-cache') 'azure-devops'
+    $rootDir = Join-Path (Get-AzDevOpsAppRoot) 'cache'
     $cacheDir = $rootDir
 
     if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
@@ -466,7 +479,7 @@ function Initialize-AzDevOpsCacheDir {
 # ---------------------------------------------------------------------------
 # User-machine config (queries)
 #
-# Config directory: $HOME/.bashcuts-config/azure-devops/queries/
+# Config directory: $HOME/.bashcuts-az-devops-app/config/queries/
 #   hierarchy.wiql  - WIQL pulled by the 'hierarchy' dataset in
 #                     Get-AzDevOpsSyncDatasets. Ships with a default that
 #                     filters by Epic/Feature/RequirementCategory under
@@ -487,7 +500,7 @@ Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [Syst
 
 
 function Get-AzDevOpsConfigPaths {
-    $configDir  = Join-Path (Join-Path $HOME '.bashcuts-config') 'azure-devops'
+    $configDir  = Join-Path (Get-AzDevOpsAppRoot) 'config'
     $queriesDir = Join-Path $configDir 'queries'
 
     return [PSCustomObject]@{
@@ -653,7 +666,7 @@ function Get-AzDevOpsSyncDatasets {
 
     $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.AssignedTo] = @Me'
     $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
-    # Hierarchy WIQL is sourced from ~/.bashcuts-config/azure-devops/queries/
+    # Hierarchy WIQL is sourced from ~/.bashcuts-az-devops-app/config/queries/
     # hierarchy.wiql so users can customize fields / filters per machine
     # without modifying tracked code. Get-AzDevOpsWiql seeds the file with
     # the default template-agnostic WIQL (Epic/Feature/RequirementCategory
@@ -1162,7 +1175,7 @@ function Read-AzDevOpsGridPick {
 #   az-Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
 #   az-Open-AzDevOpsMention   - open a single mentioned item in the browser
 #
-# All four read $HOME/.bashcuts-cache/azure-devops/{assigned,mentions}.json
+# All four read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
 #
@@ -1621,7 +1634,7 @@ function az-Open-AzDevOpsMention {
 #                          relies on Out-ConsoleGridView's column group-by.
 #                          Defined further down in its own section.
 #
-# Reads $HOME/.bashcuts-cache/azure-devops/hierarchy.json (built by
+# Reads $HOME/.bashcuts-az-devops-app/cache/hierarchy.json (built by
 # az-Sync-AzDevOpsCache). The hierarchy WIQL selects [System.Parent] so each
 # item carries its parent link directly - no follow-up resolution needed.
 # ---------------------------------------------------------------------------
@@ -1896,7 +1909,7 @@ function az-Show-AzDevOpsTree {
 #                            so Out-ConsoleGridView's built-in group-by-State
 #                            handles the kanban affordance interactively.
 #
-# Reuses the same $HOME/.bashcuts-cache/azure-devops/hierarchy.json that
+# Reuses the same $HOME/.bashcuts-az-devops-app/cache/hierarchy.json that
 # az-Show-AzDevOpsTree consumes; never calls `az` directly. Default -Type list
 # matches what the hierarchy WIQL pulls (Epic / Feature / requirement-tier).
 # Default -State filter excludes closed states via Select-AzDevOpsActiveItems;
@@ -1939,7 +1952,7 @@ function az-Show-AzDevOpsBoard {
 #                              branches in one session and emits picked
 #                              work-item ids on the pipeline.
 #
-# Reads the same $HOME/.bashcuts-cache/azure-devops/hierarchy.json that
+# Reads the same $HOME/.bashcuts-az-devops-app/cache/hierarchy.json that
 # az-Show-AzDevOpsTree consumes; never calls `az` directly. Modeled on the
 # while ($running) { ... } + ".. [Go Back]" pattern from issue #39.
 # ---------------------------------------------------------------------------
@@ -3589,9 +3602,9 @@ function az-New-AzDevOpsFeatureStories {
 # ---------------------------------------------------------------------------
 # Local field-schema config
 #
-# Schema directory: $HOME/.bashcuts/azure-devops/   (separate from the
-#                   auto-managed $HOME/.bashcuts-cache/ tree)
-# Schema file:      schema-<orgslug>.json           (per-org keyed off
+# Schema directory: $HOME/.bashcuts-az-devops-app/schema/   (separate from the
+#                   auto-managed cache/ subtree under the same parent)
+# Schema file:      schema-<orgslug>.json                   (per-org keyed off
 #                   $env:AZ_DEVOPS_ORG; falls back to schema.json when unset)
 #
 # Public functions:
@@ -3695,7 +3708,7 @@ function Get-AzDevOpsSchemaOrgSlug {
 
 
 function Get-AzDevOpsSchemaPaths {
-    $configDir = Join-Path (Join-Path $HOME '.bashcuts') 'azure-devops'
+    $configDir = Join-Path (Get-AzDevOpsAppRoot) 'schema'
     $slug = Get-AzDevOpsSchemaOrgSlug
 
     $fileName = if ($slug) {
@@ -3714,8 +3727,8 @@ function Get-AzDevOpsSchemaPaths {
 
 
 function Initialize-AzDevOpsSchemaDir {
-    # Creates $HOME/.bashcuts/azure-devops with 0700 on Unix. Windows gets
-    # default NTFS ACLs inherited from %USERPROFILE%, which are user-only
+    # Creates $HOME/.bashcuts-az-devops-app/schema with 0700 on Unix. Windows
+    # gets default NTFS ACLs inherited from %USERPROFILE%, which are user-only
     # for files created under $HOME.
     $paths = Get-AzDevOpsSchemaPaths
 
