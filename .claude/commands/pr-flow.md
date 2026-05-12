@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, pr-body ToC. One command to ship.
+description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, pr-body ToC, per-PR mermaid diagram. One command to ship.
 ---
 
 You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortcuts repo). Run every check in the correct order, gate on failures, and produce a fully reviewed, documented PR.
@@ -11,11 +11,12 @@ You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortc
 
 1. **Phase 1** — Pre-commit checks (bash syntax, PowerShell parse, shell parity, sourcing wire-up)
 2. **Phase 2** — Commit, push, create PR
-3. **Phase 3** — Triple code review (`/code-review` — bash + PowerShell + security in parallel)
+3. **Phase 3** — Quad code review (`/code-review` — bash + PowerShell + security + clean-code in parallel)
 4. **Phase 4** — Docs check (`/docs-check`)
 5. **Phase 5** — Criteria check (`/criteria-check`)
 6. **Phase 5b** — AzDO diagrams check (`/azdevops-diagrams-check`) — runs only when Azure DevOps source files changed
 7. **Phase 6** — PR body ToC (`/pr-body`)
+8. **Phase 7** — PR mermaid diagram (`/pr-diagram`) — per-PR flow drawn into the body below the ToC
 
 Each phase gates on the previous. If Phase 1 fails, stop.
 
@@ -192,6 +193,14 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 
 ---
 
+## Phase 7 — PR Mermaid Diagram
+
+Invoke `/pr-diagram` to render a per-PR flow diagram (mermaid `flowchart TD`) of the new public functions and their hand-offs, and embed it in the PR body between idempotent markers. The diagram lands just below the ToC and just above `## Summary`, so a reviewer landing on the PR sees one picture of the delta before the prose.
+
+**Not gated** — diagram-generation failure is informational, not blocking. If the skill reports `no public functions added`, skip without complaint (e.g. doc-only or refactor-only PRs).
+
+---
+
 ## Final Summary
 
 ```
@@ -213,6 +222,7 @@ Invoke `/pr-body` to aggregate all skill report verdicts and update the PR body 
 | Criteria Check | ✅ PASS / ⏭️ no AC section |
 | AzDO Diagrams Check | ✅ CURRENT / ⏭️ N/A / ⚠️ <stale sections> |
 | PR Body | ✅ Updated |
+| PR Diagram | ✅ Rendered / ⏭️ no public functions added |
 
 ### PR
 **#<number>** — <title>
