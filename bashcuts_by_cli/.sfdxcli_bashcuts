@@ -1436,7 +1436,7 @@ dx-show-sandboxes-by-days-last-created() {
     TEMP_QUERY_FILE="sandbox_query_${TIMESTAMP}.sql"
     
     # Write the query to the file
-    echo "SELECT SandboxName, LicenseType, Description, CreatedDate FROM SandboxInfo WHERE CreatedDate = LAST_N_DAYS:$DAYS_COUNT" > "$TEMP_QUERY_FILE"
+    echo "select id, CreatedDate, SandboxName, LicenseType, Description, Source.SandboxName, CreatedBy.Name, AutoActivate, Template.DeveloperName, ActivationUserGroup.Name, ApexClass.Name FRom SandboxInfo WHERE CreatedDate = LAST_N_DAYS:$DAYS_COUNT" > "$TEMP_QUERY_FILE"
     
     echo "Executing query from $TEMP_QUERY_FILE..."
     
