@@ -51,6 +51,7 @@ flowchart LR
         NewStory["az-New-AzDevOpsUserStory"]
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
+        ShowFeats["az-Show-AzDevOpsFeatures"]
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
@@ -111,6 +112,7 @@ flowchart LR
     Tree --> HierJson
     Board --> HierJson
     Find --> HierJson
+    ShowFeats --> HierJson
     Status --> LastSync
 
     ShowAreas --> AreasJson
@@ -601,6 +603,7 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
     OpenHWiql(["az-Open-AzDevOpsHierarchyWiqls"]):::pub
+    ShowFeats(["az-Show-AzDevOpsFeatures"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
     UseProj(["az-Use-AzDevOpsProject"]):::pub
@@ -629,6 +632,7 @@ graph LR
 
     %% Cache infra
     Paths[Get-AzDevOpsCachePaths]:::priv
+    PathsForSlug[Get-AzDevOpsCachePathsForSlug]:::priv
     InitDir[Initialize-AzDevOpsCacheDir]:::priv
     WriteFile[Write-AzDevOpsCacheFile]:::priv
     LogFn[Write-AzDevOpsSyncLog]:::priv
@@ -681,6 +685,7 @@ graph LR
     ReadA[Read-AzDevOpsAssignedCache]:::priv
     ReadM[Read-AzDevOpsMentionsCache]:::priv
     ReadH[Read-AzDevOpsHierarchyCache]:::priv
+    ReadHForProj[Read-AzDevOpsHierarchyCacheForProject]:::priv
 
     %% Shared scaffolding
     Closed[Get-AzDevOpsClosedStates]:::priv
@@ -746,6 +751,7 @@ graph LR
     ActCfg[Get-AzDevOpsActiveProjectConfig]:::priv
     TypeCfg[Get-AzDevOpsTypeConfig]:::priv
     Slug[Get-AzDevOpsActiveProjectSlug]:::priv
+    ToSlug[ConvertTo-AzDevOpsProjectSlug]:::priv
     SetEnv[Set-AzDevOpsActiveProjectEnv]:::priv
     RArea[Resolve-AzDevOpsTypeArea]:::priv
     RIter[Resolve-AzDevOpsTypeIteration]:::priv
@@ -1006,11 +1012,30 @@ graph LR
     GetProjs --> MapDef
     GetProjs --> ActName
     Paths --> Slug
+    Paths --> PathsForSlug
     Slug --> ActName
+    Slug --> ToSlug
     ActCfg --> MapDef
     ActCfg --> ActName
     TypeCfg --> ActCfg
     TypeCfg --> TypeKey
+
+    %% Multi-project features view (azdevops_workitems.ps1)
+    FeatNames[Get-AzDevOpsFeaturesProjectNames]:::priv
+
+    ShowFeats --> Stale
+    ShowFeats --> FeatNames
+    FeatNames --> MapDef
+    FeatNames --> ActName
+    ShowFeats --> ReadHForProj
+    ShowFeats --> ReadH
+    ShowFeats --> SelAct
+    ShowFeats --> TitleCol
+    ShowFeats --> ShowRows
+    ReadHForProj --> ToSlug
+    ReadHForProj --> PathsForSlug
+    ReadHForProj --> ReadJson
+    ReadHForProj --> ConvH
 
     %% Resolver layer (shared lookup chain)
     RArea --> TypeCfg
