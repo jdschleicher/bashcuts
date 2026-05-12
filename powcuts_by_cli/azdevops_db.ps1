@@ -284,6 +284,27 @@ function Add-AzDevOpsWorkItemRelation {
 }
 
 
+function Add-AzDevOpsDiscussionComment {
+    # `az boards work-item update --id <id> --discussion <body>` wrapper. Adds
+    # a comment to the Discussion / History thread of a work item. Returns the
+    # canonical { Json, Error, ExitCode } envelope; the parsed JSON is the
+    # updated work-item shape (same as `az boards work-item update`). The
+    # always-on echo from Invoke-AzDevOpsAzJson surfaces the assembled az
+    # command so the user can see exactly what was posted.
+    param(
+        [Parameter(Mandatory)] [int]    $Id,
+        [Parameter(Mandatory)] [string] $Body
+    )
+
+    $result = Invoke-AzDevOpsAzJson -ArgList @(
+        'boards', 'work-item', 'update',
+        '--id',         "$Id",
+        '--discussion', $Body
+    )
+    return $result
+}
+
+
 function Get-AzDevOpsWorkItemTypeDefinition {
     # `az devops invoke --area wit --resource workitemtypes` wrapper. Returns
     # the type's field-instance definitions inside the canonical envelope so

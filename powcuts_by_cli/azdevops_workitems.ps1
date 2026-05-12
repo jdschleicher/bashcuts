@@ -628,7 +628,7 @@ function Get-AzDevOpsSyncDatasets {
     # populates the cache shape so downstream commands keep working.
     $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
 
-    $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.AssignedTo] = @Me'
+    $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.AssignedTo] = @Me'
     $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
     # Hierarchy WIQL is sourced from ~/.bashcuts-config/azure-devops/queries/
     # hierarchy.wiql so users can customize fields / filters per machine
@@ -1153,13 +1153,33 @@ function ConvertFrom-AzDevOpsAssignedItem {
     param([Parameter(Mandatory)] $Raw)
 
     $f = $Raw.fields
+
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    } else {
+        [int]$Raw.id
+    }
+
+    $assignedAt = if ($f.'System.ChangedDate') {
+        [datetime]$f.'System.ChangedDate'
+    } else {
+        $null
+    }
+
+    $priority = if ($null -ne $f.'Microsoft.VSTS.Common.Priority') {
+        [int]$f.'Microsoft.VSTS.Common.Priority'
+    } else {
+        $null
+    }
+
     return [PSCustomObject]@{
-        Id         = if ($f.'System.Id') { [int]$f.'System.Id' } else { [int]$Raw.id }
+        Id         = $id
         Type       = $f.'System.WorkItemType'
         State      = $f.'System.State'
         Title      = $f.'System.Title'
         Iteration  = $f.'System.IterationPath'
-        AssignedAt = if ($f.'System.ChangedDate') { [datetime]$f.'System.ChangedDate' } else { $null }
+        Priority   = $priority
+        AssignedAt = $assignedAt
     }
 }
 
