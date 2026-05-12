@@ -313,7 +313,8 @@ function az-Confirm-AzDevOpsQueryFiles {
         Write-Host "  OK  Query files at $($init.Paths.QueriesDir)" -ForegroundColor Green
     }
 
-    return New-AzDevOpsStepResult -Ok $true
+    $stepResult = New-AzDevOpsStepResult -Ok $true
+    return $stepResult
 }
 
 
@@ -420,11 +421,21 @@ function Get-AzDevOpsCachePaths {
 }
 
 
+function New-AzDevOpsDirectoryIfMissing {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+}
+
+
 function Initialize-AzDevOpsCacheDir {
     $paths = Get-AzDevOpsCachePaths
-    if (-not (Test-Path -LiteralPath $paths.Dir)) {
-        New-Item -ItemType Directory -Path $paths.Dir -Force | Out-Null
-    }
+    New-AzDevOpsDirectoryIfMissing -Path $paths.Dir
     return $paths
 }
 
@@ -444,6 +455,8 @@ function Initialize-AzDevOpsCacheDir {
 #   {{AZ_AREA}}  - $env:AZ_AREA. Keeps the file portable across machines /
 #                  projects without forcing users to hard-code their own area.
 # ---------------------------------------------------------------------------
+
+$script:AzDevOpsAreaToken = '{{AZ_AREA}}'
 
 $script:AzDevOpsDefaultHierarchyWiql = @"
 Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND ([System.WorkItemType] IN GROUP 'Microsoft.EpicCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory' OR [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory')
@@ -469,10 +482,7 @@ function Initialize-AzDevOpsQueryFiles {
     # step + defensive call from Get-AzDevOpsSyncDatasets) can print a
     # single, consistent status line.
     $paths = Get-AzDevOpsConfigPaths
-
-    if (-not (Test-Path -LiteralPath $paths.QueriesDir)) {
-        New-Item -ItemType Directory -Path $paths.QueriesDir -Force | Out-Null
-    }
+    New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
 
     $seededHierarchy = $false
     if (-not (Test-Path -LiteralPath $paths.HierarchyQuery)) {
@@ -505,8 +515,17 @@ function Get-AzDevOpsWiql {
         }
     }
 
-    $raw = (Get-Content -LiteralPath $path -Raw).Trim()
-    $wiql = $raw.Replace('{{AZ_AREA}}', $env:AZ_AREA)
+    if ([string]::IsNullOrWhiteSpace($env:AZ_AREA)) {
+        throw "Get-AzDevOpsWiql: `$env:AZ_AREA must be set to substitute $script:AzDevOpsAreaToken in $path."
+    }
+
+    $rawContent = Get-Content -LiteralPath $path -Raw
+    $raw = $rawContent.Trim()
+
+    # Escape single quotes for WIQL string-literal safety — area paths with apostrophes
+    # would otherwise break out of the [System.AreaPath] UNDER '...' literal.
+    $areaEscaped = $env:AZ_AREA.Replace("'", "''")
+    $wiql = $raw.Replace($script:AzDevOpsAreaToken, $areaEscaped)
 
     return $wiql
 }
