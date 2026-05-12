@@ -193,22 +193,24 @@ After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps
 
 ### Customizing WIQL queries
 
-The `hierarchy` dataset that `az-Sync-AzDevOpsCache` writes into `hierarchy.json` is driven by a WIQL file on your own machine, not by code in this repo:
+The `hierarchy` dataset that `az-Sync-AzDevOpsCache` writes into `hierarchy.json` is built from three per-tier WIQL files on your own machine, not from code in this repo:
 
-- POSIX: `~/.bashcuts-az-devops-app/config/queries/hierarchy.wiql`
-- Windows: `%USERPROFILE%\.bashcuts-az-devops-app\config\queries\hierarchy.wiql`
+- POSIX: `~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql`
+- Windows: `%USERPROFILE%\.bashcuts-az-devops-app\config\queries\{epics,features,user-stories}.wiql`
 
-`az-Connect-AzDevOps` (and the first run of `az-Sync-AzDevOpsCache` if you skipped Connect) seeds the file with a sensible default — Epic / Feature / RequirementCategory items under `{{AZ_AREA}}`, where `{{AZ_AREA}}` is substituted from `$env:AZ_AREA` at read time. Edit the file to add fields to the SELECT clause, filter by state, scope by tag, or otherwise tailor what lands in `hierarchy.json`. Re-run `az-Sync-AzDevOpsCache` to pick up your changes — no `reinit` needed, since the file is read every sync.
+Each sync fires one `az boards query` per file (epics, then features, then user stories) and merges the results into a single `hierarchy.json`. Splitting per tier sidesteps the partial-result behavior that the previous single combined query hit on larger projects, and lets you tune each tier's filter independently.
 
-The fast way to open the file for editing is the dedicated shortcut:
+`az-Connect-AzDevOps` (and the first run of `az-Sync-AzDevOpsCache` if you skipped Connect) seeds each file with a sensible default — items under `{{AZ_AREA}}` scoped to one of `Microsoft.EpicCategory` / `Microsoft.FeatureCategory` / `Microsoft.RequirementCategory`, where `{{AZ_AREA}}` is substituted from `$env:AZ_AREA` at read time. Edit any file to add fields to the SELECT clause, filter by state, scope by tag, or otherwise tailor what lands in `hierarchy.json`. Re-run `az-Sync-AzDevOpsCache` to pick up your changes — no `reinit` needed, since the files are read every sync.
+
+The fast way to open all three for editing is the dedicated shortcut:
 
 ```powershell
-az-Open-AzDevOpsHierarchyWiql
+az-Open-AzDevOpsHierarchyWiqls
 ```
 
-It seeds the default WIQL if the file is missing (so it works on a fresh machine even before `az-Connect-AzDevOps`) and then opens the path in your OS default editor.
+It seeds any missing defaults (so it works on a fresh machine even before `az-Connect-AzDevOps`) and then opens each path in your OS default editor.
 
-If you delete the file, the next sync writes the default back. The placeholder `{{AZ_AREA}}` is the only one currently supported; everything else in the file is passed through to `az boards query --wiql` verbatim.
+If you delete a file, the next sync writes that default back. The placeholder `{{AZ_AREA}}` is the only one currently supported; everything else in each file is passed through to `az boards query --wiql` verbatim.
 
 ### Day-to-day work-item shortcuts
 
