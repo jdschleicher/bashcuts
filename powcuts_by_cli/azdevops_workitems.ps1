@@ -1077,8 +1077,7 @@ function az-Unregister-AzDevOpsSyncSchedule {
 # ---------------------------------------------------------------------------
 
 function Test-AzDevOpsGridAvailable {
-    $cmd = Get-Command Out-ConsoleGridView -ErrorAction SilentlyContinue
-    $available = ($null -ne $cmd)
+    $available = Test-ConsoleGridAvailable
     return $available
 }
 
