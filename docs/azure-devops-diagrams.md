@@ -591,6 +591,9 @@ graph LR
     QPaths[Get-AzDevOpsConfigPaths]:::priv
     QInit[Initialize-AzDevOpsQueryFiles]:::priv
     QWiql[Get-AzDevOpsWiql]:::priv
+    QDefaults[Get-AzDevOpsHierarchyQueryDefaults]:::priv
+    QNames[Get-AzDevOpsHierarchyQueryNames]:::priv
+    InvHier[Invoke-AzDevOpsHierarchyQueries]:::priv
     MkDir[New-AzDevOpsDirectoryIfMissing]:::priv
 
     %% Data-plane wrappers (azdevops_db.ps1)
@@ -728,11 +731,15 @@ graph LR
     InitDir --> MkDir
     Sync --> LogFn --> Paths
     Sync --> DSets
-    DSets --> QWiql --> QInit
+    Sync --> InvokeDS
+    InvokeDS --> InvHier
+    InvHier --> QNames --> QDefaults --> QPaths
+    InvHier --> QWiql --> QInit
+    InvHier --> Boards
+    QInit --> QDefaults
     QInit --> QPaths
     QInit --> MkDir
     OpenHWiql --> QInit
-    Sync --> InvokeDS
     InvokeDS --> Boards
     InvokeDS --> ClassList
     Boards --> AzJson
