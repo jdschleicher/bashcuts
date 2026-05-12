@@ -546,6 +546,7 @@ graph LR
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
+    OpenHWiql(["az-Open-AzDevOpsHierarchyWiql"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
     UseProj(["az-Use-AzDevOpsProject"]):::pub
@@ -730,6 +731,7 @@ graph LR
     DSets --> QWiql --> QInit
     QInit --> QPaths
     QInit --> MkDir
+    OpenHWiql --> QInit
     Sync --> InvokeDS
     InvokeDS --> Boards
     InvokeDS --> ClassList

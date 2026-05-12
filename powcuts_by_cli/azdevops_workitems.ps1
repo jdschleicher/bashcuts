@@ -5,10 +5,15 @@
 # Foundation file for Azure DevOps work-item navigation shortcuts.
 #
 # User-facing functions:
-#   az-Connect-AzDevOps   - interactive first-run auth + setup helper (run once
-#                        on a fresh machine, or any time auth feels stale)
-#   az-Test-AzDevOpsAuth  - silent yes/no auth assertion intended for callers
-#                        in later AzDevOps commands; returns $true / $false
+#   az-Connect-AzDevOps            - interactive first-run auth + setup helper
+#                                    (run once on a fresh machine, or any time
+#                                    auth feels stale)
+#   az-Test-AzDevOpsAuth           - silent yes/no auth assertion intended for
+#                                    callers in later AzDevOps commands;
+#                                    returns $true / $false
+#   az-Open-AzDevOpsHierarchyWiql  - open ~/.bashcuts-config/azure-devops/
+#                                    queries/hierarchy.wiql in the default
+#                                    editor (seeds default WIQL on first run)
 #
 # Step functions invoked by az-Connect-AzDevOps (also exposed for direct use,
 # e.g. to debug a single failing step). Each returns a [PSCustomObject]
@@ -315,6 +320,24 @@ function az-Confirm-AzDevOpsQueryFiles {
 
     $stepResult = New-AzDevOpsStepResult -Ok $true
     return $stepResult
+}
+
+
+function az-Open-AzDevOpsHierarchyWiql {
+    # Opens the user-machine hierarchy.wiql in the OS default editor. Defensively
+    # seeds the default WIQL via Initialize-AzDevOpsQueryFiles so a fresh
+    # machine that skipped az-Connect-AzDevOps can still discover and customize
+    # the query in one step (no "file not found" detour).
+    $init = Initialize-AzDevOpsQueryFiles
+    $path = $init.Paths.HierarchyQuery
+
+    if ($init.SeededHierarchy) {
+        Write-Host "Wrote default hierarchy.wiql to $path - opening for editing" -ForegroundColor Green
+    } else {
+        Write-Host "Opening $path" -ForegroundColor DarkGray
+    }
+
+    Start-Process $path
 }
 
 
