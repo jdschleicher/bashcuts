@@ -301,7 +301,7 @@ az-New-AzDevOpsUserStory `
     -NoOpen
 ```
 
-`-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts. The existing `az-create-userstory` in `pow_az_cli.ps1` is left in place for users who prefer the original flow.
+`-FeatureId 0` creates an orphan (no parent link). `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts.
 
 ### Creating a new Feature
 

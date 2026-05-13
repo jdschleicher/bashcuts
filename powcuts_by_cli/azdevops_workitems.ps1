@@ -2311,8 +2311,7 @@ function az-Find-AzDevOpsWorkItem {
 #                              story in the browser.
 #
 # All prompts are skippable via parameters so the function works
-# non-interactively in scripts. The existing `az-create-userstory` in
-# pow_az_cli.ps1 is left untouched (parallel coexistence).
+# non-interactively in scripts.
 # ---------------------------------------------------------------------------
 
 function Read-AzDevOpsClassificationCache {

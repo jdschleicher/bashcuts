@@ -3,9 +3,9 @@
 #
 # Every `az boards ...` invocation in the bashcuts codebase routes through one
 # of the wrappers in this file so higher-level functions in azdevops_workitems
-# .ps1 / pow_az_cli.ps1 stay decoupled from `az` argument shapes, JSON
-# deserialization, and stderr handling. Future caching, retry, or alternative
-# transport changes are a one-file edit.
+# .ps1 stay decoupled from `az` argument shapes, JSON deserialization, and
+# stderr handling. Future caching, retry, or alternative transport changes are
+# a one-file edit.
 #
 # Conventions:
 #   - Every wrapper returns the canonical { Json, Error, ExitCode } envelope
