@@ -55,6 +55,8 @@
 #   az-Show-AzDevOpsProject  - print the active project + resolved env vars
 #   az-Get-AzDevOpsProjects  - list every project name in the map, marking
 #                              the active one
+#   az-Find-AzDevOpsProject  - Out-ConsoleGridView picker over the map; emits
+#                              the picked name (-Use also switches projects)
 #
 # Type-key normalization: lookups uppercase the type and replace spaces with
 # underscores, so `'User Story'`, `'user story'`, and `'USER_STORY'` all hit
@@ -518,6 +520,49 @@ function az-Use-AzDevOpsProject {
         Write-Host "  AZ_AREA       = $env:AZ_AREA"
         Write-Host "  AZ_ITERATION  = $env:AZ_ITERATION"
     }
+}
+
+
+function az-Find-AzDevOpsProject {
+    # Out-ConsoleGridView picker over $global:AzDevOpsProjectMap. Grid columns
+    # match the az-Get-AzDevOpsProjects row shape (Active / Name / Project /
+    # Org) so users see the same surface in both views. Emits the picked
+    # project name on the pipeline; -Use also calls az-Use-AzDevOpsProject so
+    # one Find call switches and prints the active-project summary.
+    [CmdletBinding()]
+    param(
+        [switch] $Use
+    )
+
+    if (-not (Test-AzDevOpsProjectMapDefined)) {
+        Write-Host "(`$global:AzDevOpsProjectMap is not defined - see azdevops_projects.ps1 header for shape)" -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-AzDevOpsGridAvailable)) {
+        Write-AzDevOpsGridUnavailable -CommandName 'az-Find-AzDevOpsProject'
+        return
+    }
+
+    $rows = az-Get-AzDevOpsProjects
+    if ($null -eq $rows -or @($rows).Count -eq 0) {
+        Write-Host '(no projects defined in $global:AzDevOpsProjectMap)' -ForegroundColor Yellow
+        return
+    }
+
+    $picked = Read-AzDevOpsGridPick -Rows $rows -Title 'Pick Azure DevOps project'
+    if ($null -eq $picked) {
+        return $null
+    }
+
+    $pickedName = [string]$picked.Name
+
+    if ($Use) {
+        az-Use-AzDevOpsProject -Name $pickedName
+        return
+    }
+
+    return $pickedName
 }
 
 

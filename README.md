@@ -241,8 +241,16 @@ az-Show-AzDevOpsBoard -Type Bug,Task          # custom-template work-item types 
 az-Show-AzDevOpsAreas                         # print the project's area-path tree (cache-first, live fallback)
 az-Show-AzDevOpsIterations                    # print the project's iteration-path tree (with start/finish dates)
 
+az-Get-AzDevOpsAreas                          # pipeable rows for the area tree (Depth / Name / Path / HasChildren)
+az-Get-AzDevOpsIterations                     # pipeable iteration rows + [datetime]? StartDate / FinishDate, e.g.:
+az-Get-AzDevOpsIterations | Where-Object { $_.StartDate -le (Get-Date) -and $_.FinishDate -ge (Get-Date) }  # the current sprint
+
 az-Find-AzDevOpsWorkItem                      # interactive drill-down: pick an Epic, then a Feature, then a Story; '.. [Go Back]' climbs a tier; '.. [Open this <Type>]' launches the browser; loops until you pick 'EXIT' or hit Esc
 az-Find-AzDevOpsWorkItem -IncludeClosed       # include Closed/Removed items in the drill-down grids
+az-Find-AzDevOpsArea                          # pick an area path from the tree; emits the picked Path on the pipeline
+az-Find-AzDevOpsIteration                     # pick an iteration; grid shows StartDate / FinishDate columns; emits Path
+az-Find-AzDevOpsProject                       # pick from $global:AzDevOpsProjectMap (Active / Name / Project / Org)
+az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-Use-AzDevOpsProject on the pick)
 ```
 
 If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
@@ -252,6 +260,23 @@ If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsM
 Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
 
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
+
+#### Verb coverage at a glance
+
+Tab-tab on `az-Get-`, `az-Show-`, or `az-Find-` to discover commands. The matrix is also kept inline at the top of `powcuts_by_cli/azdevops_workitems.ps1`.
+
+| Noun                  | `az-Get-`             | `az-Show-`         | `az-Find-`  |
+|-----------------------|-----------------------|--------------------|-------------|
+| Project               | `Projects`            | `Project`          | `Project`   |
+| Work Item (hierarchy) | —                     | `Tree`, `Board`    | `WorkItem`  |
+| Work Item (assigned)  | `Assigned` (pickable) | —                  | —           |
+| Work Item (mentions)  | `Mentions` (pickable) | —                  | —           |
+| Area                  | `Areas`               | `Areas`            | `Area`      |
+| Iteration             | `Iterations`          | `Iterations`       | `Iteration` |
+| Cache                 | `CacheStatus`         | —                  | —           |
+| Schema                | `Schema`              | —                  | —           |
+
+`az-Get-*` returns pipeable rows (`[PSCustomObject]`); `az-Show-*` writes a human-readable view; `az-Find-*` is an interactive picker over `Out-ConsoleGridView` that emits the picked value on the pipeline. `Assigned` / `Mentions` already open a grid via `Show-AzDevOpsRows -PassThru` so they double as pickers; that's why there is no separate `Show-` or `Find-` for them.
 
 ### Creating a new User Story
 
