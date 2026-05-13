@@ -4107,7 +4107,11 @@ function Invoke-AzDevOpsWorkItemTypeShow {
     }
 
     try {
-        $parsed = $result.Json | ConvertFrom-Json
+        # -AsHashtable because the workitemtypes REST payload contains
+        # properties with empty-string names (typically in _links / extension
+        # blocks); PS 7's default ConvertFrom-Json refuses those with
+        # "provided JSON includes a property whose name is an empty string".
+        $parsed = $result.Json | ConvertFrom-Json -AsHashtable
         return [PSCustomObject]@{ Ok = $true; Error = $null; Type = $parsed }
     }
     catch {
