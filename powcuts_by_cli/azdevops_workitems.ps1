@@ -2163,8 +2163,7 @@ function az-Find-AzDevOpsWorkItem {
     )
 
     if (-not (Test-AzDevOpsGridAvailable)) {
-        Write-Host "Out-ConsoleGridView is required for az-Find-AzDevOpsWorkItem." -ForegroundColor Yellow
-        Write-Host "  Install with: Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser" -ForegroundColor Yellow
+        Write-AzDevOpsGridUnavailable -CommandName 'az-Find-AzDevOpsWorkItem'
         return
     }
 
@@ -2808,7 +2807,15 @@ function az-Find-AzDevOpsArea {
         return
     }
 
+    # Read-AzDevOpsClassificationPick returns its $Default param on cancel,
+    # which falls back to '' (empty string) when no default is supplied here.
+    # Normalize that to $null so this function and az-Find-AzDevOpsIteration
+    # share the same "cancelled" signal on the pipeline.
     $picked = Read-AzDevOpsClassificationPick -Kind 'Area' -Paths $paths
+    if (-not $picked) {
+        return $null
+    }
+
     return $picked
 }
 

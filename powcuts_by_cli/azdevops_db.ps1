@@ -274,7 +274,7 @@ function Add-AzDevOpsWorkItemRelation {
         [Parameter(Mandatory)] [string] $RelationType
     )
 
-    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag $true -ArgList @(
+    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag -ArgList @(
         'boards', 'work-item', 'relation', 'add',
         '--id',            "$Id",
         '--relation-type', $RelationType,
