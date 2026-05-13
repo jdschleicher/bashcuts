@@ -42,7 +42,12 @@ flowchart LR
         Board["az-Show-AzDevOpsBoard"]
         ShowAreas["az-Show-AzDevOpsAreas"]
         ShowIters["az-Show-AzDevOpsIterations"]
+        GetAreas["az-Get-AzDevOpsAreas"]
+        GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
+        FindArea["az-Find-AzDevOpsArea"]
+        FindIter["az-Find-AzDevOpsIteration"]
+        FindProj["az-Find-AzDevOpsProject"]
         NewStory["az-New-AzDevOpsUserStory"]
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
@@ -95,6 +100,15 @@ flowchart LR
     ShowAreas -.live fallback.-> AzBoards
     ShowIters --> IterJson
     ShowIters -.live fallback.-> AzBoards
+    GetAreas --> AreasJson
+    GetAreas -.live fallback.-> AzBoards
+    GetIters --> IterJson
+    GetIters -.live fallback.-> AzBoards
+    FindArea --> AreasJson
+    FindArea -.live fallback.-> AzBoards
+    FindIter --> IterJson
+    FindIter -.live fallback.-> AzBoards
+    FindProj -.reads $global:AzDevOpsProjectMap.-> Public
 
     NewStory --> HierJson
     NewStory --> IterJson
@@ -542,6 +556,10 @@ graph LR
     Board(["az-Show-AzDevOpsBoard"]):::pub
     ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
     ShowIters(["az-Show-AzDevOpsIterations"]):::pub
+    GetAreas(["az-Get-AzDevOpsAreas"]):::pub
+    GetIters(["az-Get-AzDevOpsIterations"]):::pub
+    FindArea(["az-Find-AzDevOpsArea"]):::pub
+    FindIter(["az-Find-AzDevOpsIteration"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
@@ -552,6 +570,7 @@ graph LR
     UseProj(["az-Use-AzDevOpsProject"]):::pub
     ShowProj(["az-Show-AzDevOpsProject"]):::pub
     GetProjs(["az-Get-AzDevOpsProjects"]):::pub
+    FindProj(["az-Find-AzDevOpsProject"]):::pub
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -647,6 +666,7 @@ graph LR
 
     %% Grid presentation helpers (Out-ConsoleGridView)
     GridAvail[Test-AzDevOpsGridAvailable]:::priv
+    GridUnavail[Write-AzDevOpsGridUnavailable]:::priv
     ShowRows[Show-AzDevOpsRows]:::priv
     GridPick[Read-AzDevOpsGridPick]:::priv
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
@@ -814,17 +834,44 @@ graph LR
     Board --> ShowRows
 
     %% Classification tree views (cache-first, live fallback)
-    ClsRows[Get-AzDevOpsClassificationRows]:::priv
+    ClsRows[ConvertFrom-AzDevOpsClassificationTree]:::priv
     ClsNode[Format-AzDevOpsClassificationNode]:::priv
     ShowCls[Show-AzDevOpsClassification]:::priv
+    ReadRows[Read-AzDevOpsClassificationRows]:::priv
+    DispRows[ConvertTo-AzDevOpsClassificationDisplayRows]:::priv
+    FmtDate[Format-AzDevOpsClassificationDate]:::priv
 
     ShowAreas --> ShowCls
     ShowIters --> ShowCls
-    ShowCls --> ReadCls
-    ShowCls -.cache miss.-> InvCls
-    ShowCls --> Stale
-    ShowCls --> ClsRows --> ShowRows
+    ShowCls --> ReadRows
+    ShowCls --> DispRows --> ShowRows
     ShowCls --> ClsNode --> Indent
+    ReadRows --> ReadCls
+    ReadRows -.cache miss.-> InvCls
+    ReadRows --> Stale
+    ReadRows --> ClsRows
+    DispRows --> FmtDate
+
+    %% Pipeable rows + interactive pickers for classification trees
+    GetAreas --> ReadRows
+    GetIters --> ReadRows
+    FindArea --> GridAvail
+    FindArea -.no grid.-> GridUnavail
+    FindArea --> ReadRows
+    FindArea --> PCls
+    FindIter --> GridAvail
+    FindIter -.no grid.-> GridUnavail
+    FindIter --> ReadRows
+    FindIter --> DispRows
+    FindIter --> GridPick
+
+    %% Interactive picker for projects (azdevops_projects.ps1)
+    FindProj --> GridAvail
+    FindProj -.no grid.-> GridUnavail
+    FindProj --> GetProjs
+    FindProj --> GridPick
+    FindProj -.opt-in -Use.-> UseProj
+    Find -.no grid.-> GridUnavail
 
     Find --> ReadH
     Find --> Stale
