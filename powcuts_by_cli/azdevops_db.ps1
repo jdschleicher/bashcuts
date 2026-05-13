@@ -3,9 +3,9 @@
 #
 # Every `az boards ...` invocation in the bashcuts codebase routes through one
 # of the wrappers in this file so higher-level functions in azdevops_workitems
-# .ps1 / pow_az_cli.ps1 stay decoupled from `az` argument shapes, JSON
-# deserialization, and stderr handling. Future caching, retry, or alternative
-# transport changes are a one-file edit.
+# .ps1 stay decoupled from `az` argument shapes, JSON deserialization, and
+# stderr handling. Future caching, retry, or alternative transport changes are
+# a one-file edit.
 #
 # Conventions:
 #   - Every wrapper returns the canonical { Json, Error, ExitCode } envelope
@@ -274,7 +274,7 @@ function Add-AzDevOpsWorkItemRelation {
         [Parameter(Mandatory)] [string] $RelationType
     )
 
-    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag $true -ArgList @(
+    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag -ArgList @(
         'boards', 'work-item', 'relation', 'add',
         '--id',            "$Id",
         '--relation-type', $RelationType,

@@ -164,9 +164,12 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 ├── powcuts_by_cli/                     # PowerShell counterparts
 │   ├── pow_common.ps1                  # Shared helpers
 │   ├── pow_open.ps1                    # "Open-" shortcuts
+│   ├── pow_timer.ps1                   # Pomodoro / timer helpers
 │   ├── sfdx_cli.ps1
 │   ├── git_common.ps1
-│   ├── pow_az_cli.ps1
+│   ├── azdevops_db.ps1                 # Azure DevOps `az boards` data-plane wrappers
+│   ├── azdevops_workitems.ps1          # Azure DevOps work-item shortcuts (cache, pickers, creators)
+│   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 └── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
