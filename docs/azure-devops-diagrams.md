@@ -52,6 +52,7 @@ flowchart LR
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
         ShowFeats["az-Show-AzDevOpsFeatures"]
+        Help["az-help"]
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
@@ -1165,6 +1166,19 @@ graph LR
     SPaths --> SchemaSlug
     SchemaSlug --> AppRoot
     SchemaForType --> SchemaRead
+
+    %% Help renderer (azdevops_help.ps1) — catalog-driven Out-ConsoleGridView
+    %% drill-down. No az / cache interaction; pure presentation + Get-Command
+    %% line-number resolution for GitHub permalinks.
+    Help(["az-help"]):::pub
+    HelpDetail[Show-AzDevOpsHelpDetail]:::priv
+    HelpDump[Show-AzDevOpsHelpPlainDump]:::priv
+    HelpUrl[Get-AzDevOpsHelpFunctionUrl]:::priv
+
+    Help --> GridAvail
+    Help -.no grid.-> HelpDump
+    Help --> HelpDetail
+    HelpDetail --> HelpUrl
 ```
 
 ---
