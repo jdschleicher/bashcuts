@@ -24,7 +24,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 flowchart LR
     subgraph User["User session ($profile)"]
         Profile["powcuts_home.ps1<br/>dot-sources azdevops_workitems.ps1"]
-        EnvVars["$env:AZ_DEVOPS_ORG<br/>$env:AZ_PROJECT<br/>$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION"]
+        EnvVars["az devops configure --defaults<br/>(org + project, set once via az-Connect-AzDevOps)<br/>$env:AZ_USER_EMAIL (optional)<br/>$env:AZ_AREA (optional)<br/>$env:AZ_ITERATION (optional)"]
     end
 
     subgraph Public["Public functions"]
@@ -56,7 +56,7 @@ flowchart LR
     subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
         OpensFolders["Folder openers:<br/>AppRoot, CacheDir, ConfigDir, SchemaDir"]
         OpensCache["Cache file openers:<br/>AssignedCache, MentionsCache, HierarchyCache,<br/>IterationsCache, AreasCache, LastSync, SyncLog"]
-        OpensWiql["WIQL openers:<br/>EpicsWiql, FeaturesWiql, UserStoriesWiql"]
+        OpensWiql["WIQL openers:<br/>EpicsWiql, FeaturesWiql, UserStoriesWiql,<br/>AssignedWiql, MentionsWiql"]
         OpensSchema["az-Open-AzDevOpsSchema"]
     end
 
@@ -74,6 +74,8 @@ flowchart LR
         EpicsWiql["epics.wiql"]
         FeatsWiql["features.wiql"]
         StoriesWiql["user-stories.wiql"]
+        AssignedWiql["assigned.wiql"]
+        MentionsWiql["mentions.wiql"]
     end
 
     subgraph Schema["$HOME/.bashcuts-az-devops-app/schema/"]
@@ -148,18 +150,22 @@ flowchart LR
     OpensWiql -.opens file.-> EpicsWiql
     OpensWiql -.opens file.-> FeatsWiql
     OpensWiql -.opens file.-> StoriesWiql
+    OpensWiql -.opens file.-> AssignedWiql
+    OpensWiql -.opens file.-> MentionsWiql
     OpensSchema -.opens file.-> SchemaJson
 
     Sync --> EpicsWiql
     Sync --> FeatsWiql
     Sync --> StoriesWiql
+    Sync --> AssignedWiql
+    Sync --> MentionsWiql
 ```
 
 ---
 
 ## 2. `az-Connect-AzDevOps` — 8-step orchestrator
 
-Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds the three user-machine WIQL files under `~/.bashcuts-az-devops-app/config/queries/` (`epics.wiql`, `features.wiql`, `user-stories.wiql`) so subsequent `az-Sync-AzDevOpsCache` runs can build the hierarchy from customizable per-tier queries rather than an inline string.
+Thin orchestrator: a hard-coded array of step descriptors. Each step is a `Confirm-*` function that prints its own status and returns `{Ok, FailMessage}`. First failure short-circuits with `NOT READY`. Step 4 (`az-Confirm-AzDevOpsProjectMap`) is opt-in: it returns `Ok=$true` immediately when `$global:AzDevOpsProjectMap` is not defined, so single-project users skip it transparently. Step 7 (`az-Confirm-AzDevOpsQueryFiles`) seeds five user-machine WIQL files under `~/.bashcuts-az-devops-app/config/queries/` (`epics.wiql`, `features.wiql`, `user-stories.wiql`, `assigned.wiql`, `mentions.wiql`) so all five cache datasets are driven by user-editable queries rather than inline strings.
 
 ```mermaid
 flowchart TD
@@ -167,10 +173,10 @@ flowchart TD
 
     S1["Step 1 — az-Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
     S2["Step 2 — az-Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
-    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>checks AZ_USER_EMAIL / AZ_AREA (optional)"]
+    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>info-only: reports AZ_USER_EMAIL / AZ_AREA status<br/>(always Ok — both vars are optional)"]
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
-    S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
+    S6["Step 6 — az-Set-AzDevOpsDefaults<br/>reads + displays 'az devops configure --defaults'<br/>(always Ok — smoke query in Step 8 catches bad config)"]
     S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
     S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
@@ -188,10 +194,8 @@ flowchart TD
 
     S1 -- fail --> NotReady
     S2 -- fail --> NotReady
-    S3 -- fail --> NotReady
     S4 -- fail --> NotReady
     S5 -- fail --> NotReady
-    S6 -- fail --> NotReady
     S7 -- fail --> NotReady
     S8 -- fail --> NotReady
 
@@ -324,8 +328,8 @@ flowchart LR
     A([az-Open-AzDevOpsAssigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
     RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
     Find -- miss --> Hint([print 'run az-Get-AzDevOpsAssigned' + LASTEXITCODE=1])
-    Find -- hit --> Open["Open-AzDevOpsWorkItemUrl<br/>(env-var guard + URL build)"]
-    Open --> SP["Start-Process<br/>$env:AZ_DEVOPS_ORG/$env:AZ_PROJECT/_workitems/edit/12345"]
+    Find -- hit --> Open["Open-AzDevOpsWorkItemUrl<br/>(defaults guard + URL build via Get-AzDevOpsWorkItemUrlPrefix)"]
+    Open --> SP["Start-Process<br/>&lt;org&gt;/&lt;project&gt;/_workitems/edit/12345<br/>(from az devops configure --defaults)"]
 ```
 
 `az-Open-AzDevOpsMention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
