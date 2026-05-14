@@ -285,6 +285,10 @@ az-Show-AzDevOpsBoard -State Active,New       # filter to one or more states (de
 az-Show-AzDevOpsBoard -State Closed,Resolved  # flip to the archive view
 az-Show-AzDevOpsBoard -Type Bug,Task          # custom-template work-item types (default: Epic, Feature, User Story)
 
+az-Show-AzDevOpsFeatures                      # cross-project Features view: every project in $global:AzDevOpsProjectMap, tagged with a Project column
+az-Show-AzDevOpsFeatures -Project ProjectABC  # narrow to one registered project's Features (no need to az-Use-AzDevOpsProject first)
+az-Show-AzDevOpsFeatures -State Closed        # flip to the archive view across all projects
+
 az-Show-AzDevOpsAreas                         # print the project's area-path tree (cache-first, live fallback)
 az-Show-AzDevOpsIterations                    # print the project's iteration-path tree (with start/finish dates)
 
@@ -300,11 +304,11 @@ az-Find-AzDevOpsProject                       # pick from $global:AzDevOpsProjec
 az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-Use-AzDevOpsProject on the pick)
 ```
 
-If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsFeatures`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
 `az-Show-AzDevOpsTree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
 
-Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
+Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsFeatures`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
 
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 

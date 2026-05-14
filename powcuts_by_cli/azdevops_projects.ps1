@@ -153,8 +153,24 @@ function Get-AzDevOpsTypeConfig {
 }
 
 
+function ConvertTo-AzDevOpsProjectSlug {
+    # Lowercased, alnum-and-dash only. Pure function over a project name -
+    # callable for any registered project, not just the active one, so the
+    # multi-project features view can resolve cache paths without flipping
+    # active state. Returns $null when the input collapses to empty.
+    param([Parameter(Mandatory)] [string] $Name)
+
+    $slug = ($Name.ToLower() -replace '[^a-z0-9-]', '-').Trim('-')
+    if (-not $slug) {
+        return $null
+    }
+
+    return $slug
+}
+
+
 function Get-AzDevOpsActiveProjectSlug {
-    # Per-project cache key - lowercased, alnum-and-dash only. Mirrors
+    # Per-project cache key for the *active* project. Mirrors
     # Get-AzDevOpsSchemaOrgSlug's shape so cache and schema slugs read alike.
     # Returns $null when no active project is set, which keeps
     # Get-AzDevOpsCachePaths backward-compatible with single-project use.
@@ -163,11 +179,7 @@ function Get-AzDevOpsActiveProjectSlug {
         return $null
     }
 
-    $slug = ($name.ToLower() -replace '[^a-z0-9-]', '-').Trim('-')
-    if (-not $slug) {
-        return $null
-    }
-
+    $slug = ConvertTo-AzDevOpsProjectSlug -Name $name
     return $slug
 }
 

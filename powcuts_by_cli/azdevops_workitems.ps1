@@ -465,20 +465,19 @@ function Get-AzDevOpsAppRoot {
 #   az-Unregister-AzDevOpsSyncSchedule - removes the schedule on either OS
 # ---------------------------------------------------------------------------
 
-function Get-AzDevOpsCachePaths {
-    # Cache directory is segmented by active project slug when one is set, so
-    # az-Use-AzDevOpsProject can flip boards without contaminating cached
-    # hierarchy / assigned / mentions data across projects. Falls back to the
-    # legacy unsegmented layout when no project map is active, which keeps
-    # single-project users unaffected (no migration needed for them).
-    $rootDir = Join-Path (Get-AzDevOpsAppRoot) 'cache'
-    $cacheDir = $rootDir
+function Get-AzDevOpsCachePathsForSlug {
+    # Path-building primitive: hands back the cache file set for the given
+    # project slug. When $Slug is empty/null, returns the legacy unsegmented
+    # layout so single-project users (no $global:AzDevOpsProjectMap) keep
+    # their existing on-disk layout.
+    param([string] $Slug)
 
-    if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
-        $slug = Get-AzDevOpsActiveProjectSlug
-        if ($slug) {
-            $cacheDir = Join-Path $rootDir $slug
-        }
+    $rootDir = Join-Path (Get-AzDevOpsAppRoot) 'cache'
+
+    $cacheDir = if ($Slug) {
+        Join-Path $rootDir $Slug
+    } else {
+        $rootDir
     }
 
     return [PSCustomObject]@{
@@ -503,6 +502,22 @@ function New-AzDevOpsDirectoryIfMissing {
     if (-not (Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
+}
+
+
+function Get-AzDevOpsCachePaths {
+    # Cache directory is segmented by active project slug when one is set, so
+    # az-Use-AzDevOpsProject can flip boards without contaminating cached
+    # hierarchy / assigned / mentions data across projects. Falls back to the
+    # legacy unsegmented layout when no project map is active, which keeps
+    # single-project users unaffected (no migration needed for them).
+    $slug = $null
+    if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
+        $slug = Get-AzDevOpsActiveProjectSlug
+    }
+
+    $paths = Get-AzDevOpsCachePathsForSlug -Slug $slug
+    return $paths
 }
 
 
@@ -1907,6 +1922,35 @@ function Read-AzDevOpsHierarchyCache {
 }
 
 
+function Read-AzDevOpsHierarchyCacheForProject {
+    # Per-project variant - reads the hierarchy cache for the named project
+    # without flipping active state. -Quiet swallows the missing-cache hint
+    # so the multi-project features view can skip un-synced projects silently
+    # and surface its own consolidated banner instead.
+    param(
+        [Parameter(Mandatory)] [string] $ProjectName,
+        [switch] $Quiet
+    )
+
+    $slug = ConvertTo-AzDevOpsProjectSlug -Name $ProjectName
+    if (-not $slug) {
+        return $null
+    }
+
+    $paths = Get-AzDevOpsCachePathsForSlug -Slug $slug
+
+    if ($Quiet -and -not (Test-Path -LiteralPath $paths.Hierarchy)) {
+        return $null
+    }
+
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Hierarchy `
+        -Description "hierarchy ($ProjectName)" `
+        -Converter   { param($r) ConvertFrom-AzDevOpsHierarchyItem -Raw $r }
+    return $items
+}
+
+
 function Get-AzDevOpsTreeIndent {
     param([Parameter(Mandatory)] [int] $Depth)
 
@@ -2143,6 +2187,108 @@ function az-Show-AzDevOpsBoard {
     $rows = @($byState | Sort-Object State, Type, Id | Select-Object State, Id, Type, (Get-AzDevOpsTitleColumn), Iteration)
 
     $title = "Board - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    return $selected
+}
+
+
+# ---------------------------------------------------------------------------
+# Multi-project features view
+#
+# Public function:
+#   az-Show-AzDevOpsFeatures - flat grid of Features across every registered
+#                              project in $global:AzDevOpsProjectMap, tagged
+#                              with a Project column so the user can scan or
+#                              group-by-Project in Out-ConsoleGridView. Pass
+#                              -Project <name> to narrow to one board.
+#
+# Reads each project's $HOME/.bashcuts-cache/azure-devops/<slug>/hierarchy.json
+# directly via Read-AzDevOpsHierarchyCacheForProject; never calls `az` and
+# never flips $script:ActiveAzDevOpsProject. Projects with no cache yet are
+# surfaced in a single trailing hint rather than per-project warnings.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsFeaturesProjectNames {
+    # Resolves which projects az-Show-AzDevOpsFeatures should enumerate.
+    # -Project narrows to a single board; otherwise the full project map
+    # wins; otherwise the active project's cache; otherwise $null to fall
+    # through to the legacy unsegmented cache (single-project users).
+    param([string] $Project)
+
+    if ($Project) {
+        return @($Project)
+    }
+
+    if (Test-AzDevOpsProjectMapDefined) {
+        $names = @($global:AzDevOpsProjectMap.Keys | Sort-Object)
+        return $names
+    }
+
+    $active = Get-AzDevOpsActiveProjectName
+    if ($active) {
+        return @($active)
+    }
+
+    return @($null)
+}
+
+
+function az-Show-AzDevOpsFeatures {
+    [CmdletBinding()]
+    param(
+        [string]   $Project,
+        [string[]] $State
+    )
+
+    Write-AzDevOpsStaleBanner
+
+    $featureType  = 'Feature'
+    $legacyLabel  = '(active)'
+
+    $names   = Get-AzDevOpsFeaturesProjectNames -Project $Project
+    $missing = New-Object System.Collections.Generic.List[string]
+
+    $rows = foreach ($name in $names) {
+        $items = if ($name) {
+            Read-AzDevOpsHierarchyCacheForProject -ProjectName $name -Quiet
+        } else {
+            Read-AzDevOpsHierarchyCache
+        }
+
+        if ($null -eq $items) {
+            if ($name) {
+                $missing.Add($name) | Out-Null
+            }
+            continue
+        }
+
+        $features = @($items | Where-Object { $_.Type -eq $featureType })
+        $active   = Select-AzDevOpsActiveItems -Items $features -State $State
+
+        $label = if ($name) {
+            $name
+        } else {
+            $legacyLabel
+        }
+
+        $active | Select-Object `
+            @{ Name = 'Project'; Expression = { $label } }, `
+            State, `
+            Id, `
+            (Get-AzDevOpsTitleColumn), `
+            Iteration
+    }
+
+    $rows = @($rows | Sort-Object Project, State, Id)
+
+    if ($missing.Count -gt 0) {
+        $missingList = $missing -join ', '
+        Write-Host "no hierarchy cache for: $missingList" -ForegroundColor Yellow
+        Write-Host "  Run az-Use-AzDevOpsProject <name> then az-Sync-AzDevOpsCache to populate." -ForegroundColor Yellow
+    }
+
+    $title = "Features - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     return $selected
