@@ -658,6 +658,7 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
+    WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
@@ -730,6 +731,9 @@ graph LR
     BatchCont[Read-AzDevOpsBatchContinue]:::priv
     ParentTest[Test-AzDevOpsParentIsFeature]:::priv
 
+    %% Auth abort prologue
+    AuthAbort[Assert-AzDevOpsAuthOrAbort]:::priv
+
     %% Shared creator scaffolding (consumed by all three az-New-AzDevOps* creators)
     CGate[Test-AzDevOpsCreateGate]:::priv
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
@@ -759,6 +763,25 @@ graph LR
     ScopePaths[Get-AzDevOpsParentScopeAreaPaths]:::priv
     AreaMatch[Test-AzDevOpsAreaPathMatch]:::priv
 
+    %% Schema management (azdevops_workitems.ps1)
+    GetSchema(["az-Get-AzDevOpsSchema"]):::pub
+    InitSchema(["az-Initialize-AzDevOpsSchema"]):::pub
+    EditSchema(["az-Edit-AzDevOpsSchema"]):::pub
+    TestSchema(["az-Test-AzDevOpsSchema"]):::pub
+    SchemaSlug[Get-AzDevOpsSchemaOrgSlug]:::priv
+    SchemaValidTypes[Get-AzDevOpsSchemaValidTypes]:::priv
+    SchemaWITypes[Get-AzDevOpsSchemaWorkItemTypes]:::priv
+    SchemaSysRefs[Get-AzDevOpsSchemaSystemRefs]:::priv
+    SchemaForType[Get-AzDevOpsSchemaForType]:::priv
+    SchemaStub[New-AzDevOpsSchemaStub]:::priv
+    SchemaEditor[Resolve-AzDevOpsEditor]:::priv
+    WITypeShow[Invoke-AzDevOpsWorkItemTypeShow]:::priv
+    SchemaFieldEntry[ConvertTo-AzDevOpsSchemaFieldEntry]:::priv
+    SchemaToRows[ConvertFrom-AzDevOpsSchemaToRows]:::priv
+    SchemaRead[Read-AzDevOpsSchemaFile]:::priv
+    SchemaWrite[Write-AzDevOpsSchemaFile]:::priv
+    SchemaInitDir[Initialize-AzDevOpsSchemaDir]:::priv
+
     %% I/O sinks
     Az[(az CLI)]:::io
     FS[(cache files)]:::io
@@ -783,7 +806,8 @@ graph LR
     TestAuth --> TSmoke
     TSmoke --> Az
 
-    Sync --> TestAuth
+    AuthAbort --> TestAuth
+    Sync --> AuthAbort
     Sync --> InitDir --> Paths
     InitDir --> MkDir
     Sync --> LogFn --> Paths
@@ -802,6 +826,7 @@ graph LR
     Boards --> AzJson
     ClassList --> AzJson
     AddDisc --> AzJson
+    WITypeDef --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead
@@ -1079,6 +1104,42 @@ graph LR
     OpenAsg & OpenMen & OpenHier & OpenIter & OpenAreas & OpenLast & OpenLog --> OpenPath
     OpenEpics & OpenFeats & OpenStories & OpenSchema --> OpenPath
     OpenPath --> OSHandler
+
+    %% Schema management wiring
+    GetSchema --> SchemaRead
+    GetSchema --> SPaths
+    GetSchema --> SchemaToRows
+    GetSchema --> ShowRows
+
+    EditSchema --> SchemaInitDir
+    EditSchema --> SchemaRead
+    EditSchema --> SchemaStub
+    EditSchema --> SchemaWrite
+    EditSchema --> SchemaEditor
+
+    InitSchema --> AuthAbort
+    InitSchema --> SchemaInitDir
+    InitSchema --> SchemaSysRefs
+    InitSchema --> SchemaWITypes
+    InitSchema --> WITypeShow
+    InitSchema --> SchemaFieldEntry
+    InitSchema --> SchemaWrite
+
+    TestSchema --> AuthAbort
+    TestSchema --> SPaths
+    TestSchema --> SchemaRead
+    TestSchema --> SchemaValidTypes
+    TestSchema --> SchemaWITypes
+    TestSchema --> WITypeShow
+
+    WITypeShow --> WITypeDef
+    SchemaRead --> SPaths
+    SchemaWrite --> SPaths
+    SchemaInitDir --> SPaths
+    SchemaInitDir --> Plat
+    SPaths --> SchemaSlug
+    SchemaSlug --> AppRoot
+    SchemaForType --> SchemaRead
 ```
 
 ---

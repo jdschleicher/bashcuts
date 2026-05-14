@@ -93,6 +93,38 @@ function Get-AzDevOpsCommandHeadline {
 }
 
 
+function Get-AzDevOpsConfiguredDefaults {
+    # Reads the current `az devops configure --defaults` values (org URL and
+    # project name). Returns [PSCustomObject]@{ Org = '...'; Project = '...' }
+    # with empty strings when not configured. Results are cached per-session so
+    # the az invocation runs at most once per PowerShell session.
+    if ($null -ne $global:AzDevOpsCachedConfiguredDefaults) {
+        return $global:AzDevOpsCachedConfiguredDefaults
+    }
+
+    $lines = az devops configure --list 2>$null
+    $org     = ''
+    $project = ''
+
+    if ($LASTEXITCODE -eq 0 -and $lines) {
+        $orgLine     = @($lines) | Where-Object { $_ -match '^\s*organization\s*=' } | Select-Object -First 1
+        $projectLine = @($lines) | Where-Object { $_ -match '^\s*project\s*='      } | Select-Object -First 1
+
+        if ($orgLine) {
+            $org = ($orgLine -split '=', 2)[1].Trim()
+        }
+
+        if ($projectLine) {
+            $project = ($projectLine -split '=', 2)[1].Trim()
+        }
+    }
+
+    $result = [PSCustomObject]@{ Org = $org; Project = $project }
+    $global:AzDevOpsCachedConfiguredDefaults = $result
+    return $result
+}
+
+
 function Invoke-AzDevOpsAzJson {
     # Generic wrapper around `az ... --output json` that captures stdout JSON
     # and stderr text separately. The canonical JSON+error path used by every
@@ -100,43 +132,21 @@ function Invoke-AzDevOpsAzJson {
     # echoes so every query is visible in the terminal alongside its elapsed
     # time and exit code.
     #
-    # When $env:AZ_DEVOPS_ORG / $env:AZ_PROJECT are set and the caller has not
-    # already supplied --organization / --project, we inject them so every
-    # wrapper auto-scopes to the bashcuts env-var contract instead of relying
-    # on `az devops configure --defaults`. Explicit caller flags always win
-    # (e.g. New-AzDevOpsWorkItem passes its own --project). The echo prints
-    # the post-injection command so the user sees the actual flags being
-    # sent to az, not the pre-scoped ArgList from the caller.
-    #
-    # -SkipProjectFlag opts out of the --project auto-injection for callers
-    # whose subcommand rejects --project as a top-level flag (e.g.
-    # `az devops invoke`, which carries the project in --route-parameters
-    # instead). --organization auto-injection still applies since
-    # `az devops invoke` accepts it.
+    # Org and project scoping rely on `az devops configure --defaults` set in
+    # the user's Microsoft profile (via az-Connect-AzDevOps or manually). No
+    # flags are auto-injected here; callers that need explicit scoping pass
+    # --organization / --project themselves.
     param(
-        [Parameter(Mandatory)] [string[]] $ArgList,
-        [switch] $SkipProjectFlag
+        [Parameter(Mandatory)] [string[]] $ArgList
     )
 
-    $scopedArgs = @($ArgList)
-
-    if ($env:AZ_DEVOPS_ORG -and ($scopedArgs -notcontains '--organization')) {
-        $scopedArgs += @('--organization', $env:AZ_DEVOPS_ORG)
-    }
-
-    if (-not $SkipProjectFlag `
-            -and $env:AZ_PROJECT `
-            -and ($scopedArgs -notcontains '--project') ) {
-        $scopedArgs += @('--project', $env:AZ_PROJECT)
-    }
-
-    $commandDisplay = Format-AzDevOpsCommandDisplay -ArgList $scopedArgs
+    $commandDisplay = Format-AzDevOpsCommandDisplay -ArgList $ArgList
     Write-AzDevOpsQueryEcho -Message $commandDisplay -Color 'DarkCyan'
 
     $stderrFile = [System.IO.Path]::GetTempFileName()
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        $json = & az @scopedArgs --output json 2>$stderrFile
+        $json = & az @ArgList --output json 2>$stderrFile
         $exit = $LASTEXITCODE
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
             (Get-Content -LiteralPath $stderrFile -Raw)
@@ -149,7 +159,7 @@ function Invoke-AzDevOpsAzJson {
     $sw.Stop()
 
     $elapsed  = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
-    $headline = Get-AzDevOpsCommandHeadline -ArgList $scopedArgs
+    $headline = Get-AzDevOpsCommandHeadline -ArgList $ArgList
 
     $summary      = "$headline ($elapsed, exit=$exit)"
     $summaryColor = if ($exit -eq 0) {
@@ -274,7 +284,7 @@ function Add-AzDevOpsWorkItemRelation {
         [Parameter(Mandatory)] [string] $RelationType
     )
 
-    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag -ArgList @(
+    $result = Invoke-AzDevOpsAzJson -ArgList @(
         'boards', 'work-item', 'relation', 'add',
         '--id',            "$Id",
         '--relation-type', $RelationType,
@@ -313,17 +323,18 @@ function Get-AzDevOpsWorkItemTypeDefinition {
     # The azure-devops extension does NOT expose a `boards work-item-type`
     # subgroup, so we go through `az devops invoke` (REST passthrough) against
     # the WIT workitemtypes endpoint. Project scope rides in --route-parameters
-    # rather than --project, so we pass -SkipProjectFlag to bypass the
-    # Invoke-AzDevOpsAzJson auto-injection that `az devops invoke` would reject.
+    # (the az devops invoke REST path) rather than the top-level --project flag.
     param([Parameter(Mandatory)] [string] $Type)
 
     $apiVersion = '7.1'
+    $defaults   = Get-AzDevOpsConfiguredDefaults
+    $project    = $defaults.Project
 
-    $result = Invoke-AzDevOpsAzJson -SkipProjectFlag -ArgList @(
+    $result = Invoke-AzDevOpsAzJson -ArgList @(
         'devops', 'invoke',
         '--area',             'wit',
         '--resource',         'workitemtypes',
-        '--route-parameters', "project=$env:AZ_PROJECT", "type=$Type",
+        '--route-parameters', "project=$project", "type=$Type",
         '--api-version',      $apiVersion
     )
     return $result

@@ -502,13 +502,17 @@ function az-Use-AzDevOpsProject {
 
     if (-not $SkipConfigure) {
         if (Get-Command az -ErrorAction SilentlyContinue) {
-            $configureOutput = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
+            $org     = [string]$config['Org']
+            $project = [string]$config['Project']
+            $configureOutput = az devops configure --defaults "organization=$org" "project=$project" 2>&1
             if ($LASTEXITCODE -ne 0 -and -not $Quiet) {
                 Write-Host "  !  az devops configure failed (env vars still set):" -ForegroundColor Yellow
                 Write-Host "     $configureOutput" -ForegroundColor Yellow
+            } else {
+                $global:AzDevOpsCachedConfiguredDefaults = $null
             }
         } elseif (-not $Quiet) {
-            Write-Host "  !  az CLI not on PATH - env vars set but `az devops configure` skipped." -ForegroundColor Yellow
+            Write-Host "  !  az CLI not on PATH - `az devops configure` skipped." -ForegroundColor Yellow
         }
     }
 
