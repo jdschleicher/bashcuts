@@ -36,13 +36,15 @@
 #   Invoke-AzDevOpsSmokeQuery        - runs WIQL "items assigned to me",
 #                                       returns count or $null on failure
 #
-# Expected $profile environment variables (set these once in your $profile):
+# Required setup (run once):
+#   az devops configure --defaults organization=https://dev.azure.com/myorg project="My Project"
+#   (or run az-Connect-AzDevOps which walks you through this interactively)
 #
-#   $env:AZ_DEVOPS_ORG = 'https://dev.azure.com/myorg'   # full org URL
-#   $env:AZ_PROJECT    = 'My Project'                    # project name
-#   $env:AZ_USER_EMAIL = 'user@example.com'              # your AAD email
-#   $env:AZ_AREA       = 'My Project\My Team'            # default area path
-#   $env:AZ_ITERATION  = 'My Project\Sprint 42'          # default iteration
+# Optional $profile environment variables:
+#
+#   $env:AZ_USER_EMAIL = 'user@example.com'              # your AAD email (mentions WIQL)
+#   $env:AZ_AREA       = 'My Project\My Team'            # default area path (hierarchy WIQL)
+#   $env:AZ_ITERATION  = 'My Project\Sprint 42'          # default iteration (work item creation)
 #
 # Prereqs:
 #   - Azure CLI        : https://aka.ms/installazurecli
@@ -97,18 +99,6 @@ function Test-AzDevOpsExtensionInstalled {
 }
 
 
-function Get-AzDevOpsMissingEnvVars {
-    $missing = @()
-    if (-not $env:AZ_DEVOPS_ORG) { 
-        $missing += 'AZ_DEVOPS_ORG'
-    }
-    if (-not $env:AZ_PROJECT) { 
-        $missing += 'AZ_PROJECT'
-    }
-    return , $missing
-}
-
-
 function Test-AzDevOpsLoggedIn {
     $null = az account show 2>$null
     return ($LASTEXITCODE -eq 0)
@@ -134,13 +124,10 @@ function Invoke-AzDevOpsSmokeQuery {
 
 function az-Test-AzDevOpsAuth {
     if (-not (Test-AzDevOpsCliPresent)) {
-        return $false 
-    }
-    if ((Get-AzDevOpsMissingEnvVars).Count -gt 0) {
-        return $false 
+        return $false
     }
     if ($null -eq (Invoke-AzDevOpsSmokeQuery)) {
-        return $false 
+        return $false
     }
 
     return $true
@@ -230,23 +217,23 @@ function az-Confirm-AzDevOpsExtension {
 
 
 function az-Confirm-AzDevOpsEnvVars {
-    $missing = Get-AzDevOpsMissingEnvVars
-    if ($missing.Count -gt 0) {
-        Write-Host "  X Missing env vars: $($missing -join ', ')" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "    Add this block to your `$profile and reload (open a new terminal):" -ForegroundColor Yellow
-        Write-Host "    ---------------------------------------------------------------"
-        Write-Host "    `$env:AZ_DEVOPS_ORG = 'https://dev.azure.com/myorg'"
-        Write-Host "    `$env:AZ_PROJECT    = 'My Project'"
-        Write-Host "    `$env:AZ_USER_EMAIL = 'user@example.com'"
-        Write-Host "    `$env:AZ_AREA       = 'My Project\My Team'"
-        Write-Host "    `$env:AZ_ITERATION  = 'My Project\Sprint 42'"
-        Write-Host "    ---------------------------------------------------------------"
-        Write-Host "    See README section 'Azure DevOps work-item shortcuts' for details."
-        return New-AzDevOpsStepResult -Ok $false -FailMessage 'env vars missing'
+    # Org and project come from `az devops configure --defaults` (the user's
+    # Microsoft profile). AZ_USER_EMAIL and AZ_AREA are optional but improve
+    # the mentions WIQL and hierarchy query respectively.
+    if ($env:AZ_USER_EMAIL) {
+        Write-Host "  OK  AZ_USER_EMAIL = $env:AZ_USER_EMAIL" -ForegroundColor Green
+    } else {
+        Write-Host "  --  AZ_USER_EMAIL not set (mentions WIQL will use '@' fallback)" -ForegroundColor DarkYellow
+        Write-Host "      Add to `$profile: `$env:AZ_USER_EMAIL = 'you@example.com'"
     }
-    Write-Host "  OK  AZ_DEVOPS_ORG = $env:AZ_DEVOPS_ORG" -ForegroundColor Green
-    Write-Host "  OK  AZ_PROJECT    = $env:AZ_PROJECT" -ForegroundColor Green
+
+    if ($env:AZ_AREA) {
+        Write-Host "  OK  AZ_AREA = $env:AZ_AREA" -ForegroundColor Green
+    } else {
+        Write-Host "  --  AZ_AREA not set (hierarchy WIQL token {{AZ_AREA}} will need manual edit)" -ForegroundColor DarkYellow
+        Write-Host "      Add to `$profile: `$env:AZ_AREA = 'My Project\My Team'"
+    }
+
     return New-AzDevOpsStepResult -Ok $true
 }
 
@@ -327,13 +314,26 @@ function az-Confirm-AzDevOpsLogin {
 
 
 function az-Set-AzDevOpsDefaults {
-    $configOutput = az devops configure --defaults "organization=$env:AZ_DEVOPS_ORG" "project=$env:AZ_PROJECT" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  X az devops configure failed" -ForegroundColor Red
-        Write-Host "    $configOutput"
-        return New-AzDevOpsStepResult -Ok $false -FailMessage 'configure failed'
+    # Shows the currently-configured az devops defaults (stored in the user's
+    # Microsoft profile via `az devops configure --defaults`). Guides the user
+    # to set them if either is missing; the smoke query in the next step will
+    # surface auth/scope failures if defaults aren't pointing at a valid org.
+    $defaults = Get-AzDevOpsConfiguredDefaults
+
+    if ($defaults.Org) {
+        Write-Host "  OK  organization = $($defaults.Org)" -ForegroundColor Green
+    } else {
+        Write-Host "  !   organization not configured" -ForegroundColor Yellow
+        Write-Host "      Run: az devops configure --defaults organization=https://dev.azure.com/myorg"
     }
-    Write-Host "  OK  Defaults set: org=$env:AZ_DEVOPS_ORG project=$env:AZ_PROJECT" -ForegroundColor Green
+
+    if ($defaults.Project) {
+        Write-Host "  OK  project = $($defaults.Project)" -ForegroundColor Green
+    } else {
+        Write-Host "  !   project not configured" -ForegroundColor Yellow
+        Write-Host "      Run: az devops configure --defaults project=`"My Project`""
+    }
+
     return New-AzDevOpsStepResult -Ok $true
 }
 
@@ -347,7 +347,7 @@ function az-Confirm-AzDevOpsQueryFiles {
         foreach ($entry in $newlySeeded) {
             Write-Host "  OK  Wrote default $($entry.Name).wiql to $($entry.Path)" -ForegroundColor Green
         }
-        Write-Host "      Edit these files to customize what az-Sync-AzDevOpsCache pulls into hierarchy.json." -ForegroundColor DarkGray
+        Write-Host "      Edit these files to customize what az-Sync-AzDevOpsCache fetches." -ForegroundColor DarkGray
     } else {
         Write-Host "  OK  Query files at $($init.Paths.QueriesDir)" -ForegroundColor Green
     }
@@ -358,11 +358,11 @@ function az-Confirm-AzDevOpsQueryFiles {
 
 
 function az-Open-AzDevOpsHierarchyWiqls {
-    # Opens each of the user-machine hierarchy WIQL files (epics, features,
-    # user-stories) in the OS default editor. Defensively seeds the defaults
-    # via Initialize-AzDevOpsQueryFiles so a fresh machine that skipped
-    # az-Connect-AzDevOps can still discover and customize the queries in one
-    # step (no "file not found" detour).
+    # Opens all user-machine WIQL files (epics, features, user-stories,
+    # assigned, mentions) in the OS default editor. Defensively seeds the
+    # defaults via Initialize-AzDevOpsQueryFiles so a fresh machine that
+    # skipped az-Connect-AzDevOps can still discover and customize the
+    # queries in one step (no "file not found" detour).
     $init = Initialize-AzDevOpsQueryFiles
 
     foreach ($entry in $init.Seeded) {
@@ -406,7 +406,7 @@ function az-Connect-AzDevOps {
     $steps = @(
         @{ Num = 1; Name = 'Azure CLI'; Action = { az-Confirm-AzDevOpsCli } },
         @{ Num = 2; Name = 'azure-devops extension'; Action = { az-Confirm-AzDevOpsExtension } },
-        @{ Num = 3; Name = 'Profile environment variables'; Action = { az-Confirm-AzDevOpsEnvVars } },
+        @{ Num = 3; Name = 'Optional profile env vars (AZ_USER_EMAIL, AZ_AREA)'; Action = { az-Confirm-AzDevOpsEnvVars } },
         @{ Num = 4; Name = 'Project map (multi-project)'; Action = { az-Confirm-AzDevOpsProjectMap } },
         @{ Num = 5; Name = 'Azure login session'; Action = { az-Confirm-AzDevOpsLogin } },
         @{ Num = 6; Name = 'Configure az devops defaults'; Action = { az-Set-AzDevOpsDefaults } },
@@ -426,7 +426,8 @@ function az-Connect-AzDevOps {
     }
 
     Write-Host ""
-    Write-Host "READY - Azure DevOps connection verified for project=$env:AZ_PROJECT in org=$env:AZ_DEVOPS_ORG" -ForegroundColor Green
+    $defaults = Get-AzDevOpsConfiguredDefaults
+    Write-Host "READY - Azure DevOps connection verified (org=$($defaults.Org) project=$($defaults.Project))" -ForegroundColor Green
 }
 
 
@@ -452,7 +453,7 @@ function Get-AzDevOpsAppRoot {
 #                     [System.History] (best-effort - WIQL has no first-class
 #                     "@-mention" predicate)
 #   hierarchy.json  - WorkItemLinks tree of Epic/Feature/User Story rows
-#                     in $env:AZ_PROJECT (parent->child Hierarchy-Forward)
+#                     in the configured project (parent->child Hierarchy-Forward)
 #   last-sync.json  - { Timestamp (round-trip), Counts: {dataset: rows} }
 #   sync.log        - append-only, rotated to sync.log.1 at ~1 MB
 #
@@ -537,7 +538,8 @@ function Initialize-AzDevOpsCacheDir {
 #                  projects without forcing users to hard-code their own area.
 # ---------------------------------------------------------------------------
 
-$script:AzDevOpsAreaToken = '{{AZ_AREA}}'
+$script:AzDevOpsAreaToken      = '{{AZ_AREA}}'
+$script:AzDevOpsUserEmailToken = '{{AZ_USER_EMAIL}}'
 
 $script:AzDevOpsDefaultEpicsWiql = @"
 Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory'
@@ -551,6 +553,14 @@ $script:AzDevOpsDefaultUserStoriesWiql = @"
 Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'
 "@
 
+$script:AzDevOpsDefaultAssignedWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.AssignedTo] = @Me
+"@
+
+$script:AzDevOpsDefaultMentionsWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '{{AZ_USER_EMAIL}}'
+"@
+
 
 function Get-AzDevOpsConfigPaths {
     $configDir  = Join-Path (Get-AzDevOpsAppRoot) 'config'
@@ -562,16 +572,18 @@ function Get-AzDevOpsConfigPaths {
         EpicsQuery       = Join-Path $queriesDir 'epics.wiql'
         FeaturesQuery    = Join-Path $queriesDir 'features.wiql'
         UserStoriesQuery = Join-Path $queriesDir 'user-stories.wiql'
+        AssignedQuery    = Join-Path $queriesDir 'assigned.wiql'
+        MentionsQuery    = Join-Path $queriesDir 'mentions.wiql'
     }
 }
 
 
-function Get-AzDevOpsHierarchyQueryDefaults {
-    # Single source of truth for the three hierarchy-tier WIQL files: their
-    # logical name (also the -Name parameter for Get-AzDevOpsWiql), their
-    # on-disk path, and the default WIQL seeded on first run. Initialize,
-    # read, sync, and the user-facing open shortcut all iterate this list,
-    # so adding a fourth tier later is a one-place edit.
+function Get-AzDevOpsQueryDefaults {
+    # Single source of truth for all WIQL files: their logical name (also the
+    # -Name parameter for Get-AzDevOpsWiql), their on-disk path, and the
+    # default WIQL seeded on first run. Initialize, read, sync, and the
+    # user-facing open shortcut all iterate this list, so adding a new query
+    # later is a one-place edit.
     $paths = Get-AzDevOpsConfigPaths
 
     $defaults = @(
@@ -589,6 +601,16 @@ function Get-AzDevOpsHierarchyQueryDefaults {
             Name    = 'user-stories'
             Path    = $paths.UserStoriesQuery
             Default = $script:AzDevOpsDefaultUserStoriesWiql
+        },
+        [PSCustomObject]@{
+            Name    = 'assigned'
+            Path    = $paths.AssignedQuery
+            Default = $script:AzDevOpsDefaultAssignedWiql
+        },
+        [PSCustomObject]@{
+            Name    = 'mentions'
+            Path    = $paths.MentionsQuery
+            Default = $script:AzDevOpsDefaultMentionsWiql
         }
     )
 
@@ -605,7 +627,7 @@ function Initialize-AzDevOpsQueryFiles {
     $paths = Get-AzDevOpsConfigPaths
     New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
 
-    $defaults = Get-AzDevOpsHierarchyQueryDefaults
+    $defaults = Get-AzDevOpsQueryDefaults
     $seeded = New-Object System.Collections.Generic.List[PSCustomObject]
 
     foreach ($entry in $defaults) {
@@ -630,9 +652,8 @@ function Initialize-AzDevOpsQueryFiles {
 
 
 function Get-AzDevOpsHierarchyQueryNames {
-    $defaults = Get-AzDevOpsHierarchyQueryDefaults
-    $names = @($defaults | ForEach-Object { $_.Name })
-    return $names
+    $hierarchyNames = @('epics', 'features', 'user-stories')
+    return $hierarchyNames
 }
 
 
@@ -640,28 +661,38 @@ function Get-AzDevOpsWiql {
     # Reads a named WIQL file from the user-machine config dir, substituting
     # known placeholder tokens. Defensively seeds defaults so callers don't
     # need to remember to call Initialize-AzDevOpsQueryFiles first.
+    #
+    # Tokens substituted at read time:
+    #   {{AZ_AREA}}       - $env:AZ_AREA (throws if missing for area-filtered queries)
+    #   {{AZ_USER_EMAIL}} - "@$env:AZ_USER_EMAIL" when set, otherwise "@" fallback
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('epics', 'features', 'user-stories')]
+        [ValidateSet('epics', 'features', 'user-stories', 'assigned', 'mentions')]
         [string] $Name
     )
 
-    $init = Initialize-AzDevOpsQueryFiles
-
+    $init  = Initialize-AzDevOpsQueryFiles
     $entry = $init.Seeded | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
-    $path = $entry.Path
-
-    if ([string]::IsNullOrWhiteSpace($env:AZ_AREA)) {
-        throw "Get-AzDevOpsWiql: `$env:AZ_AREA must be set to substitute $script:AzDevOpsAreaToken in $path."
-    }
+    $path  = $entry.Path
 
     $rawContent = Get-Content -LiteralPath $path -Raw
-    $raw = $rawContent.Trim()
+    $wiql       = $rawContent.Trim()
 
-    # Escape single quotes for WIQL string-literal safety — area paths with apostrophes
-    # would otherwise break out of the [System.AreaPath] UNDER '...' literal.
-    $areaEscaped = $env:AZ_AREA.Replace("'", "''")
-    $wiql = $raw.Replace($script:AzDevOpsAreaToken, $areaEscaped)
+    if ($wiql -match [regex]::Escape($script:AzDevOpsAreaToken)) {
+        if ([string]::IsNullOrWhiteSpace($env:AZ_AREA)) {
+            throw "Get-AzDevOpsWiql: `$env:AZ_AREA must be set to substitute $script:AzDevOpsAreaToken in $path."
+        }
+
+        # Escape single quotes — area paths with apostrophes would otherwise
+        # break out of the [System.AreaPath] UNDER '...' WIQL literal.
+        $areaEscaped = $env:AZ_AREA.Replace("'", "''")
+        $wiql        = $wiql.Replace($script:AzDevOpsAreaToken, $areaEscaped)
+    }
+
+    if ($wiql -match [regex]::Escape($script:AzDevOpsUserEmailToken)) {
+        $emailValue = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+        $wiql       = $wiql.Replace($script:AzDevOpsUserEmailToken, $emailValue)
+    }
 
     return $wiql
 }
@@ -822,27 +853,15 @@ function Write-AzDevOpsSyncStderr {
 function Get-AzDevOpsSyncDatasets {
     param([Parameter(Mandatory)] [PSCustomObject] $Paths)
 
-    # Mentions: WIQL has no first-class @-mention predicate. Best effort is
-    # [System.History] Contains 'literal'. Prefer "@<user-email>" when set,
-    # otherwise fall back to a bare "@" - the latter is noisy but at least
-    # populates the cache shape so downstream commands keep working.
-    $mentionsToken = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+    # Assigned and mentions WIQLs are read from user-editable files under
+    # ~/.bashcuts-az-devops-app/config/queries/ (assigned.wiql / mentions.wiql).
+    # Hierarchy is built from three per-tier WIQL files (epics.wiql /
+    # features.wiql / user-stories.wiql). Invoke-AzDevOpsHierarchyQueries runs
+    # each WIQL sequentially and merges results into hierarchy.json.
+    $assignedWiql = Get-AzDevOpsWiql -Name 'assigned'
+    $mentionsWiql = Get-AzDevOpsWiql -Name 'mentions'
 
-    $assignedWiql = 'Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.AssignedTo] = @Me'
-    $mentionsWiql = "Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '$mentionsToken'"
-    # Hierarchy is built from three per-tier WIQL files under
-    # ~/.bashcuts-az-devops-app/config/queries/ (epics.wiql / features.wiql /
-    # user-stories.wiql). Invoke-AzDevOpsHierarchyQueries runs each WIQL
-    # sequentially via az boards query, then merges the work items into a
-    # single JSON array so hierarchy.json keeps its existing flat-list shape
-    # (Read-AzDevOpsHierarchyCache + az-Show-AzDevOpsTree are unchanged).
-    # Each WIQL filters by [System.AreaPath] UNDER '{{AZ_AREA}}' and one
-    # category group, which sidesteps the previous combined IN-GROUP query
-    # that returned partial results on larger projects. Project scope is
-    # still supplied by --project on each az invocation (Invoke-AzDevOpsAzJson
-    # injects it from $env:AZ_PROJECT).
-
-    $rowCounter = { param($parsed) @($parsed).Count }
+    $rowCounter  = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
 
     $datasets = @(
@@ -857,7 +876,7 @@ function Get-AzDevOpsSyncDatasets {
         },
         @{
             Name     = 'mentions'
-            Label    = "System.History Contains '$mentionsToken'"
+            Label    = 'System.History Contains email (from mentions.wiql)'
             Path     = $Paths.Mentions
             Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $mentionsWiql }.GetNewClosure()
             Counter  = $rowCounter
@@ -1562,17 +1581,19 @@ function Find-AzDevOpsCachedWorkItem {
 
 function Get-AzDevOpsWorkItemUrlPrefix {
     # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
-    # both env vars are set; returns '' when either is missing. Designed for
-    # callers that build URLs for many ids in a loop (e.g. Out-ConsoleGridView
-    # row projections in Get-AzDevOpsTreeRows) so the prefix is computed once
-    # instead of per row, and so per-row use does not pollute $LASTEXITCODE.
-    if (-not $env:AZ_DEVOPS_ORG -or -not $env:AZ_PROJECT) {
+    # az devops defaults are configured; returns '' when either is missing.
+    # Designed for callers that build URLs for many ids in a loop (e.g.
+    # Out-ConsoleGridView row projections in Get-AzDevOpsTreeRows) so the prefix
+    # is computed once instead of per row, and so per-row use does not pollute
+    # $LASTEXITCODE.
+    $defaults = Get-AzDevOpsConfiguredDefaults
+    if (-not $defaults.Org -or -not $defaults.Project) {
         return ''
     }
 
-    $org = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-    $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-    $prefix = "$org/$projectEnc/_workitems/edit/"
+    $org        = $defaults.Org.TrimEnd('/')
+    $projectEnc = [uri]::EscapeDataString($defaults.Project)
+    $prefix     = "$org/$projectEnc/_workitems/edit/"
     return $prefix
 }
 
@@ -1602,7 +1623,7 @@ function Open-AzDevOpsWorkItemUrl {
 
     $url = Get-AzDevOpsWorkItemUrl -Id $Id
     if ($null -eq $url) {
-        Write-Host "AZ_DEVOPS_ORG and AZ_PROJECT must both be set in your `$profile." -ForegroundColor Red
+        Write-Host "az devops defaults not configured. Run: az devops configure --defaults organization=<url> project=<name>" -ForegroundColor Red
         $global:LASTEXITCODE = 1
         return
     }
@@ -3314,7 +3335,6 @@ function Invoke-AzDevOpsWorkItemCreate {
         -Title       $Title `
         -Description $Description `
         -AssignedTo  $env:AZ_USER_EMAIL `
-        -Project     $env:AZ_PROJECT `
         -Area        $Area `
         -Iteration   $Iteration `
         -Fields      $fields
@@ -3342,12 +3362,10 @@ function Invoke-AzDevOpsWorkItemCreate {
 
     $newId = [int]$created.id
 
-    $url = if ($env:AZ_DEVOPS_ORG -and $env:AZ_PROJECT) {
-        $org = $env:AZ_DEVOPS_ORG.TrimEnd('/')
-        $projectEnc = [uri]::EscapeDataString($env:AZ_PROJECT)
-        "$org/$projectEnc/_workitems/edit/$newId"
-    }
-    else {
+    $urlPrefix = Get-AzDevOpsWorkItemUrlPrefix
+    $url = if ($urlPrefix) {
+        "$urlPrefix$newId"
+    } else {
         $null
     }
 
@@ -4006,7 +4024,7 @@ function az-New-AzDevOpsFeatureStories {
 # Schema directory: $HOME/.bashcuts-az-devops-app/schema/   (separate from the
 #                   auto-managed cache/ subtree under the same parent)
 # Schema file:      schema-<orgslug>.json                   (per-org keyed off
-#                   $env:AZ_DEVOPS_ORG; falls back to schema.json when unset)
+#                   the configured organization URL; falls back to schema.json when unset)
 #
 # Public functions:
 #   az-Get-AzDevOpsSchema          - print summary table of the configured
@@ -4087,14 +4105,15 @@ function Get-AzDevOpsSchemaSystemRefs {
 
 
 function Get-AzDevOpsSchemaOrgSlug {
-    # Per-org keying: the path-tail segment of $env:AZ_DEVOPS_ORG, lowercased
-    # and reduced to [a-z0-9-]. Returns $null when the env var is unset, so
-    # Get-AzDevOpsSchemaPaths can fall back to the unsuffixed schema.json.
-    if (-not $env:AZ_DEVOPS_ORG) {
+    # Per-org keying: the path-tail segment of the configured organization URL,
+    # lowercased and reduced to [a-z0-9-]. Returns $null when org is not
+    # configured, so Get-AzDevOpsSchemaPaths falls back to unsuffixed schema.json.
+    $defaults = Get-AzDevOpsConfiguredDefaults
+    if (-not $defaults.Org) {
         return $null
     }
 
-    $segment = ($env:AZ_DEVOPS_ORG.TrimEnd('/') -split '/')[-1]
+    $segment = ($defaults.Org.TrimEnd('/') -split '/')[-1]
     if (-not $segment) {
         return $null
     }
