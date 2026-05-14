@@ -220,6 +220,45 @@ It seeds any missing defaults (so it works on a fresh machine even before `az-Co
 
 If you delete a file, the next sync writes that default back. The placeholder `{{AZ_AREA}}` is the only one currently supported; everything else in each file is passed through to `az boards query --wiql` verbatim.
 
+### Opening cache / config / schema files
+
+Every folder and file under `~/.bashcuts-az-devops-app/` has a dedicated `az-Open-AzDevOps*` shortcut. Tab-tab on `az-Open-AzDevOps` to see the full list. Each opener launches the path in your OS default handler (`Start-Process`); if the target doesn't exist yet it prints a one-line yellow hint pointing at the function that produces it (e.g. `az-Sync-AzDevOpsCache`) and returns without spawning anything.
+
+Folders:
+
+```powershell
+az-Open-AzDevOpsAppRoot       # ~/.bashcuts-az-devops-app/
+az-Open-AzDevOpsCacheDir      # cache/  (or cache/<project-slug>/ when az-Use-AzDevOpsProject is active)
+az-Open-AzDevOpsConfigDir     # config/queries/
+az-Open-AzDevOpsSchemaDir     # schema/
+```
+
+Cache files (all resolved through the active project slice):
+
+```powershell
+az-Open-AzDevOpsAssignedCache    # assigned.json
+az-Open-AzDevOpsMentionsCache    # mentions.json
+az-Open-AzDevOpsHierarchyCache   # hierarchy.json
+az-Open-AzDevOpsIterationsCache  # iterations.json
+az-Open-AzDevOpsAreasCache       # areas.json
+az-Open-AzDevOpsLastSync         # last-sync.json
+az-Open-AzDevOpsSyncLog          # sync.log
+```
+
+Config WIQL files (per file; `az-Open-AzDevOpsHierarchyWiqls` above remains the "open all three" convenience):
+
+```powershell
+az-Open-AzDevOpsEpicsWiql        # config/queries/epics.wiql
+az-Open-AzDevOpsFeaturesWiql     # config/queries/features.wiql
+az-Open-AzDevOpsUserStoriesWiql  # config/queries/user-stories.wiql
+```
+
+Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
+
+```powershell
+az-Open-AzDevOpsSchema
+```
+
 ### Day-to-day work-item shortcuts
 
 These read the local cache populated by `az-Sync-AzDevOpsCache` (and the recurring `az-Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
