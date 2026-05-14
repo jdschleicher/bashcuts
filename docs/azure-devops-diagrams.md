@@ -24,7 +24,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 flowchart LR
     subgraph User["User session ($profile)"]
         Profile["powcuts_home.ps1<br/>dot-sources azdevops_*.ps1"]
-        EnvVars["$env:AZ_DEVOPS_ORG<br/>$env:AZ_PROJECT<br/>$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION"]
+        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>(org/project come from<br/>az devops configure --defaults)"]
     end
 
     subgraph Public["Public functions"]
@@ -169,7 +169,7 @@ flowchart TD
 
     S1["Step 1 — az-Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
     S2["Step 2 — az-Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
-    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>uses Get-AzDevOpsMissingEnvVars"]
+    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>reports $env:AZ_USER_EMAIL / $env:AZ_AREA<br/>(informational only — never blocks)"]
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
@@ -216,9 +216,7 @@ Used by callers (`az-Sync-AzDevOpsCache`, `az-New-AzDevOpsUserStory`) at the top
 flowchart TD
     Start([az-Test-AzDevOpsAuth]) --> A{Test-AzDevOpsCliPresent?}
     A -- no --> F([return $false])
-    A -- yes --> B{Get-AzDevOpsMissingEnvVars<br/>count == 0?}
-    B -- no --> F
-    B -- yes --> C{Invoke-AzDevOpsSmokeQuery<br/>returns count?}
+    A -- yes --> C{Invoke-AzDevOpsSmokeQuery<br/>returns count?}
     C -- $null --> F
     C -- count --> T([return $true])
 
@@ -228,7 +226,7 @@ flowchart TD
     class F bad
 ```
 
-Skipped on purpose: `Test-AzDevOpsExtensionInstalled` and `Test-AzDevOpsLoggedIn`. The smoke `az boards query` call already exercises both transitively, and a single failing query is faster + more authoritative than three individual probes.
+Skipped on purpose: `Test-AzDevOpsExtensionInstalled` and `Test-AzDevOpsLoggedIn`. The smoke `az boards query` call already exercises both transitively, and a single failing query is faster + more authoritative than three individual probes. Env vars are no longer probed here either — `AZ_DEVOPS_ORG` / `AZ_PROJECT` were retired in favor of `az devops configure --defaults`, so the smoke query alone is sufficient.
 
 ---
 
@@ -626,7 +624,6 @@ graph LR
     %% Diagnostic helpers
     TCli[Test-AzDevOpsCliPresent]:::priv
     TExt[Test-AzDevOpsExtensionInstalled]:::priv
-    TEnv[Get-AzDevOpsMissingEnvVars]:::priv
     TLog[Test-AzDevOpsLoggedIn]:::priv
     TSmoke[Invoke-AzDevOpsSmokeQuery]:::priv
 
@@ -650,7 +647,7 @@ graph LR
     QPaths[Get-AzDevOpsConfigPaths]:::priv
     QInit[Initialize-AzDevOpsQueryFiles]:::priv
     QWiql[Get-AzDevOpsWiql]:::priv
-    QDefaults[Get-AzDevOpsHierarchyQueryDefaults]:::priv
+    QDefaults[Get-AzDevOpsQueryDefaults]:::priv
     QNames[Get-AzDevOpsHierarchyQueryNames]:::priv
     InvHier[Invoke-AzDevOpsHierarchyQueries]:::priv
     MkDir[New-AzDevOpsDirectoryIfMissing]:::priv
@@ -663,6 +660,7 @@ graph LR
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
+    ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
