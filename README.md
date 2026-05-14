@@ -167,16 +167,24 @@ PowerShell shortcuts in `powcuts_by_cli/azdevops_workitems.ps1` provide guided s
 - `azure-devops` CLI extension: `az extension add --name azure-devops` (`az-Connect-AzDevOps` will offer to install this for you on first run)
 - An active `az login` session (`az-Connect-AzDevOps` will offer to start one for you on first run)
 
-### Profile environment variables
+### Configure org and project defaults
 
-Add this block to your PowerShell `$profile` and reload (open a new terminal). Replace each value with what's appropriate for your organization:
+Org and project are stored in your Microsoft profile via the Azure CLI — not in PowerShell env vars. Run once per machine (or after switching orgs):
 
 ```powershell
-$env:AZ_DEVOPS_ORG = 'https://dev.azure.com/myorg'
-$env:AZ_PROJECT    = 'My Project'
-$env:AZ_USER_EMAIL = 'user@example.com'
-$env:AZ_AREA       = 'My Project\My Team'
-$env:AZ_ITERATION  = 'My Project\Sprint 42'
+az devops configure --defaults organization='https://dev.azure.com/myorg' project='My Project'
+```
+
+(`az-Connect-AzDevOps` will guide you through this interactively on first run.)
+
+### Optional profile environment variables
+
+Add any of these to your PowerShell `$profile` to enable additional features:
+
+```powershell
+$env:AZ_USER_EMAIL = 'user@example.com'   # enables accurate mentions WIQL
+$env:AZ_AREA       = 'My Project\My Team' # default area path for hierarchy queries
+$env:AZ_ITERATION  = 'My Project\Sprint 42' # default iteration for work item creation
 ```
 
 ### First run

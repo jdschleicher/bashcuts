@@ -53,6 +53,13 @@ flowchart LR
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
     end
 
+    subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
+        OpensFolders["Folder openers:<br/>AppRoot, CacheDir, ConfigDir, SchemaDir"]
+        OpensCache["Cache file openers:<br/>AssignedCache, MentionsCache, HierarchyCache,<br/>IterationsCache, AreasCache, LastSync, SyncLog"]
+        OpensWiql["WIQL openers:<br/>EpicsWiql, FeaturesWiql, UserStoriesWiql"]
+        OpensSchema["az-Open-AzDevOpsSchema"]
+    end
+
     subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
         AssignedJson["assigned.json"]
         MentionsJson["mentions.json"]
@@ -61,6 +68,16 @@ flowchart LR
         AreasJson["areas.json"]
         LastSync["last-sync.json"]
         SyncLog["sync.log (rotates at ~1MB)"]
+    end
+
+    subgraph Config["$HOME/.bashcuts-az-devops-app/config/queries/"]
+        EpicsWiql["epics.wiql"]
+        FeatsWiql["features.wiql"]
+        StoriesWiql["user-stories.wiql"]
+    end
+
+    subgraph Schema["$HOME/.bashcuts-az-devops-app/schema/"]
+        SchemaJson["schema-&lt;org&gt;.json"]
     end
 
     subgraph AzCLI["Azure CLI"]
@@ -117,6 +134,25 @@ flowchart LR
 
     Reg -.task scheduler / cron.-> Sync
     Unreg -.removes schedule.-> Reg
+
+    OpensFolders -.opens dir.-> Cache
+    OpensFolders -.opens dir.-> Config
+    OpensFolders -.opens dir.-> Schema
+    OpensCache -.opens file.-> AssignedJson
+    OpensCache -.opens file.-> MentionsJson
+    OpensCache -.opens file.-> HierJson
+    OpensCache -.opens file.-> IterJson
+    OpensCache -.opens file.-> AreasJson
+    OpensCache -.opens file.-> LastSync
+    OpensCache -.opens file.-> SyncLog
+    OpensWiql -.opens file.-> EpicsWiql
+    OpensWiql -.opens file.-> FeatsWiql
+    OpensWiql -.opens file.-> StoriesWiql
+    OpensSchema -.opens file.-> SchemaJson
+
+    Sync --> EpicsWiql
+    Sync --> FeatsWiql
+    Sync --> StoriesWiql
 ```
 
 ---
@@ -622,6 +658,7 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
+    WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
@@ -694,6 +731,9 @@ graph LR
     BatchCont[Read-AzDevOpsBatchContinue]:::priv
     ParentTest[Test-AzDevOpsParentIsFeature]:::priv
 
+    %% Auth abort prologue
+    AuthAbort[Assert-AzDevOpsAuthOrAbort]:::priv
+
     %% Shared creator scaffolding (consumed by all three az-New-AzDevOps* creators)
     CGate[Test-AzDevOpsCreateGate]:::priv
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
@@ -723,6 +763,25 @@ graph LR
     ScopePaths[Get-AzDevOpsParentScopeAreaPaths]:::priv
     AreaMatch[Test-AzDevOpsAreaPathMatch]:::priv
 
+    %% Schema management (azdevops_workitems.ps1)
+    GetSchema(["az-Get-AzDevOpsSchema"]):::pub
+    InitSchema(["az-Initialize-AzDevOpsSchema"]):::pub
+    EditSchema(["az-Edit-AzDevOpsSchema"]):::pub
+    TestSchema(["az-Test-AzDevOpsSchema"]):::pub
+    SchemaSlug[Get-AzDevOpsSchemaOrgSlug]:::priv
+    SchemaValidTypes[Get-AzDevOpsSchemaValidTypes]:::priv
+    SchemaWITypes[Get-AzDevOpsSchemaWorkItemTypes]:::priv
+    SchemaSysRefs[Get-AzDevOpsSchemaSystemRefs]:::priv
+    SchemaForType[Get-AzDevOpsSchemaForType]:::priv
+    SchemaStub[New-AzDevOpsSchemaStub]:::priv
+    SchemaEditor[Resolve-AzDevOpsEditor]:::priv
+    WITypeShow[Invoke-AzDevOpsWorkItemTypeShow]:::priv
+    SchemaFieldEntry[ConvertTo-AzDevOpsSchemaFieldEntry]:::priv
+    SchemaToRows[ConvertFrom-AzDevOpsSchemaToRows]:::priv
+    SchemaRead[Read-AzDevOpsSchemaFile]:::priv
+    SchemaWrite[Write-AzDevOpsSchemaFile]:::priv
+    SchemaInitDir[Initialize-AzDevOpsSchemaDir]:::priv
+
     %% I/O sinks
     Az[(az CLI)]:::io
     FS[(cache files)]:::io
@@ -747,7 +806,8 @@ graph LR
     TestAuth --> TSmoke
     TSmoke --> Az
 
-    Sync --> TestAuth
+    AuthAbort --> TestAuth
+    Sync --> AuthAbort
     Sync --> InitDir --> Paths
     InitDir --> MkDir
     Sync --> LogFn --> Paths
@@ -766,6 +826,7 @@ graph LR
     Boards --> AzJson
     ClassList --> AzJson
     AddDisc --> AzJson
+    WITypeDef --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead
@@ -991,6 +1052,94 @@ graph LR
     PFeat --> ScopePaths --> RScope
     PEpic --> ScopePaths
     PParent --> AreaMatch
+
+    %% Path-inspector openers (azdevops_workitems.ps1) — every public below is a
+    %% thin wrapper that resolves a path via one of the Get-AzDevOps*Paths
+    %% helpers and delegates to Open-AzDevOpsPathIfExists, which Test-Paths the
+    %% target and calls Start-Process when it exists.
+    OpenAppRoot(["az-Open-AzDevOpsAppRoot"]):::pub
+    OpenCacheDir(["az-Open-AzDevOpsCacheDir"]):::pub
+    OpenConfigDir(["az-Open-AzDevOpsConfigDir"]):::pub
+    OpenSchemaDir(["az-Open-AzDevOpsSchemaDir"]):::pub
+    OpenAsg(["az-Open-AzDevOpsAssignedCache"]):::pub
+    OpenMen(["az-Open-AzDevOpsMentionsCache"]):::pub
+    OpenHier(["az-Open-AzDevOpsHierarchyCache"]):::pub
+    OpenIter(["az-Open-AzDevOpsIterationsCache"]):::pub
+    OpenAreas(["az-Open-AzDevOpsAreasCache"]):::pub
+    OpenLast(["az-Open-AzDevOpsLastSync"]):::pub
+    OpenLog(["az-Open-AzDevOpsSyncLog"]):::pub
+    OpenEpics(["az-Open-AzDevOpsEpicsWiql"]):::pub
+    OpenFeats(["az-Open-AzDevOpsFeaturesWiql"]):::pub
+    OpenStories(["az-Open-AzDevOpsUserStoriesWiql"]):::pub
+    OpenSchema(["az-Open-AzDevOpsSchema"]):::pub
+
+    %% Path-inspector helper + path-discovery helpers used by the openers above
+    OpenPath[Open-AzDevOpsPathIfExists]:::priv
+    AppRoot[Get-AzDevOpsAppRoot]:::priv
+    SPaths[Get-AzDevOpsSchemaPaths]:::priv
+
+    %% OS handler I/O sink for Start-Process
+    OSHandler[(OS default handler)]:::io
+
+    %% Each opener resolves its path through the matching Get-AzDevOps*Paths
+    %% helper, then delegates to Open-AzDevOpsPathIfExists which calls
+    %% Start-Process on the resolved path.
+    OpenAppRoot --> AppRoot
+    OpenCacheDir --> Paths
+    OpenConfigDir --> QPaths
+    OpenSchemaDir --> SPaths
+    OpenAsg --> Paths
+    OpenMen --> Paths
+    OpenHier --> Paths
+    OpenIter --> Paths
+    OpenAreas --> Paths
+    OpenLast --> Paths
+    OpenLog --> Paths
+    OpenEpics --> QPaths
+    OpenFeats --> QPaths
+    OpenStories --> QPaths
+    OpenSchema --> SPaths
+
+    OpenAppRoot & OpenCacheDir & OpenConfigDir & OpenSchemaDir --> OpenPath
+    OpenAsg & OpenMen & OpenHier & OpenIter & OpenAreas & OpenLast & OpenLog --> OpenPath
+    OpenEpics & OpenFeats & OpenStories & OpenSchema --> OpenPath
+    OpenPath --> OSHandler
+
+    %% Schema management wiring
+    GetSchema --> SchemaRead
+    GetSchema --> SPaths
+    GetSchema --> SchemaToRows
+    GetSchema --> ShowRows
+
+    EditSchema --> SchemaInitDir
+    EditSchema --> SchemaRead
+    EditSchema --> SchemaStub
+    EditSchema --> SchemaWrite
+    EditSchema --> SchemaEditor
+
+    InitSchema --> AuthAbort
+    InitSchema --> SchemaInitDir
+    InitSchema --> SchemaSysRefs
+    InitSchema --> SchemaWITypes
+    InitSchema --> WITypeShow
+    InitSchema --> SchemaFieldEntry
+    InitSchema --> SchemaWrite
+
+    TestSchema --> AuthAbort
+    TestSchema --> SPaths
+    TestSchema --> SchemaRead
+    TestSchema --> SchemaValidTypes
+    TestSchema --> SchemaWITypes
+    TestSchema --> WITypeShow
+
+    WITypeShow --> WITypeDef
+    SchemaRead --> SPaths
+    SchemaWrite --> SPaths
+    SchemaInitDir --> SPaths
+    SchemaInitDir --> Plat
+    SPaths --> SchemaSlug
+    SchemaSlug --> AppRoot
+    SchemaForType --> SchemaRead
 ```
 
 ---
