@@ -167,7 +167,7 @@ flowchart TD
 
     S1["Step 1 — az-Confirm-AzDevOpsCli<br/>uses Test-AzDevOpsCliPresent"]
     S2["Step 2 — az-Confirm-AzDevOpsExtension<br/>uses Test-AzDevOpsExtensionInstalled<br/>+ optional 'az extension add'"]
-    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>uses Get-AzDevOpsMissingEnvVars"]
+    S3["Step 3 — az-Confirm-AzDevOpsEnvVars<br/>checks AZ_USER_EMAIL / AZ_AREA (optional)"]
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
@@ -214,9 +214,7 @@ Used by callers (`az-Sync-AzDevOpsCache`, `az-New-AzDevOpsUserStory`) at the top
 flowchart TD
     Start([az-Test-AzDevOpsAuth]) --> A{Test-AzDevOpsCliPresent?}
     A -- no --> F([return $false])
-    A -- yes --> B{Get-AzDevOpsMissingEnvVars<br/>count == 0?}
-    B -- no --> F
-    B -- yes --> C{Invoke-AzDevOpsSmokeQuery<br/>returns count?}
+    A -- yes --> C{Invoke-AzDevOpsSmokeQuery<br/>returns count?}
     C -- $null --> F
     C -- count --> T([return $true])
 
@@ -623,7 +621,6 @@ graph LR
     %% Diagnostic helpers
     TCli[Test-AzDevOpsCliPresent]:::priv
     TExt[Test-AzDevOpsExtensionInstalled]:::priv
-    TEnv[Get-AzDevOpsMissingEnvVars]:::priv
     TLog[Test-AzDevOpsLoggedIn]:::priv
     TSmoke[Invoke-AzDevOpsSmokeQuery]:::priv
 
@@ -646,12 +643,13 @@ graph LR
     QPaths[Get-AzDevOpsConfigPaths]:::priv
     QInit[Initialize-AzDevOpsQueryFiles]:::priv
     QWiql[Get-AzDevOpsWiql]:::priv
-    QDefaults[Get-AzDevOpsHierarchyQueryDefaults]:::priv
+    QDefaults[Get-AzDevOpsQueryDefaults]:::priv
     QNames[Get-AzDevOpsHierarchyQueryNames]:::priv
     InvHier[Invoke-AzDevOpsHierarchyQueries]:::priv
     MkDir[New-AzDevOpsDirectoryIfMissing]:::priv
 
     %% Data-plane wrappers (azdevops_db.ps1)
+    GetConf[Get-AzDevOpsConfiguredDefaults]:::priv
     AzJson[Invoke-AzDevOpsAzJson]:::priv
     Boards[Invoke-AzDevOpsBoardsQuery]:::priv
     ClassList[Get-AzDevOpsClassificationList]:::priv
@@ -788,7 +786,7 @@ graph LR
 
     Connect --> C1 --> TCli
     Connect --> C2 --> TExt
-    Connect --> C3 --> TEnv
+    Connect --> C3
     Connect --> CMap
     Connect --> C4 --> TLog
     Connect --> C5
@@ -802,7 +800,6 @@ graph LR
     CMap --> UseProj
 
     TestAuth --> TCli
-    TestAuth --> TEnv
     TestAuth --> TSmoke
     TSmoke --> Az
 
