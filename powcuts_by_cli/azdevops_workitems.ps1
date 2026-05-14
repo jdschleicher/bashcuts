@@ -690,7 +690,14 @@ function Get-AzDevOpsWiql {
     }
 
     if ($wiql -match [regex]::Escape($script:AzDevOpsUserEmailToken)) {
-        $emailValue = if ($env:AZ_USER_EMAIL) { "@$env:AZ_USER_EMAIL" } else { '@' }
+        $emailRaw   = if ($env:AZ_USER_EMAIL) {
+            "@$env:AZ_USER_EMAIL"
+        } else {
+            '@'
+        }
+        # Escape single quotes for WIQL string-literal safety — same rationale
+        # as $areaEscaped above.
+        $emailValue = $emailRaw.Replace("'", "''")
         $wiql       = $wiql.Replace($script:AzDevOpsUserEmailToken, $emailValue)
     }
 
