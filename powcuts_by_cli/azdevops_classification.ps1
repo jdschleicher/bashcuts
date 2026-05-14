@@ -10,20 +10,6 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
-# ---------------------------------------------------------------------------
-# Interactive new-user-story creator
-#
-# Public function:
-#   az-New-AzDevOpsUserStory   - prompts for title/description/priority/SP/AC,
-#                              then walks parent-Feature / iteration / area
-#                              pickers, calls `az boards work-item create`,
-#                              links the chosen parent, and opens the new
-#                              story in the browser.
-#
-# All prompts are skippable via parameters so the function works
-# non-interactively in scripts.
-# ---------------------------------------------------------------------------
-
 function Read-AzDevOpsClassificationCache {
     # Reads iterations.json or areas.json from the cache. Returns the parsed
     # tree root, or $null when the cache file is missing / unparseable so

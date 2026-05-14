@@ -10,16 +10,6 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
-# ---------------------------------------------------------------------------
-# az-Open-AzDevOps* family - direct openers for every folder and file under
-# $HOME/.bashcuts-az-devops-app/. Every public function below resolves its
-# path through the existing Get-AzDevOps* helpers so cache openers auto-follow
-# the active project slice set by az-Use-AzDevOpsProject, and the schema
-# opener auto-follows the per-org $env:AZ_DEVOPS_ORG slug.
-#
-# Discovery: tab-tab on `az-Open-AzDevOps` in any pwsh session.
-# ---------------------------------------------------------------------------
-
 function Open-AzDevOpsPathIfExists {
     # Private helper used by every public az-Open-AzDevOps* function in this
     # section. Centralizes the "exists? -> Start-Process, missing? -> yellow
