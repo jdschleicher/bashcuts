@@ -195,7 +195,7 @@ In a fresh PowerShell terminal:
 az-Connect-AzDevOps
 ```
 
-This walks through seven checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, user-machine WIQL query files seeded, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
+This walks through eight checks (Azure CLI present, `azure-devops` extension installed, optional profile env vars, project map (multi-project), `az login` session active, `az devops` defaults configured, user-machine WIQL query files seeded, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
 
 After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `az-Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
 
@@ -253,7 +253,7 @@ az-Open-AzDevOpsFeaturesWiql     # config/queries/features.wiql
 az-Open-AzDevOpsUserStoriesWiql  # config/queries/user-stories.wiql
 ```
 
-Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
+Schema file (per-org `schema-<slug>.json`, slug derived from the configured organization URL; falls back to `schema.json` when no default org is set):
 
 ```powershell
 az-Open-AzDevOpsSchema
@@ -394,7 +394,7 @@ az-New-AzDevOpsFeatureStories -ParentId 1240 `
 
 Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `az-New-AzDevOpsUserStory`, `az-Get-AzDevOpsAssigned`, `az-Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
 
-The schema lives at `$HOME/.bashcuts-az-devops-app/schema/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
+The schema lives at `$HOME/.bashcuts-az-devops-app/schema/schema-<org>.json` (per-org slug derived from the organization URL configured via `az devops configure --defaults`; falls back to `schema.json` when no default org is set). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
 ```powershell
 az-Initialize-AzDevOpsSchema     # introspect your org via
