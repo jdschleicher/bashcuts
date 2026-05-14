@@ -65,7 +65,7 @@
 
 
 # ---------------------------------------------------------------------------
-# Private helpers (no `az-` prefix; callable from azdevops_workitems.ps1)
+# Private helpers (no `az-` prefix; callable from the azdevops_*.ps1 family)
 # ---------------------------------------------------------------------------
 
 function Test-AzDevOpsProjectMapDefined {

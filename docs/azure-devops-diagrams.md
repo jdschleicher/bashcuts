@@ -1,6 +1,6 @@
 # Azure DevOps Functionality — Mermaid Diagrams
 
-Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_workitems.ps1`. Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
+Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
@@ -23,7 +23,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 ```mermaid
 flowchart LR
     subgraph User["User session ($profile)"]
-        Profile["powcuts_home.ps1<br/>dot-sources azdevops_workitems.ps1"]
+        Profile["powcuts_home.ps1<br/>dot-sources azdevops_*.ps1"]
         EnvVars["$env:AZ_DEVOPS_ORG<br/>$env:AZ_PROJECT<br/>$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION"]
     end
 
@@ -646,7 +646,7 @@ graph LR
     StderrW[Write-AzDevOpsSyncStderr]:::priv
     Measure[Measure-AzDevOpsClassificationNodes]:::priv
 
-    %% Query config (azdevops_workitems.ps1)
+    %% Query config (azdevops_paths.ps1)
     QPaths[Get-AzDevOpsConfigPaths]:::priv
     QInit[Initialize-AzDevOpsQueryFiles]:::priv
     QWiql[Get-AzDevOpsWiql]:::priv
@@ -761,7 +761,7 @@ graph LR
     RPts[Resolve-AzDevOpsTypeDefaultStoryPoints]:::priv
     RScope[Resolve-AzDevOpsTypeParentScope]:::priv
 
-    %% Phase B creator wiring (azdevops_workitems.ps1)
+    %% Phase B creator wiring (azdevops_create.ps1 + azdevops_create_pickers.ps1)
     RPriP[Resolve-AzDevOpsTypePriorityOrPrompt]:::priv
     RPtsP[Resolve-AzDevOpsTypeStoryPointsOrPrompt]:::priv
     RTagsE[Resolve-AzDevOpsTypeTagsOrEmpty]:::priv
@@ -769,7 +769,7 @@ graph LR
     ScopePaths[Get-AzDevOpsParentScopeAreaPaths]:::priv
     AreaMatch[Test-AzDevOpsAreaPathMatch]:::priv
 
-    %% Schema management (azdevops_workitems.ps1)
+    %% Schema management (azdevops_schema.ps1)
     GetSchema(["az-Get-AzDevOpsSchema"]):::pub
     InitSchema(["az-Initialize-AzDevOpsSchema"]):::pub
     EditSchema(["az-Edit-AzDevOpsSchema"]):::pub
@@ -1020,7 +1020,7 @@ graph LR
     TypeCfg --> ActCfg
     TypeCfg --> TypeKey
 
-    %% Multi-project features view (azdevops_workitems.ps1)
+    %% Multi-project features view (azdevops_views.ps1)
     FeatNames[Get-AzDevOpsFeaturesProjectNames]:::priv
 
     ShowFeats --> Stale
@@ -1078,7 +1078,7 @@ graph LR
     PEpic --> ScopePaths
     PParent --> AreaMatch
 
-    %% Path-inspector openers (azdevops_workitems.ps1) — every public below is a
+    %% Path-inspector openers (azdevops_openers.ps1) — every public below is a
     %% thin wrapper that resolves a path via one of the Get-AzDevOps*Paths
     %% helpers and delegates to Open-AzDevOpsPathIfExists, which Test-Paths the
     %% target and calls Start-Process when it exists.

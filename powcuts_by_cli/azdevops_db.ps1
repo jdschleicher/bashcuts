@@ -13,7 +13,7 @@
 #     caller. This matches the existing helper shape and keeps wrappers thin.
 #   - Session/admin calls (az login, az account show, az extension *,
 #     az devops configure) are NOT wrapped here - they live in
-#     azdevops_workitems.ps1 alongside az-Connect-AzDevOps.
+#     azdevops_auth.ps1 alongside az-Connect-AzDevOps.
 #
 # Diagnostic echoes:
 #   - Every call through Invoke-AzDevOpsAzJson echoes the assembled `az`
@@ -34,7 +34,7 @@ function Write-AzDevOpsQueryEcho {
     # visual style stays consistent across callers and a future tweak
     # (different glyph, different indent, different default color) is a
     # one-line edit. Uses an unapproved-verb-free name (Write-* is approved)
-    # but is treated as private to azdevops_db.ps1 / azdevops_workitems.ps1.
+    # but is treated as private to azdevops_db.ps1 / azdevops_*.ps1 family.
     param(
         [Parameter(Mandatory)] [string] $Message,
         [string] $Color = 'DarkCyan'

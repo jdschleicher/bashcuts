@@ -49,11 +49,74 @@ if ($azdevops_db -ne $NULL) {
     Write-Host "no azdevops_db.ps1"
 }
 
-$azdevops_workitems = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
-if ($azdevops_workitems -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
+$azdevops_auth = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_auth.ps1"
+if ($azdevops_auth -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_auth.ps1"
 } else {
-    Write-Host "no azdevops_workitems.ps1"
+    Write-Host "no azdevops_auth.ps1"
+}
+
+$azdevops_paths = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_paths.ps1"
+if ($azdevops_paths -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_paths.ps1"
+} else {
+    Write-Host "no azdevops_paths.ps1"
+}
+
+$azdevops_sync = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_sync.ps1"
+if ($azdevops_sync -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_sync.ps1"
+} else {
+    Write-Host "no azdevops_sync.ps1"
+}
+
+$azdevops_views = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_views.ps1"
+if ($azdevops_views -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_views.ps1"
+} else {
+    Write-Host "no azdevops_views.ps1"
+}
+
+$azdevops_find = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_find.ps1"
+if ($azdevops_find -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_find.ps1"
+} else {
+    Write-Host "no azdevops_find.ps1"
+}
+
+$azdevops_classification = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_classification.ps1"
+if ($azdevops_classification -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_classification.ps1"
+} else {
+    Write-Host "no azdevops_classification.ps1"
+}
+
+$azdevops_create_pickers = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_create_pickers.ps1"
+if ($azdevops_create_pickers -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_create_pickers.ps1"
+} else {
+    Write-Host "no azdevops_create_pickers.ps1"
+}
+
+$azdevops_create = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_create.ps1"
+if ($azdevops_create -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_create.ps1"
+} else {
+    Write-Host "no azdevops_create.ps1"
+}
+
+$azdevops_schema = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
+if ($azdevops_schema -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
+} else {
+    Write-Host "no azdevops_schema.ps1"
+}
+
+$azdevops_openers = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_openers.ps1"
+if ($azdevops_openers -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_openers.ps1"
+} else {
+    Write-Host "no azdevops_openers.ps1"
 }
 
 $azdevops_projects = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_projects.ps1"
