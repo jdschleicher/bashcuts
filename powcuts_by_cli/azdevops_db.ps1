@@ -2,8 +2,8 @@
 # Azure DevOps data-plane wrapper layer.
 #
 # Every `az boards ...` invocation in the bashcuts codebase routes through one
-# of the wrappers in this file so higher-level functions in azdevops_workitems
-# .ps1 stay decoupled from `az` argument shapes, JSON deserialization, and
+# of the wrappers in this file so higher-level functions in the azdevops_*.ps1
+# family stay decoupled from `az` argument shapes, JSON deserialization, and
 # stderr handling. Future caching, retry, or alternative transport changes are
 # a one-file edit.
 #
