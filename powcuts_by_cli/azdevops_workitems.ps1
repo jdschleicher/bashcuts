@@ -31,7 +31,6 @@
 # Silent diagnostic helpers (pure checks, no I/O — used by az-Test-AzDevOpsAuth):
 #   Test-AzDevOpsCliPresent          - is the `az` CLI on PATH?
 #   Test-AzDevOpsExtensionInstalled  - is the `azure-devops` extension installed?
-#   Get-AzDevOpsMissingEnvVars       - returns array of required env vars not set
 #   Test-AzDevOpsLoggedIn            - does `az account show` succeed?
 #   Invoke-AzDevOpsSmokeQuery        - runs WIQL "items assigned to me",
 #                                       returns count or $null on failure
@@ -1190,8 +1189,14 @@ function az-Get-AzDevOpsCacheStatus {
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsPlatform {
-    if ($IsWindows -or ($env:OS -eq 'Windows_NT')) { return 'Windows' }
-    if ($IsMacOS -or $IsLinux) { return 'Posix' }
+    if ($IsWindows -or ($env:OS -eq 'Windows_NT')) {
+        return 'Windows'
+    }
+
+    if ($IsMacOS -or $IsLinux) {
+        return 'Posix'
+    }
+
     return 'Unknown'
 }
 
