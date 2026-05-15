@@ -26,16 +26,16 @@
 # az-Sync-AzDevOpsCache) and posts via Add-AzDevOpsDiscussionComment.
 # ---------------------------------------------------------------------------
 
-$script:TimerIconSnakeHead  = "$([char]0x1F40D)"
-$script:TimerIconSnakeBody  = "$([char]0x1F7E9)"
-$script:TimerIconApple      = "$([char]0x1F34E)"
-$script:TimerIconClock      = "$([char]0x23F0)"
-$script:TimerIconCheck      = "$([char]0x2705)"
-$script:TimerIconWarn       = "$([char]0x26A0)$([char]0xFE0F)"
-$script:TimerIconMemo       = "$([char]0x1F4DD)"
-$script:TimerIconRocket     = "$([char]0x1F680)"
-$script:TimerIconWave       = "$([char]0x1F44B)"
-$script:TimerIconFinish     = "$([char]0x1F3C1)"
+$script:TimerIconSnakeHead  = [char]::ConvertFromUtf32(0x1F40D)
+$script:TimerIconSnakeBody  = [char]::ConvertFromUtf32(0x1F7E9)
+$script:TimerIconApple      = [char]::ConvertFromUtf32(0x1F34E)
+$script:TimerIconClock      = [char]::ConvertFromUtf32(0x23F0)
+$script:TimerIconCheck      = [char]::ConvertFromUtf32(0x2705)
+$script:TimerIconWarn       = "$([char]::ConvertFromUtf32(0x26A0))$([char]::ConvertFromUtf32(0xFE0F))"
+$script:TimerIconMemo       = [char]::ConvertFromUtf32(0x1F4DD)
+$script:TimerIconRocket     = [char]::ConvertFromUtf32(0x1F680)
+$script:TimerIconWave       = [char]::ConvertFromUtf32(0x1F44B)
+$script:TimerIconFinish     = [char]::ConvertFromUtf32(0x1F3C1)
 
 $script:TimerMaxSnakeLength = 15
 $script:TimerDefaultMinutes = 25
