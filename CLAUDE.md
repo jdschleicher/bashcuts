@@ -179,6 +179,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_schema.ps1             # Field-schema cache (per-org)
 │   ├── azdevops_openers.ps1            # az-Open-AzDevOps* file/folder openers
 │   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher
+│   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 └── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync

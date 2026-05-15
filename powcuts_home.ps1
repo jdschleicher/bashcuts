@@ -126,6 +126,13 @@ if ($azdevops_projects -ne $NULL) {
     Write-Host "no azdevops_projects.ps1"
 }
 
+$azdevops_help = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_help.ps1"
+if ($azdevops_help -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_help.ps1"
+} else {
+    Write-Host "no azdevops_help.ps1"
+}
+
 $pow_timer = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
 if ($pow_timer -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
