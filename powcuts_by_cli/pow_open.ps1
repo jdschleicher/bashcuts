@@ -34,7 +34,7 @@ function o-pow-git {
 }
 
 function o-pow-azdevops {
-	Start-Process "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
+	Start-Process "$path_to_bashcuts\powcuts_by_cli\azdevops_auth.ps1"
 }
 
 

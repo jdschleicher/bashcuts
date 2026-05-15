@@ -58,7 +58,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Connect-AzDevOps'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_auth.ps1'
         Phase         = 'Onboarding'
         Order         = 1
         Purpose       = 'Interactive first-run auth + setup orchestrator (8 steps)'
@@ -72,7 +72,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Test-AzDevOpsAuth'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_auth.ps1'
         Phase         = 'Onboarding'
         Order         = 2
         Purpose       = 'Silent diagnostic chain - confirms CLI / extension / env / login OK'
@@ -86,7 +86,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Set-AzDevOpsDefaults'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_auth.ps1'
         Phase         = 'Onboarding'
         Order         = 3
         Purpose       = "Set 'az devops configure --defaults' org + project from env vars"
@@ -100,7 +100,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Sync-AzDevOpsCache'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'Onboarding'
         Order         = 4
         Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations)'
@@ -116,7 +116,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Get-AzDevOpsAssigned'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 1
         Purpose       = 'Grid of work items assigned to you (from cache)'
@@ -130,7 +130,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Open-AzDevOpsAssigned'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 2
         Purpose       = 'Pick an assigned work item from the grid; open it in your browser'
@@ -144,7 +144,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Get-AzDevOpsMentions'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 3
         Purpose       = 'Grid of work items where you have been @-mentioned in discussion'
@@ -158,7 +158,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Open-AzDevOpsMention'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 4
         Purpose       = 'Pick a mentioned work item from the grid; open it in your browser'
@@ -172,7 +172,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Show-AzDevOpsTree'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 5
         Purpose       = 'Epic -> Feature -> requirement-tier indented tree of the hierarchy cache'
@@ -186,7 +186,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Show-AzDevOpsBoard'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 6
         Purpose       = 'Group-by-State board view of the same cached items'
@@ -200,7 +200,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Show-AzDevOpsFeatures'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 7
         Purpose       = 'Open-only Features list for the current project (live WIQL, not cached)'
@@ -216,7 +216,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-New-AzDevOpsUserStory'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_create.ps1'
         Phase         = 'Create'
         Order         = 1
         Purpose       = 'Interactive new User Story with parent-Feature / iteration / area pickers'
@@ -230,7 +230,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-New-AzDevOpsFeature'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_create.ps1'
         Phase         = 'Create'
         Order         = 2
         Purpose       = 'Interactive new Feature with parent-Epic picker; hand-off prompt to spawn child stories'
@@ -244,7 +244,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-New-AzDevOpsFeatureStories'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_create.ps1'
         Phase         = 'Create'
         Order         = 3
         Purpose       = 'Batch-decompose a Feature into 3-7 child stories (shared area / iteration)'
@@ -288,7 +288,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Register-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'MultiProject'
         Order         = 3
         Purpose       = 'Register background sync (Scheduled Task on Windows / cron on POSIX)'
@@ -302,7 +302,7 @@ $script:AzDevOpsHelpCatalog = @(
 
     [PSCustomObject]@{
         Name          = 'az-Unregister-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'MultiProject'
         Order         = 4
         Purpose       = 'Remove the background sync schedule (cron entry / Scheduled Task)'

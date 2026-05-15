@@ -168,8 +168,18 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── sfdx_cli.ps1
 │   ├── git_common.ps1
 │   ├── azdevops_db.ps1                 # Azure DevOps `az boards` data-plane wrappers
-│   ├── azdevops_workitems.ps1          # Azure DevOps work-item shortcuts (cache, pickers, creators)
+│   ├── azdevops_auth.ps1               # Setup + diagnostics + az-Connect-AzDevOps (entry point)
+│   ├── azdevops_paths.ps1              # Filesystem layout + WIQL defaults (plumbing)
+│   ├── azdevops_sync.ps1               # Cache sync engine + scheduled refresh
+│   ├── azdevops_views.ps1              # Assigned / mentions / tree / board / features views
+│   ├── azdevops_find.ps1               # az-Find-AzDevOpsWorkItem drill-down
+│   ├── azdevops_classification.ps1     # Areas + iterations (show/get/find)
+│   ├── azdevops_create_pickers.ps1     # Field prompts + create-flow pickers
+│   ├── azdevops_create.ps1             # az-New-AzDevOps{UserStory,Feature,FeatureStories}
+│   ├── azdevops_schema.ps1             # Field-schema cache (per-org)
+│   ├── azdevops_openers.ps1            # az-Open-AzDevOps* file/folder openers
 │   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher
+│   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 └── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
