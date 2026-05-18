@@ -324,6 +324,15 @@ function Format-TimerCommentBody {
     # Compose the discussion-comment text. Header reflects outcome; body has
     # labeled Debrief and Next sections; a trailing attribution line lets a
     # reader trace the comment back to this command.
+    #
+    # The body is a SINGLE physical line with HTML <br/> separators. On
+    # Windows, PowerShell launches az.cmd via cmd.exe /c, which truncates the
+    # `--discussion` value at the first CRLF — so a `"`r`n"`-joined body
+    # arrived at Azure DevOps as only the header line. The AzDO Discussion
+    # field stores HTML, so <br/> renders as a visible line break in the UI
+    # and keeps the entire body intact through the shell hand-off. Italic
+    # accents use <em> for the same reason — Markdown `_..._` would render
+    # as literal underscores in an HTML field.
     param(
         [Parameter(Mandatory)] [bool]   $Interrupted,
         [Parameter(Mandatory)] [int]    $ElapsedSeconds,
@@ -349,7 +358,7 @@ function Format-TimerCommentBody {
 
     $lines = @(
         $header,
-        "_$timestamp_",
+        "<em>$timestamp</em>",
         '',
         "$iconMemo Debrief:",
         $Debrief,
@@ -357,10 +366,10 @@ function Format-TimerCommentBody {
         "$iconRocket Next:",
         $Next,
         '',
-        '_via bashcuts Start-TimerSession_'
+        '<em>via bashcuts Start-TimerSession</em>'
     )
 
-    $body = $lines -join "`r`n"
+    $body = $lines -join '<br/>'
     return $body
 }
 
