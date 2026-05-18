@@ -4,7 +4,7 @@
 # Direct openers for every folder and file under
 # $HOME/.bashcuts-az-devops-app/. Every public function below resolves its
 # path through the existing Get-AzDevOps* helpers so cache openers auto-follow
-# the active project slice and the schema opener auto-follows $env:AZ_DEVOPS_ORG.
+# the active project slice.
 #
 # Discovery: tab-tab on `az-Open-AzDevOps` in any pwsh session.
 #
@@ -32,7 +32,7 @@ function Open-AzDevOpsPathIfExists {
 }
 
 
-# --- Folder openers (4) ----------------------------------------------------
+# --- Folder openers (3) ----------------------------------------------------
 
 function az-Open-AzDevOpsAppRoot {
     $root = Get-AzDevOpsAppRoot
@@ -52,13 +52,6 @@ function az-Open-AzDevOpsConfigDir {
     $paths = Get-AzDevOpsConfigPaths
     Open-AzDevOpsPathIfExists -Path $paths.QueriesDir `
         -HintMessage "Run az-Connect-AzDevOps (or az-Open-AzDevOpsHierarchyWiqls) to seed the default WIQL files."
-}
-
-
-function az-Open-AzDevOpsSchemaDir {
-    $paths = Get-AzDevOpsSchemaPaths
-    Open-AzDevOpsPathIfExists -Path $paths.Dir `
-        -HintMessage "Run az-Initialize-AzDevOpsSchema (or az-Edit-AzDevOpsSchema) to create the schema directory."
 }
 
 
@@ -136,10 +129,3 @@ function az-Open-AzDevOpsUserStoriesWiql {
 }
 
 
-# --- Schema file opener (1) ------------------------------------------------
-
-function az-Open-AzDevOpsSchema {
-    $paths = Get-AzDevOpsSchemaPaths
-    Open-AzDevOpsPathIfExists -Path $paths.File `
-        -HintMessage "Run az-Initialize-AzDevOpsSchema to introspect your org, or az-Edit-AzDevOpsSchema to scaffold a stub."
-}

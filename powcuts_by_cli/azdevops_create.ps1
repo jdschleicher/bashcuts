@@ -601,7 +601,7 @@ function az-New-AzDevOpsFeatureStories {
     #
     # Each child create runs through the same Invoke-AzDevOpsWorkItemCreate
     # + Invoke-AzDevOpsParentLink path the single-shot az-New-AzDevOpsUserStory
-    # uses, so failure modes / exit codes / schema enforcement stay identical.
+    # uses, so failure modes / exit codes / field validation stay identical.
     # A failed create is logged and the loop continues; the user can retry the
     # one that failed via az-New-AzDevOpsUserStory -ParentId $ParentId.
     #

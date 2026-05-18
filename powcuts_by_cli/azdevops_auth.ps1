@@ -75,11 +75,10 @@
 #   Area                   Areas                 Areas                Area
 #   Iteration              Iterations            Iterations           Iteration
 #   Cache                  CacheStatus           --                   --
-#   Schema                 Schema                --                   --
 #
 # Deliberately-empty cells:
 #   Assigned / Mentions Show-: az-Get-* already grid-renders; Show- would dupe.
-#   Cache / Schema Show- / Find-: no tree to drill, no pick semantics.
+#   Cache Show- / Find-: no tree to drill, no pick semantics.
 #   Hierarchy Get-: Tree and Board cover the listing surface; Find- emits IDs.
 # ============================================================================
 
@@ -136,11 +135,11 @@ function az-Test-AzDevOpsAuth {
 
 function Assert-AzDevOpsAuthOrAbort {
     # Standard auth-test-and-abort prologue used by every command that calls
-    # az on the user's behalf (az-Sync-AzDevOpsCache, az-New-AzDevOpsUserStory,
-    # az-Initialize-AzDevOpsSchema, az-Test-AzDevOpsSchema). Returns $true when
-    # auth is good. On failure, prints the standard "<command> aborted -
-    # az-Test-AzDevOpsAuth returned false. Run az-Connect-AzDevOps." line and
-    # returns $false so callers `if (-not (Assert-...)) { return }`.
+    # az on the user's behalf (az-Sync-AzDevOpsCache, az-New-AzDevOpsUserStory).
+    # Returns $true when auth is good. On failure, prints the standard
+    # "<command> aborted - az-Test-AzDevOpsAuth returned false. Run
+    # az-Connect-AzDevOps." line and returns $false so callers
+    # `if (-not (Assert-...)) { return }`.
     param([Parameter(Mandatory)] [string] $CommandName)
 
     if (az-Test-AzDevOpsAuth) {

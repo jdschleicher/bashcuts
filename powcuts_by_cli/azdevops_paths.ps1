@@ -1,17 +1,17 @@
 # ============================================================================
 # Azure DevOps — Paths & query files
 # ============================================================================
-# Filesystem layout under $HOME/.bashcuts-az-devops-app/ (cache/, config/,
-# schema/) and the WIQL query defaults seeded into config/queries/. Pure
-# plumbing — no public az-* functions live here.
+# Filesystem layout under $HOME/.bashcuts-az-devops-app/ (cache/, config/)
+# and the WIQL query defaults seeded into config/queries/. Pure plumbing —
+# no public az-* functions live here.
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
 # ---------------------------------------------------------------------------
 # Single hidden parent folder under $HOME that contains every AzDevOps state
-# subdirectory (cache/, config/, schema/). Consolidates what used to be three
-# separate top-level dotfolders (.bashcuts-cache, .bashcuts-config, .bashcuts)
-# into one easy-to-find location.
+# subdirectory (cache/, config/). Consolidates what used to be separate
+# top-level dotfolders (.bashcuts-cache, .bashcuts-config) into one
+# easy-to-find location.
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsAppRoot {

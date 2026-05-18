@@ -170,10 +170,9 @@ function ConvertTo-AzDevOpsProjectSlug {
 
 
 function Get-AzDevOpsActiveProjectSlug {
-    # Per-project cache key for the *active* project. Mirrors
-    # Get-AzDevOpsSchemaOrgSlug's shape so cache and schema slugs read alike.
-    # Returns $null when no active project is set, which keeps
-    # Get-AzDevOpsCachePaths backward-compatible with single-project use.
+    # Per-project cache key for the *active* project. Returns $null when no
+    # active project is set, which keeps Get-AzDevOpsCachePaths
+    # backward-compatible with single-project use.
     $name = Get-AzDevOpsActiveProjectName
     if (-not $name) {
         return $null

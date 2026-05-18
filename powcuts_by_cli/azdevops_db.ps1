@@ -313,29 +313,3 @@ function Add-AzDevOpsDiscussionComment {
     )
     return $result
 }
-
-
-function Get-AzDevOpsWorkItemTypeDefinition {
-    # `az devops invoke --area wit --resource workitemtypes` wrapper. Returns
-    # the type's field-instance definitions inside the canonical envelope so
-    # callers can walk fieldInstances[] without re-doing the az + parse dance.
-    #
-    # The azure-devops extension does NOT expose a `boards work-item-type`
-    # subgroup, so we go through `az devops invoke` (REST passthrough) against
-    # the WIT workitemtypes endpoint. Project scope rides in --route-parameters
-    # (the az devops invoke REST path) rather than the top-level --project flag.
-    param([Parameter(Mandatory)] [string] $Type)
-
-    $apiVersion = '7.1'
-    $defaults   = Get-AzDevOpsConfiguredDefaults
-    $project    = $defaults.Project
-
-    $result = Invoke-AzDevOpsAzJson -ArgList @(
-        'devops', 'invoke',
-        '--area',             'wit',
-        '--resource',         'workitemtypes',
-        '--route-parameters', "project=$project", "type=$Type",
-        '--api-version',      $apiVersion
-    )
-    return $result
-}

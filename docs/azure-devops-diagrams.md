@@ -1,6 +1,6 @@
 # Azure DevOps Functionality — Mermaid Diagrams
 
-Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
+Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_openers.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
@@ -56,10 +56,9 @@ flowchart LR
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
-        OpensFolders["Folder openers:<br/>AppRoot, CacheDir, ConfigDir, SchemaDir"]
+        OpensFolders["Folder openers:<br/>AppRoot, CacheDir, ConfigDir"]
         OpensCache["Cache file openers:<br/>AssignedCache, MentionsCache, HierarchyCache,<br/>IterationsCache, AreasCache, LastSync, SyncLog"]
         OpensWiql["WIQL openers:<br/>EpicsWiql, FeaturesWiql, UserStoriesWiql"]
-        OpensSchema["az-Open-AzDevOpsSchema"]
     end
 
     subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
@@ -76,10 +75,6 @@ flowchart LR
         EpicsWiql["epics.wiql"]
         FeatsWiql["features.wiql"]
         StoriesWiql["user-stories.wiql"]
-    end
-
-    subgraph Schema["$HOME/.bashcuts-az-devops-app/schema/"]
-        SchemaJson["schema-&lt;org&gt;.json"]
     end
 
     subgraph AzCLI["Azure CLI"]
@@ -140,7 +135,6 @@ flowchart LR
 
     OpensFolders -.opens dir.-> Cache
     OpensFolders -.opens dir.-> Config
-    OpensFolders -.opens dir.-> Schema
     OpensCache -.opens file.-> AssignedJson
     OpensCache -.opens file.-> MentionsJson
     OpensCache -.opens file.-> HierJson
@@ -151,7 +145,6 @@ flowchart LR
     OpensWiql -.opens file.-> EpicsWiql
     OpensWiql -.opens file.-> FeatsWiql
     OpensWiql -.opens file.-> StoriesWiql
-    OpensSchema -.opens file.-> SchemaJson
 
     Sync --> EpicsWiql
     Sync --> FeatsWiql
@@ -491,7 +484,7 @@ DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrap
 
 ## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
-Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / field validation stay identical.
 
 ```mermaid
 flowchart TD
@@ -660,7 +653,6 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
-    WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
     ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
@@ -768,25 +760,6 @@ graph LR
     ScopePaths[Get-AzDevOpsParentScopeAreaPaths]:::priv
     AreaMatch[Test-AzDevOpsAreaPathMatch]:::priv
 
-    %% Schema management (azdevops_schema.ps1)
-    GetSchema(["az-Get-AzDevOpsSchema"]):::pub
-    InitSchema(["az-Initialize-AzDevOpsSchema"]):::pub
-    EditSchema(["az-Edit-AzDevOpsSchema"]):::pub
-    TestSchema(["az-Test-AzDevOpsSchema"]):::pub
-    SchemaSlug[Get-AzDevOpsSchemaOrgSlug]:::priv
-    SchemaValidTypes[Get-AzDevOpsSchemaValidTypes]:::priv
-    SchemaWITypes[Get-AzDevOpsSchemaWorkItemTypes]:::priv
-    SchemaSysRefs[Get-AzDevOpsSchemaSystemRefs]:::priv
-    SchemaForType[Get-AzDevOpsSchemaForType]:::priv
-    SchemaStub[New-AzDevOpsSchemaStub]:::priv
-    SchemaEditor[Resolve-AzDevOpsEditor]:::priv
-    WITypeShow[Invoke-AzDevOpsWorkItemTypeShow]:::priv
-    SchemaFieldEntry[ConvertTo-AzDevOpsSchemaFieldEntry]:::priv
-    SchemaToRows[ConvertFrom-AzDevOpsSchemaToRows]:::priv
-    SchemaRead[Read-AzDevOpsSchemaFile]:::priv
-    SchemaWrite[Write-AzDevOpsSchemaFile]:::priv
-    SchemaInitDir[Initialize-AzDevOpsSchemaDir]:::priv
-
     %% I/O sinks
     Az[(az CLI)]:::io
     FS[(cache files)]:::io
@@ -831,7 +804,6 @@ graph LR
     Boards --> AzJson
     ClassList --> AzJson
     AddDisc --> AzJson
-    WITypeDef --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead
@@ -1084,7 +1056,6 @@ graph LR
     OpenAppRoot(["az-Open-AzDevOpsAppRoot"]):::pub
     OpenCacheDir(["az-Open-AzDevOpsCacheDir"]):::pub
     OpenConfigDir(["az-Open-AzDevOpsConfigDir"]):::pub
-    OpenSchemaDir(["az-Open-AzDevOpsSchemaDir"]):::pub
     OpenAsg(["az-Open-AzDevOpsAssignedCache"]):::pub
     OpenMen(["az-Open-AzDevOpsMentionsCache"]):::pub
     OpenHier(["az-Open-AzDevOpsHierarchyCache"]):::pub
@@ -1095,12 +1066,10 @@ graph LR
     OpenEpics(["az-Open-AzDevOpsEpicsWiql"]):::pub
     OpenFeats(["az-Open-AzDevOpsFeaturesWiql"]):::pub
     OpenStories(["az-Open-AzDevOpsUserStoriesWiql"]):::pub
-    OpenSchema(["az-Open-AzDevOpsSchema"]):::pub
 
     %% Path-inspector helper + path-discovery helpers used by the openers above
     OpenPath[Open-AzDevOpsPathIfExists]:::priv
     AppRoot[Get-AzDevOpsAppRoot]:::priv
-    SPaths[Get-AzDevOpsSchemaPaths]:::priv
 
     %% OS handler I/O sink for Start-Process
     OSHandler[(OS default handler)]:::io
@@ -1111,7 +1080,6 @@ graph LR
     OpenAppRoot --> AppRoot
     OpenCacheDir --> Paths
     OpenConfigDir --> QPaths
-    OpenSchemaDir --> SPaths
     OpenAsg --> Paths
     OpenMen --> Paths
     OpenHier --> Paths
@@ -1122,48 +1090,11 @@ graph LR
     OpenEpics --> QPaths
     OpenFeats --> QPaths
     OpenStories --> QPaths
-    OpenSchema --> SPaths
 
-    OpenAppRoot & OpenCacheDir & OpenConfigDir & OpenSchemaDir --> OpenPath
+    OpenAppRoot & OpenCacheDir & OpenConfigDir --> OpenPath
     OpenAsg & OpenMen & OpenHier & OpenIter & OpenAreas & OpenLast & OpenLog --> OpenPath
-    OpenEpics & OpenFeats & OpenStories & OpenSchema --> OpenPath
+    OpenEpics & OpenFeats & OpenStories --> OpenPath
     OpenPath --> OSHandler
-
-    %% Schema management wiring
-    GetSchema --> SchemaRead
-    GetSchema --> SPaths
-    GetSchema --> SchemaToRows
-    GetSchema --> ShowRows
-
-    EditSchema --> SchemaInitDir
-    EditSchema --> SchemaRead
-    EditSchema --> SchemaStub
-    EditSchema --> SchemaWrite
-    EditSchema --> SchemaEditor
-
-    InitSchema --> AuthAbort
-    InitSchema --> SchemaInitDir
-    InitSchema --> SchemaSysRefs
-    InitSchema --> SchemaWITypes
-    InitSchema --> WITypeShow
-    InitSchema --> SchemaFieldEntry
-    InitSchema --> SchemaWrite
-
-    TestSchema --> AuthAbort
-    TestSchema --> SPaths
-    TestSchema --> SchemaRead
-    TestSchema --> SchemaValidTypes
-    TestSchema --> SchemaWITypes
-    TestSchema --> WITypeShow
-
-    WITypeShow --> WITypeDef
-    SchemaRead --> SPaths
-    SchemaWrite --> SPaths
-    SchemaInitDir --> SPaths
-    SchemaInitDir --> Plat
-    SPaths --> SchemaSlug
-    SchemaSlug --> AppRoot
-    SchemaForType --> SchemaRead
 
     %% Help renderer (azdevops_help.ps1) — catalog-driven Out-ConsoleGridView
     %% drill-down. No az / cache interaction; pure presentation + Get-Command

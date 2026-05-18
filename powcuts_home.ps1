@@ -105,13 +105,6 @@ if ($azdevops_create -ne $NULL) {
     Write-Host "no azdevops_create.ps1"
 }
 
-$azdevops_schema = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
-if ($azdevops_schema -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
-} else {
-    Write-Host "no azdevops_schema.ps1"
-}
-
 $azdevops_openers = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_openers.ps1"
 if ($azdevops_openers -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_openers.ps1"
