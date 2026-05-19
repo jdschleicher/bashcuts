@@ -349,7 +349,7 @@ function Invoke-AzDevOpsHierarchyQueries {
     # AsArray=$true (the hierarchy descriptor does). The -Depth 10 here is
     # only for the in-flight envelope passed back to that helper; downstream
     # depth is governed by the descriptor's JsonDepth.
-    $mergedJson = ConvertTo-Json -InputObject @($merged) -Depth 10 -AsArray
+    $mergedJson = ConvertTo-Json -InputObject $merged -Depth 10 -AsArray
 
     $envelope = [PSCustomObject]@{
         Json     = $mergedJson
