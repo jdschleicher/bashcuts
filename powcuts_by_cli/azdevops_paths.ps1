@@ -360,22 +360,19 @@ function Invoke-AzDevOpsHierarchyQueries {
     # entire dataset opaquely. The cost is a string concat over per-item
     # JSON fragments - negligible at the tens-of-thousands-of-rows scale a
     # WIQL hierarchy returns.
-    $mergedJson = if ($merged.Count -eq 0) {
-        '[]'
-    }
-    else {
+    if ($merged.Count -eq 0) {
+        $mergedJson = '[]'
+    } else {
         $perItemJson = New-Object System.Collections.Generic.List[string]
         $rowIndex = 0
         foreach ($row in $merged) {
             try {
-                $rowJson = ConvertTo-Json -InputObject $row -Depth 10 -Compress
+                $rowJson = $row | ConvertTo-Json -Depth 10 -Compress
                 $perItemJson.Add($rowJson)
-            }
-            catch {
+            } catch {
                 $rowId = if ($row.id) {
                     $row.id
-                }
-                else {
+                } else {
                     "(row index $rowIndex)"
                 }
                 $perItemErrEnvelope = [PSCustomObject]@{
@@ -387,7 +384,7 @@ function Invoke-AzDevOpsHierarchyQueries {
             }
             $rowIndex++
         }
-        '[' + ($perItemJson -join ',') + ']'
+        $mergedJson = '[' + ($perItemJson -join ',') + ']'
     }
 
     $envelope = [PSCustomObject]@{
