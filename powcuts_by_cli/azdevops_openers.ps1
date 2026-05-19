@@ -10,6 +10,11 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
+function o-az-devops-openers {
+	Start-Process "$path_to_bashcuts\powcuts_by_cli\azdevops_openers.ps1"
+} 	
+
+
 function Open-AzDevOpsPathIfExists {
     # Private helper used by every public az-Open-AzDevOps* function in this
     # section. Centralizes the "exists? -> Start-Process, missing? -> yellow
@@ -48,14 +53,14 @@ function az-Open-AzDevOpsCacheDir {
 }
 
 
-function az-Open-AzDevOpsConfigDir {
+function o-az-devops-queries-config-dir {
     $paths = Get-AzDevOpsConfigPaths
     Open-AzDevOpsPathIfExists -Path $paths.QueriesDir `
         -HintMessage "Run az-Connect-AzDevOps (or az-Open-AzDevOpsHierarchyWiqls) to seed the default WIQL files."
 }
 
 
-function az-Open-AzDevOpsSchemaDir {
+function o-az-devops-schema-dir {
     $paths = Get-AzDevOpsSchemaPaths
     Open-AzDevOpsPathIfExists -Path $paths.Dir `
         -HintMessage "Run az-Initialize-AzDevOpsSchema (or az-Edit-AzDevOpsSchema) to create the schema directory."
