@@ -161,6 +161,17 @@ function Read-AzDevOpsJsonCache {
         return $null
     }
 
+    # When the cached JSON is an empty array [], ConvertFrom-Json's
+    # array output unwraps through the pipeline to zero items and $raw
+    # lands as $null. Without this guard, $null | ForEach-Object would
+    # still invoke the converter once with $_ = $null and trip the
+    # converter's [Parameter(Mandatory)] guard with a confusing
+    # "Cannot bind argument to parameter 'Raw' because it is null"
+    # error - surface a clean empty cache instead.
+    if ($null -eq $raw) {
+        return @()
+    }
+
     $items = @($raw | ForEach-Object { & $Converter $_ })
     return $items
 }
