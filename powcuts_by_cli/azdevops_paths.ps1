@@ -349,7 +349,46 @@ function Invoke-AzDevOpsHierarchyQueries {
     # AsArray=$true (the hierarchy descriptor does). The -Depth 10 here is
     # only for the in-flight envelope passed back to that helper; downstream
     # depth is governed by the descriptor's JsonDepth.
-    $mergedJson = ConvertTo-Json -InputObject @($merged) -Depth 10 -AsArray
+    #
+    # Per-item ConvertTo-Json (rather than one whole-collection call with
+    # -AsArray) dodges a "argument types do not match" reflection failure
+    # observed when ConvertTo-Json walks a heterogeneous List[object] of
+    # az-boards-query rows whose property shapes differ across tiers
+    # (System.Parent null for Epics vs int for Features/User Stories, plus
+    # variable _links sub-objects). Serializing each row in isolation also
+    # surfaces the offending row in the catch block instead of failing the
+    # entire dataset opaquely. The cost is a string concat over per-item
+    # JSON fragments - negligible at the tens-of-thousands-of-rows scale a
+    # WIQL hierarchy returns.
+    $mergedJson = if ($merged.Count -eq 0) {
+        '[]'
+    }
+    else {
+        $perItemJson = New-Object System.Collections.Generic.List[string]
+        $rowIndex = 0
+        foreach ($row in $merged) {
+            try {
+                $rowJson = ConvertTo-Json -InputObject $row -Depth 10 -Compress
+                $perItemJson.Add($rowJson)
+            }
+            catch {
+                $rowId = if ($row.id) {
+                    $row.id
+                }
+                else {
+                    "(row index $rowIndex)"
+                }
+                $perItemErrEnvelope = [PSCustomObject]@{
+                    Json     = ''
+                    Error    = "ConvertTo-Json failed on row $rowId : $($_.Exception.Message)"
+                    ExitCode = 1
+                }
+                return $perItemErrEnvelope
+            }
+            $rowIndex++
+        }
+        '[' + ($perItemJson -join ',') + ']'
+    }
 
     $envelope = [PSCustomObject]@{
         Json     = $mergedJson
