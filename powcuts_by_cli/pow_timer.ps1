@@ -432,6 +432,23 @@ function Start-TimerSession {
             $seconds = $Minutes * 60
             $countdownResult = Show-TimerCountdown -Seconds $seconds
 
+            if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.NotifyIcon').Type) {
+                Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            }
+
+            # Instantiate the objects cleanly
+            $Balloon = New-Object System.Windows.Forms.NotifyIcon
+            $Balloon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $PID).Path)
+
+            # Configure the alert elements
+            $Balloon.BalloonTipIcon  = [System.Windows.Forms.ToolTipIcon]::Warning
+            $Balloon.BalloonTipTitle = "🚨 POMODORO TASK EXPIRED! 🚨"
+            $Balloon.BalloonTipText  = "⏰ Time's up! Please provide debrief and next steps. 🛑"
+            $Balloon.Visible = $true
+
+            # Fire balloon simultaneously
+            $Balloon.ShowBalloonTip(0)
+
             Clear-Host
             $finishIcon = $script:TimerIconFinish
             Write-Host "$finishIcon SESSION COMPLETE! $finishIcon" -ForegroundColor Green
