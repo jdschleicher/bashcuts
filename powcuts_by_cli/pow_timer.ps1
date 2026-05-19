@@ -71,7 +71,7 @@ function Format-TimerElapsed {
 
     $minutes = [math]::Floor($Seconds / 60)
     $rem = $Seconds % 60
-    $display = '{0:D2}:{1:D2}' -f $minutes, $rem
+    $display = '{0:00}:{1:00}' -f $minutes, $rem
     return $display
 }
 
