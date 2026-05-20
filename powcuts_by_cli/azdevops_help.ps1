@@ -103,7 +103,7 @@ $script:AzDevOpsHelpCatalog = @(
         File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'Onboarding'
         Order         = 4
-        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations)'
+        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
         Args          = '(none)'
         Example       = 'az-Sync-AzDevOpsCache'
         RunsBefore    = 'az-Show-AzDevOpsTree (or any DailyRead function)'
@@ -284,34 +284,6 @@ $script:AzDevOpsHelpCatalog = @(
         RequiresSync  = 'No'
         DiagramAnchor = ''
         Issues        = @(57, 76)
-    },
-
-    [PSCustomObject]@{
-        Name          = 'az-Register-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_sync.ps1'
-        Phase         = 'MultiProject'
-        Order         = 3
-        Purpose       = 'Register background sync (Scheduled Task on Windows / cron on POSIX)'
-        Args          = '[-IntervalMinutes <n>]'
-        Example       = 'az-Register-AzDevOpsSyncSchedule -IntervalMinutes 30'
-        RunsBefore    = ''
-        RequiresSync  = 'No'
-        DiagramAnchor = '#10-az-register-az-unregister-azdevopssyncschedule--platform-branch'
-        Issues        = @(61)
-    },
-
-    [PSCustomObject]@{
-        Name          = 'az-Unregister-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_sync.ps1'
-        Phase         = 'MultiProject'
-        Order         = 4
-        Purpose       = 'Remove the background sync schedule (cron entry / Scheduled Task)'
-        Args          = '(none)'
-        Example       = 'az-Unregister-AzDevOpsSyncSchedule'
-        RunsBefore    = ''
-        RequiresSync  = 'No'
-        DiagramAnchor = '#10-az-register-az-unregister-azdevopssyncschedule--platform-branch'
-        Issues        = @()
     }
 )
 

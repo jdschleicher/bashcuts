@@ -11,7 +11,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
-- [10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#10-az-register-az-unregister-azdevopssyncschedule--platform-branch)
+- [10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#10-start-azdevopsbackgroundsync--silent-on-open-refresh)
 - [11. `Start-UnplannedWork` — firefighting session loop + debrief](#11-start-unplannedwork--firefighting-session-loop--debrief)
 - [12. Function dependency map](#12-function-dependency-map)
 
@@ -33,8 +33,7 @@ flowchart LR
         TestAuth["az-Test-AzDevOpsAuth"]
         Sync["az-Sync-AzDevOpsCache"]
         Status["az-Get-AzDevOpsCacheStatus"]
-        Reg["az-Register-AzDevOpsSyncSchedule"]
-        Unreg["az-Unregister-AzDevOpsSyncSchedule"]
+        BgSync["Start-AzDevOpsBackgroundSync<br/>(on-open, internal)"]
         GetA["az-Get-AzDevOpsAssigned"]
         OpenA["az-Open-AzDevOpsAssigned"]
         GetM["az-Get-AzDevOpsMentions"]
@@ -136,8 +135,7 @@ flowchart LR
     NewStory --> AreasJson
     NewStory --> AzBoards
 
-    Reg -.task scheduler / cron.-> Sync
-    Unreg -.removes schedule.-> Reg
+    BgSync -.spawns hidden pwsh when stale.-> Sync
 
     OpensFolders -.opens dir.-> Cache
     OpensFolders -.opens dir.-> Config
@@ -539,34 +537,38 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
+## 10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh
 
-Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
+Runs at dot-source time on every shell open (the guarded call at the bottom of `azdevops_sync.ps1`). A cheap foreground gate decides whether to spawn a detached, hidden `pwsh` running `az-Sync-AzDevOpsCache`. The network auth check is intentionally left to the child (`az-Sync-AzDevOpsCache` → `Assert-AzDevOpsAuthOrAbort`) so the interactive prompt is never blocked by a smoke query. The child inherits `AZ_DEVOPS_AUTOSYNC_CHILD`, so its own profile load skips re-spawning — no cascade.
 
 ```mermaid
 flowchart TD
-    Reg([az-Register-AzDevOpsSyncSchedule]) --> P1{Get-AzDevOpsPlatform}
-    P1 -- Windows --> WReg["New-ScheduledTaskAction + Trigger<br/>Register-ScheduledTask -TaskName<br/>Get-AzDevOpsScheduledTaskName<br/>(every Get-AzDevOpsSyncIntervalHours)"]
-    P1 -- Posix --> PReg["Get-AzDevOpsCronLine -PwshPath<br/>+ Get-AzDevOpsCrontabSplit<br/>append + crontab -"]
-    P1 -- Unknown --> ErrR([Unsupported OS])
-
-    Unreg([az-Unregister-AzDevOpsSyncSchedule]) --> P2{Get-AzDevOpsPlatform}
-    P2 -- Windows --> WUn["Get-ScheduledTask?<br/>Unregister-ScheduledTask -Confirm:$false"]
-    P2 -- Posix --> PUn["Get-AzDevOpsCrontabSplit<br/>(filter Get-AzDevOpsCronTag)<br/>crontab -"]
-    P2 -- Unknown --> ErrU([Unsupported OS])
+    Open([shell open: azdevops_sync.ps1 dot-sourced]) --> Bg([Start-AzDevOpsBackgroundSync])
+    Bg --> C1{AZ_DEVOPS_AUTOSYNC_CHILD set?}
+    C1 -- yes --> Skip([return — no-op])
+    C1 -- no --> C2{AZ_DEVOPS_NO_AUTOSYNC set?}
+    C2 -- yes --> Skip
+    C2 -- no --> C3{az present?}
+    C3 -- no --> Skip
+    C3 -- yes --> C4{cache stale or missing?}
+    C4 -- no --> Skip
+    C4 -- yes --> C5{autosync.lock active < 30 min?}
+    C5 -- yes --> Skip
+    C5 -- no --> Spawn["write autosync.lock<br/>set AZ_DEVOPS_AUTOSYNC_CHILD<br/>Start-Process pwsh -WindowStyle Hidden<br/>-Command az-Sync-AzDevOpsCache"]
+    Spawn --> Child([detached child loads $profile,<br/>auth-gates, runs az-Sync-AzDevOpsCache,<br/>logs to sync.log])
 
     classDef shared fill:#3a2a5f,stroke:#a070ff,color:#fff
-    class P1,P2 shared
+    class C1,C2,C3,C4,C5 shared
 ```
 
-Shared private helpers (named in CLAUDE.md):
+Private helpers:
 
-- `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'`
-- `Get-AzDevOpsScheduledTaskName` → `'BashcutsAzDevOpsSync'`
-- `Get-AzDevOpsSyncIntervalHours` → `5`
-- `Get-AzDevOpsCronTag` → `'# bashcuts-azdevops-sync'`
-- `Get-AzDevOpsCronLine -PwshPath` → assembled cron line
-- `Get-AzDevOpsCrontabSplit` → `{Other, HadBashcuts}` partition
+- `Get-AzDevOpsAutoSyncChildVar` → `'AZ_DEVOPS_AUTOSYNC_CHILD'` (loop guard for the spawned child)
+- `Get-AzDevOpsAutoSyncOptOutVar` → `'AZ_DEVOPS_NO_AUTOSYNC'` (user opt-out)
+- `Get-AzDevOpsAutoSyncLockPath` → `<cache dir>/autosync.lock`
+- `Get-AzDevOpsAutoSyncLockMaxAgeMinutes` → `30`
+- `Test-AzDevOpsAutoSyncLockActive` → `$true` when the lock is younger than the TTL
+- `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'` (retained — still used by `azdevops_schema.ps1`)
 
 ---
 
@@ -629,8 +631,7 @@ graph LR
     TestAuth(["az-Test-AzDevOpsAuth"]):::pub
     Sync(["az-Sync-AzDevOpsCache"]):::pub
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
-    Reg(["az-Register-AzDevOpsSyncSchedule"]):::pub
-    Unreg(["az-Unregister-AzDevOpsSyncSchedule"]):::pub
+    BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
     OpenA(["az-Open-AzDevOpsAssigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
@@ -727,13 +728,13 @@ graph LR
     CmdHead[Get-AzDevOpsCommandHeadline]:::priv
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
 
-    %% Schedule helpers
+    %% Platform + on-open background-sync helpers
     Plat[Get-AzDevOpsPlatform]:::priv
-    TaskName[Get-AzDevOpsScheduledTaskName]:::priv
-    Interval[Get-AzDevOpsSyncIntervalHours]:::priv
-    CronTag[Get-AzDevOpsCronTag]:::priv
-    CronLine[Get-AzDevOpsCronLine]:::priv
-    CronSplit[Get-AzDevOpsCrontabSplit]:::priv
+    AutoChild[Get-AzDevOpsAutoSyncChildVar]:::priv
+    AutoOptOut[Get-AzDevOpsAutoSyncOptOutVar]:::priv
+    AutoLockPath[Get-AzDevOpsAutoSyncLockPath]:::priv
+    AutoLockTtl[Get-AzDevOpsAutoSyncLockMaxAgeMinutes]:::priv
+    AutoLockActive[Test-AzDevOpsAutoSyncLockActive]:::priv
 
     %% Read helpers
     ReadJson[Read-AzDevOpsJsonCache]:::priv
@@ -907,14 +908,14 @@ graph LR
 
     Status --> Age --> Paths
     Status --> StatusRows --> ShowRows
-    Reg --> Plat
-    Reg --> TaskName
-    Reg --> Interval
-    Reg --> CronLine --> CronTag
-    Reg --> CronSplit --> CronTag
-    Unreg --> Plat
-    Unreg --> TaskName
-    Unreg --> CronSplit
+    BgSync --> AutoChild
+    BgSync --> AutoOptOut
+    BgSync --> TCli
+    BgSync --> Age
+    BgSync --> AutoLockPath --> Paths
+    BgSync --> AutoLockActive --> AutoLockTtl
+    BgSync --> InitDir
+    BgSync -.spawns hidden pwsh.-> Sync
 
     ReadA --> ReadJson --> Paths
     ReadA --> ConvA

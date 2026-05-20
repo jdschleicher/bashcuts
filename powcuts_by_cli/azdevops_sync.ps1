@@ -1,9 +1,10 @@
 # ============================================================================
-# Azure DevOps — Cache sync engine + scheduling
+# Azure DevOps — Cache sync engine + on-open background refresh
 # ============================================================================
 # Backs az-Sync-AzDevOpsCache (the orchestrator), az-Get-AzDevOpsCacheStatus
-# (table-of-staleness reader), and the Register-/Unregister-AzDevOpsSyncSchedule
-# pair (Windows scheduled task on Win, cron entry on macOS/Linux).
+# (table-of-staleness reader), and Start-AzDevOpsBackgroundSync (the silent
+# on-shell-open refresh that spawns a detached, hidden pwsh when the cache has
+# gone stale).
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
@@ -395,9 +396,8 @@ function az-Get-AzDevOpsCacheStatus {
 
 
 # ---------------------------------------------------------------------------
-# Scheduling helpers — shared by Register-/az-Unregister-AzDevOpsSyncSchedule
-# so the platform branch and the cron-tag filter live in one place each
-# (CLAUDE.md explicitly names Get-AzDevOpsPlatform / Get-AzDevOpsCronLine).
+# Platform helper — kept here (rather than inlined) because azdevops_schema.ps1
+# also branches on it (CLAUDE.md explicitly names Get-AzDevOpsPlatform).
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsPlatform {
@@ -407,105 +407,113 @@ function Get-AzDevOpsPlatform {
 }
 
 
-function Get-AzDevOpsScheduledTaskName {
-    return 'BashcutsAzDevOpsSync'
+# ---------------------------------------------------------------------------
+# On-open background refresh
+#
+# Start-AzDevOpsBackgroundSync runs at dot-source time (see the guarded call at
+# the bottom of this file). It keeps the foreground gate cheap — opt-out env
+# var, az present, stale/missing cache, no active lock — then spawns a detached,
+# hidden pwsh running az-Sync-AzDevOpsCache so the interactive prompt is never
+# blocked. The network auth check is intentionally NOT done in the foreground
+# (az-Test-AzDevOpsAuth runs a smoke query that would stall the shell); it lives
+# inside the child instead, where az-Sync-AzDevOpsCache calls
+# Assert-AzDevOpsAuthOrAbort and exits quietly if the session isn't connected.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsAutoSyncOptOutVar {
+    return 'AZ_DEVOPS_NO_AUTOSYNC'
 }
 
 
-function Get-AzDevOpsSyncIntervalHours {
-    return 5
+function Get-AzDevOpsAutoSyncChildVar {
+    return 'AZ_DEVOPS_AUTOSYNC_CHILD'
 }
 
 
-function Get-AzDevOpsCronTag {
-    return '# bashcuts-azdevops-sync'
+function Get-AzDevOpsAutoSyncLockMaxAgeMinutes {
+    return 30
 }
 
 
-function Get-AzDevOpsCronLine {
-    param([Parameter(Mandatory)] [string] $PwshPath)
-    $tag = Get-AzDevOpsCronTag
-    $hours = Get-AzDevOpsSyncIntervalHours
-    return "0 */$hours * * * $PwshPath -Command `"az-Sync-AzDevOpsCache`" $tag"
+function Get-AzDevOpsAutoSyncLockPath {
+    $paths = Get-AzDevOpsCachePaths
+    $lockPath = Join-Path $paths.Dir 'autosync.lock'
+    return $lockPath
 }
 
 
-function Get-AzDevOpsCrontabSplit {
-    # Reads the current crontab and partitions it into bashcuts-tagged lines
-    # vs everything else. Returns the non-bashcuts lines plus a HadBashcuts
-    # flag so Unregister doesn't have to re-grep to know whether it changed
-    # anything. crontab returning no output / nonzero is normalized to empty.
-    $tag = Get-AzDevOpsCronTag
-    $existingRaw = crontab -l 2>$null
+function Test-AzDevOpsAutoSyncLockActive {
+    # A lock younger than the TTL means another terminal (or an in-flight child)
+    # already kicked a sync, so this open should not spawn another. A stale lock
+    # (older than the TTL, e.g. a crashed child) is treated as inactive so a
+    # later open can retry.
+    param([Parameter(Mandatory)] [string] $LockPath)
 
-    if (-not $existingRaw) {
-        return [PSCustomObject]@{ Other = @(); HadBashcuts = $false }
+    if (-not (Test-Path -LiteralPath $LockPath)) {
+        return $false
     }
 
-    $allLines = @($existingRaw -split "`n" | Where-Object { $_ })
-    $otherLines = @($allLines | Where-Object { $_ -notmatch [regex]::Escape($tag) })
-    $hadBashcuts = ($otherLines.Count -lt $allLines.Count)
+    $lockAge = (Get-Date) - (Get-Item -LiteralPath $LockPath).LastWriteTime
+    $maxAge = Get-AzDevOpsAutoSyncLockMaxAgeMinutes
 
-    return [PSCustomObject]@{ Other = $otherLines; HadBashcuts = $hadBashcuts }
+    $isActive = ($lockAge.TotalMinutes -lt $maxAge)
+    return $isActive
 }
 
 
-function az-Register-AzDevOpsSyncSchedule {
-    $platform = Get-AzDevOpsPlatform
-    # Loads the user's $profile so $env:AZ_* and the dot-sourced module are
-    # available; without -NoProfile, the scheduled invocation has the same
-    # context as an interactive shell.
+function Start-AzDevOpsBackgroundSync {
+    $childVar = Get-AzDevOpsAutoSyncChildVar
+    if ([Environment]::GetEnvironmentVariable($childVar)) {
+        return
+    }
+
+    $optOutVar = Get-AzDevOpsAutoSyncOptOutVar
+    if ([Environment]::GetEnvironmentVariable($optOutVar)) {
+        return
+    }
+
+    if (-not (Test-AzDevOpsCliPresent)) {
+        return
+    }
+
+    $cacheAge = Get-AzDevOpsCacheAge
+    $isStale = ($null -eq $cacheAge) -or $cacheAge.IsStale
+    if (-not $isStale) {
+        return
+    }
+
+    $lockPath = Get-AzDevOpsAutoSyncLockPath
+    if (Test-AzDevOpsAutoSyncLockActive -LockPath $lockPath) {
+        return
+    }
+
+    $paths = Initialize-AzDevOpsCacheDir
+    Set-Content -LiteralPath $lockPath -Value (Get-Date).ToString('o')
+
     $pwshPath = (Get-Process -Id $PID).Path
-    $hours = Get-AzDevOpsSyncIntervalHours
 
-    if ($platform -eq 'Windows') {
-        $taskName = Get-AzDevOpsScheduledTaskName
-        $action = New-ScheduledTaskAction -Execute $pwshPath -Argument "-Command `"az-Sync-AzDevOpsCache`""
-        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-            -RepetitionInterval (New-TimeSpan -Hours $hours)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
-        Write-Host "Registered: scheduled task '$taskName' (every $hours hours)" -ForegroundColor Green
-        return
+    # Set the child marker on this process's environment so the spawned pwsh —
+    # which loads $profile to pull in az-Sync-AzDevOpsCache and $env:AZ_* — sees
+    # it during its own profile load and skips re-spawning (no infinite cascade).
+    # Start-Process snapshots the environment at creation, so clearing the marker
+    # immediately afterward leaves the parent session clean.
+    [Environment]::SetEnvironmentVariable($childVar, '1')
+    try {
+        Start-Process -FilePath $pwshPath `
+            -ArgumentList '-Command', 'az-Sync-AzDevOpsCache' `
+            -WindowStyle Hidden
     }
-
-    if ($platform -eq 'Posix') {
-        $cronLine = Get-AzDevOpsCronLine -PwshPath $pwshPath
-        $split = Get-AzDevOpsCrontabSplit
-        $newCron = (@($split.Other) + $cronLine) -join "`n"
-        $newCron | crontab -
-        Write-Host "Registered: cron entry - $cronLine" -ForegroundColor Green
-        return
+    finally {
+        [Environment]::SetEnvironmentVariable($childVar, $null)
     }
-
-    Write-Host "Unsupported OS for az-Register-AzDevOpsSyncSchedule" -ForegroundColor Red
 }
 
 
-function az-Unregister-AzDevOpsSyncSchedule {
-    $platform = Get-AzDevOpsPlatform
-
-    if ($platform -eq 'Windows') {
-        $taskName = Get-AzDevOpsScheduledTaskName
-        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-            Write-Host "Unregistered: scheduled task '$taskName'" -ForegroundColor Green
-        }
-        else {
-            Write-Host "No scheduled task '$taskName' to remove" -ForegroundColor Yellow
-        }
-        return
-    }
-
-    if ($platform -eq 'Posix') {
-        $split = Get-AzDevOpsCrontabSplit
-        if (-not $split.HadBashcuts) {
-            Write-Host "No bashcuts-azdevops-sync cron entry to remove" -ForegroundColor Yellow
-            return
-        }
-        ($split.Other -join "`n") | crontab -
-        Write-Host "Unregistered: removed bashcuts-azdevops-sync cron entry" -ForegroundColor Green
-        return
-    }
-
-    Write-Host "Unsupported OS for az-Unregister-AzDevOpsSyncSchedule" -ForegroundColor Red
+# On shell open: kick a detached, silent refresh when the cache has gone stale.
+# Wrapped so a failure here can never break an interactive shell's profile load.
+try {
+    Start-AzDevOpsBackgroundSync
+}
+catch {
+    # swallow — the on-open refresh is best-effort and must not break the shell
 }
