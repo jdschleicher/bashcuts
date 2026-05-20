@@ -105,6 +105,13 @@ if ($azdevops_create -ne $NULL) {
     Write-Host "no azdevops_create.ps1"
 }
 
+$azdevops_unplanned = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
+if ($azdevops_unplanned -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
+} else {
+    Write-Host "no azdevops_unplanned.ps1"
+}
+
 $azdevops_schema = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
 if ($azdevops_schema -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"

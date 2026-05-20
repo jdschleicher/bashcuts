@@ -315,6 +315,31 @@ function Add-AzDevOpsDiscussionComment {
 }
 
 
+function Set-AzDevOpsWorkItemField {
+    # `az boards work-item update --id <id> --fields Field=value ...` wrapper.
+    # Each entry of -Fields is a 'Ref.Name=value' assignment (e.g.
+    # 'System.Description=...'). Field tokens are validated the same way
+    # New-AzDevOpsWorkItem validates them so a stray '--'-prefixed value can't
+    # escape the variadic --fields slot and be reinterpreted as a new flag.
+    # Returns the canonical { Json, Error, ExitCode } envelope.
+    param(
+        [Parameter(Mandatory)] [int]      $Id,
+        [Parameter(Mandatory)] [string[]] $Fields
+    )
+
+    foreach ($f in $Fields) {
+        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
+            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
+        }
+    }
+
+    $argList = @('boards', 'work-item', 'update', '--id', "$Id", '--fields') + $Fields
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    return $result
+}
+
+
 function Get-AzDevOpsWorkItemTypeDefinition {
     # `az devops invoke --area wit --resource workitemtypes` wrapper. Returns
     # the type's field-instance definitions inside the canonical envelope so
