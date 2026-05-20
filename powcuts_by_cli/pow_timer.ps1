@@ -6,7 +6,7 @@
 #                                prompt for debrief -> post comment.
 #                                Press Esc during the countdown to end early
 #                                and still post a debrief.
-#   Register-TimerIntegration  - add an integration (Name, Description,
+#   az-Register-TimerIntegration  - add an integration (Name, Description,
 #                                FetchItems, AddComment, optional ViewHint).
 #                                Registering with an existing Name replaces it.
 #
@@ -169,7 +169,7 @@ function Read-TimerPick {
 }
 
 
-function Register-TimerIntegration {
+function az-Register-TimerIntegration {
     # Append (or replace by Name) an integration entry to
     # $script:TimerIntegrations. Replace-on-collision lets the user override
     # the built-in AzDO integration from their $profile without editing
@@ -394,7 +394,7 @@ function az-Start-TimerSession {
 
     $integrations = @($script:TimerIntegrations)
     if ($integrations.Count -eq 0) {
-        Write-Host "No timer integrations registered. Add one via Register-TimerIntegration." -ForegroundColor Yellow
+        Write-Host "No timer integrations registered. Add one via az-Register-TimerIntegration." -ForegroundColor Yellow
         return
     }
 
@@ -521,7 +521,7 @@ function az-Start-TimerSession {
 # debrief through the Add-AzDevOpsDiscussionComment wrapper in azdevops_db.ps1.
 # ---------------------------------------------------------------------------
 
-Register-TimerIntegration `
+az-Register-TimerIntegration `
     -Name        'Azure DevOps - User Stories' `
     -Description 'Pick from cached AzDO assigned work items, sorted by State + Priority' `
     -FetchItems  {

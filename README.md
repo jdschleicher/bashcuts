@@ -480,7 +480,7 @@ After an interrupted session's comment posts, you're asked `Start a new session?
 Add to your `$profile` (or any file dot-sourced from it). Registering with an existing `Name` replaces the prior entry, so you can override the built-in AzDO integration without touching tracked code.
 
 ```powershell
-Register-TimerIntegration `
+az-Register-TimerIntegration `
     -Name        'My Tracker' `
     -Description 'Items from my custom tracker' `
     -FetchItems  {
