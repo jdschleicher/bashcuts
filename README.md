@@ -5,6 +5,7 @@
 * [How to use bashcuts](#how-to)
 * [Azure DevOps work-item shortcuts](#azure-devops)
 * [Timer sessions](#timer-sessions)
+* [Unplanned work sessions](#unplanned-work)
 
 <br>
 
@@ -496,4 +497,45 @@ Register-TimerIntegration `
         "View: my-tracker open $Id"
     }
 ```
+
+<br>
+
+***
+
+# <a name="unplanned-work"></a>Unplanned work sessions
+
+`Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
+
+### Run a session
+
+```powershell
+# Prompts for the firefight title, reminds every 5 min
+Start-UnplannedWork
+
+# Skip the title prompt, custom reminder cadence
+Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
+
+# No balloon reminder
+Start-UnplannedWork -NoReminder
+```
+
+Flow:
+1. Finds (or creates) today's daily **Unplanned Work** story, then creates a child **Task** for this firefight and links it
+2. Runs a foreground session — press **Space** to log a timestamped item, **Esc/Q** to stop
+3. A reminder balloon pops every `-ReminderMinutes` until you stop
+4. On stop: captured items flush to the Task **description**, then you're prompted for debrief notes and whether there's an opportunity for a new feature / user story to prevent the firefight in future (it can spin one up via `az-New-AzDevOpsUserStory`). A single debrief comment (time spent + notes + opportunity) is posted on the Task.
+
+Start three separate firefights in a day and you get three Tasks under the one daily story — exactly the "three different chats, three different efforts" shape.
+
+### End-of-day roll-up
+
+```powershell
+# Today
+New-UnplannedWorkDebrief
+
+# A past day
+New-UnplannedWorkDebrief -Date 2026-05-19
+```
+
+Reads the day's local ledger (kept under the AzDO cache dir so total time can be summed — AzDO doesn't store per-session minutes), prints the per-Task breakdown with total time, and on confirm posts a roll-up comment on the daily story.
 
