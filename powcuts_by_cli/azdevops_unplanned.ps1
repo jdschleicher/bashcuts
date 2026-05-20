@@ -484,6 +484,75 @@ function Format-UnplannedDailyDebrief {
 }
 
 
+function Invoke-UnplannedDebrief {
+    # Stop-of-session tail, split out of Start-UnplannedWork so the orchestrator
+    # reads as gate -> story -> task -> loop -> debrief. Flushes the captured
+    # items to the Task description, prompts for debrief notes + an optional
+    # future-feature opportunity (offering to create a user story for it via
+    # az-New-AzDevOpsUserStory), posts the debrief comment, and records the
+    # session in the day's ledger. Elapsed minutes come from $StartTime so the
+    # recorded time is accurate regardless of the on-screen counter.
+    param(
+        [Parameter(Mandatory)] [int]      $TaskId,
+        [Parameter(Mandatory)] [int]      $StoryId,
+        [Parameter(Mandatory)] [string]   $Title,
+        [Parameter(Mandatory)] [datetime] $StartTime,
+        [object[]] $Items
+    )
+
+    $itemList = @($Items)
+
+    $elapsedMinutes = [int][math]::Round(((Get-Date) - $StartTime).TotalMinutes)
+    if ($elapsedMinutes -lt 1) {
+        $elapsedMinutes = 1
+    }
+
+    Clear-Host
+    $iconCheck = $script:UnplannedIconCheck
+    Write-Host "$iconCheck Unplanned session complete - $elapsedMinutes min, $($itemList.Count) item(s)." -ForegroundColor Green
+    Write-Host ""
+
+    $descriptionBody = Format-UnplannedItemsDescription -TaskTitle $Title -Items $itemList
+    Write-Host "Updating Task #$TaskId description with captured items..." -ForegroundColor Cyan
+    $descResult = Set-AzDevOpsWorkItemField -Id $TaskId -Fields @("System.Description=$descriptionBody")
+    if ($descResult.ExitCode -ne 0) {
+        Write-Host "  Could not update description: $($descResult.Error)" -ForegroundColor Yellow
+    }
+
+    $iconMemo = $script:UnplannedIconMemo
+    $debrief = Read-Host "$iconMemo Debrief notes for this firefight"
+
+    $futureFeature = ''
+    if (Read-UnplannedYesNo -Prompt 'Is there an opportunity for a new feature / user story to prevent this firefight in future?') {
+        $futureFeature = Read-Host '  Describe the opportunity (one line)'
+
+        if ($futureFeature -and (Read-UnplannedYesNo -Prompt '  Create that user story now?')) {
+            if (Get-Command az-New-AzDevOpsUserStory -ErrorAction SilentlyContinue) {
+                az-New-AzDevOpsUserStory -Title $futureFeature | Out-Null
+            }
+        }
+    }
+
+    $commentBody = Format-UnplannedDebriefComment `
+        -ElapsedMinutes $elapsedMinutes `
+        -ItemCount      $itemList.Count `
+        -Debrief        $debrief `
+        -FutureFeature  $futureFeature
+
+    Write-Host ""
+    Write-Host "Posting debrief comment to Task #$TaskId..." -ForegroundColor Cyan
+    $commentResult = Add-AzDevOpsDiscussionComment -Id $TaskId -Body $commentBody
+    if ($commentResult.ExitCode -eq 0) {
+        Write-Host "$iconCheck Debrief posted on Task #$TaskId." -ForegroundColor Green
+        Write-Host "   View: az-Open-AzDevOpsAssigned $TaskId" -ForegroundColor DarkGray
+    } else {
+        Write-Host "Debrief comment failed: $($commentResult.Error)" -ForegroundColor Red
+    }
+
+    Add-UnplannedLedgerEntry -StoryId $StoryId -TaskId $TaskId -Title $Title -Minutes $elapsedMinutes -ItemCount $itemList.Count
+}
+
+
 function Start-UnplannedWork {
     # Orchestrator. Find-or-create today's daily story, create a child Task for
     # this firefight, then run the foreground session: Space logs a timestamped
@@ -574,6 +643,7 @@ function Start-UnplannedWork {
                         $items.Add($record)
                     }
 
+                    $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
                     Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
                     break
                 }
@@ -585,7 +655,10 @@ function Start-UnplannedWork {
                 break
             }
 
-            $elapsed++
+            # Drive the display from wall-clock, not the iteration count - the
+            # space branch's blocking Read-Host means a single iteration can
+            # span many seconds, so $elapsed++ would undercount.
+            $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
 
             Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
 
@@ -595,57 +668,7 @@ function Start-UnplannedWork {
             }
         }
 
-        $endTime = Get-Date
-        $elapsedMinutes = [int][math]::Round(($endTime - $startTime).TotalMinutes)
-        if ($elapsedMinutes -lt 1) {
-            $elapsedMinutes = 1
-        }
-
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-        Clear-Host
-        $iconCheck = $script:UnplannedIconCheck
-        Write-Host "$iconCheck Unplanned session complete - $elapsedMinutes min, $($items.Count) item(s)." -ForegroundColor Green
-        Write-Host ""
-
-        $descriptionBody = Format-UnplannedItemsDescription -TaskTitle $Title -Items @($items)
-        Write-Host "Updating Task #$taskId description with captured items..." -ForegroundColor Cyan
-        $descResult = Set-AzDevOpsWorkItemField -Id $taskId -Fields @("System.Description=$descriptionBody")
-        if ($descResult.ExitCode -ne 0) {
-            Write-Host "  Could not update description: $($descResult.Error)" -ForegroundColor Yellow
-        }
-
-        $iconMemo = $script:UnplannedIconMemo
-        $debrief = Read-Host "$iconMemo Debrief notes for this firefight"
-
-        $futureFeature = ''
-        if (Read-UnplannedYesNo -Prompt 'Is there an opportunity for a new feature / user story to prevent this firefight in future?') {
-            $futureFeature = Read-Host '  Describe the opportunity (one line)'
-
-            if ($futureFeature -and (Read-UnplannedYesNo -Prompt '  Create that user story now?')) {
-                if (Get-Command az-New-AzDevOpsUserStory -ErrorAction SilentlyContinue) {
-                    az-New-AzDevOpsUserStory -Title $futureFeature | Out-Null
-                }
-            }
-        }
-
-        $commentBody = Format-UnplannedDebriefComment `
-            -ElapsedMinutes $elapsedMinutes `
-            -ItemCount      $items.Count `
-            -Debrief        $debrief `
-            -FutureFeature  $futureFeature
-
-        Write-Host ""
-        Write-Host "Posting debrief comment to Task #$taskId..." -ForegroundColor Cyan
-        $commentResult = Add-AzDevOpsDiscussionComment -Id $taskId -Body $commentBody
-        if ($commentResult.ExitCode -eq 0) {
-            Write-Host "$iconCheck Debrief posted on Task #$taskId." -ForegroundColor Green
-            Write-Host "   View: az-Open-AzDevOpsAssigned $taskId" -ForegroundColor DarkGray
-        } else {
-            Write-Host "Debrief comment failed: $($commentResult.Error)" -ForegroundColor Red
-        }
-
-        Add-UnplannedLedgerEntry -StoryId $storyId -TaskId $taskId -Title $Title -Minutes $elapsedMinutes -ItemCount $items.Count
+        Invoke-UnplannedDebrief -TaskId $taskId -StoryId $storyId -Title $Title -StartTime $startTime -Items @($items)
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding

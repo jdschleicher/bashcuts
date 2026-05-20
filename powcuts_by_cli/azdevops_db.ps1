@@ -213,6 +213,23 @@ function Get-AzDevOpsClassificationList {
 }
 
 
+function Assert-AzDevOpsFieldTokens {
+    # Guards the variadic `--fields` slot shared by New-AzDevOpsWorkItem and
+    # Set-AzDevOpsWorkItemField: every entry must be a 'Ref.Name=value'
+    # assignment so a stray `--`-prefixed token can't escape the slot and be
+    # reinterpreted by az's argparse as a new flag. The value (after the first
+    # '=') is intentionally unconstrained. Throws on the first malformed token.
+    # Private helper (unapproved verb is fine - not user-facing).
+    param([string[]] $Fields)
+
+    foreach ($f in $Fields) {
+        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
+            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
+        }
+    }
+}
+
+
 function New-AzDevOpsWorkItem {
     # `az boards work-item create` wrapper. Title and Type are required; every
     # other parameter is optional so callers can populate only what they have.
@@ -231,15 +248,7 @@ function New-AzDevOpsWorkItem {
         [switch]   $Open
     )
 
-    # Reject `--`-prefixed or otherwise malformed field tokens so a stray
-    # value cannot escape the variadic --fields slot and be reinterpreted
-    # by az's argparse as a new flag (defense in depth — callers are
-    # interactive and self-trusted but the class of bug is worth killing).
-    foreach ($f in $Fields) {
-        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
-            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
-        }
-    }
+    Assert-AzDevOpsFieldTokens -Fields $Fields
 
     $argList = @(
         'boards', 'work-item', 'create',
@@ -327,11 +336,7 @@ function Set-AzDevOpsWorkItemField {
         [Parameter(Mandatory)] [string[]] $Fields
     )
 
-    foreach ($f in $Fields) {
-        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
-            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
-        }
-    }
+    Assert-AzDevOpsFieldTokens -Fields $Fields
 
     $argList = @('boards', 'work-item', 'update', '--id', "$Id", '--fields') + $Fields
 
