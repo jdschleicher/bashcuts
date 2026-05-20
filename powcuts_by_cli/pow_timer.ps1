@@ -2,7 +2,7 @@
 # Timer sessions — integration-agnostic Pomodoro timer with auto-debrief
 #
 # Public surface:
-#   Start-TimerSession         - pick integration -> pick item -> run timer ->
+#   az-Start-TimerSession         - pick integration -> pick item -> run timer ->
 #                                prompt for debrief -> post comment.
 #                                Press Esc during the countdown to end early
 #                                and still post a debrief.
@@ -366,7 +366,7 @@ function Format-TimerCommentBody {
         "$iconRocket Next:",
         $Next,
         '',
-        '<em>via bashcuts Start-TimerSession</em>'
+        '<em>via bashcuts az-Start-TimerSession</em>'
     )
 
     $body = $lines -join '<br/>'
@@ -374,7 +374,7 @@ function Format-TimerCommentBody {
 }
 
 
-function Start-TimerSession {
+function az-Start-TimerSession {
     # Orchestrator. Pick an integration (or use -Integration to skip),
     # fetch + pick an item, run the snake countdown (Esc to end early),
     # prompt for debrief notes, post the composed comment via the chosen

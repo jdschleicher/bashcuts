@@ -6,14 +6,14 @@
 # Story; every firefight you start becomes a child Task with its own debrief.
 #
 # Public surface:
-#   Start-UnplannedWork      - find-or-create today's daily story, create a
+#   az-Start-UnplannedWork      - find-or-create today's daily story, create a
 #                              child Task for this firefight, then run a
 #                              foreground session: press Space to log an item,
 #                              Esc/Q to stop and debrief. A reminder balloon
 #                              pops every -ReminderMinutes until you stop. On
 #                              stop the captured items flush to the Task
 #                              description and a debrief comment is posted.
-#   New-UnplannedWorkDebrief - read the day's ledger, total the time across all
+#   az-New-UnplannedWorkDebrief - read the day's ledger, total the time across all
 #                              firefights, and post a roll-up comment on the
 #                              daily story.
 #
@@ -382,7 +382,7 @@ function Format-UnplannedDebriefComment {
         $lines += ''
     }
 
-    $lines += '<em>via bashcuts Start-UnplannedWork</em>'
+    $lines += '<em>via bashcuts az-Start-UnplannedWork</em>'
 
     $body = $lines -join '<br/>'
     return $body
@@ -390,7 +390,7 @@ function Format-UnplannedDebriefComment {
 
 
 function Get-UnplannedLedgerPath {
-    # Per-day ledger under the AzDO cache dir so New-UnplannedWorkDebrief can
+    # Per-day ledger under the AzDO cache dir so az-New-UnplannedWorkDebrief can
     # total time across firefights (AzDO doesn't store our per-session minutes).
     # Returns $null when the cache layout isn't available.
     param([datetime] $Date = (Get-Date))
@@ -477,7 +477,7 @@ function Format-UnplannedDailyDebrief {
     }
 
     $lines += ''
-    $lines += '<em>via bashcuts New-UnplannedWorkDebrief</em>'
+    $lines += '<em>via bashcuts az-New-UnplannedWorkDebrief</em>'
 
     $body = $lines -join '<br/>'
     return $body
@@ -485,7 +485,7 @@ function Format-UnplannedDailyDebrief {
 
 
 function Invoke-UnplannedDebrief {
-    # Stop-of-session tail, split out of Start-UnplannedWork so the orchestrator
+    # Stop-of-session tail, split out of az-Start-UnplannedWork so the orchestrator
     # reads as gate -> story -> task -> loop -> debrief. Flushes the captured
     # items to the Task description, prompts for debrief notes + an optional
     # future-feature opportunity (offering to create a user story for it via
@@ -553,13 +553,13 @@ function Invoke-UnplannedDebrief {
 }
 
 
-function Start-UnplannedWork {
+function az-Start-UnplannedWork {
     # Orchestrator. Find-or-create today's daily story, create a child Task for
     # this firefight, then run the foreground session: Space logs a timestamped
     # item, Esc/Q stops. A reminder balloon fires every -ReminderMinutes. On
     # stop the captured items flush to the Task description and a debrief comment
     # (time spent + notes + optional future-feature opportunity) is posted; the
-    # session is recorded in the day's ledger for New-UnplannedWorkDebrief.
+    # session is recorded in the day's ledger for az-New-UnplannedWorkDebrief.
     #
     # UTF-8 output encoding is applied around the loop so the glyphs render in
     # non-UTF-8 codepages, and restored on exit (including Ctrl-C) via finally.
@@ -570,7 +570,7 @@ function Start-UnplannedWork {
         [switch] $NoReminder
     )
 
-    if (-not (Test-AzDevOpsCreateGate -CommandName 'Start-UnplannedWork')) {
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-Start-UnplannedWork')) {
         return
     }
 
@@ -679,14 +679,14 @@ function Start-UnplannedWork {
 }
 
 
-function New-UnplannedWorkDebrief {
+function az-New-UnplannedWorkDebrief {
     # End-of-day roll-up. Reads the day's ledger, totals time across firefights,
     # prints the per-Task breakdown, and (on confirm) posts a roll-up comment on
     # the daily story. -Date debriefs a past day's ledger.
     [CmdletBinding()]
     param([datetime] $Date = (Get-Date))
 
-    if (-not (Test-AzDevOpsCreateGate -CommandName 'New-UnplannedWorkDebrief')) {
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-UnplannedWorkDebrief')) {
         return
     }
 

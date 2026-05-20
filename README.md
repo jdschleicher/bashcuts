@@ -445,19 +445,19 @@ Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline
 
 # <a name="timer-sessions"></a>Timer sessions
 
-`Start-TimerSession` runs a focus-timer Pomodoro against an item from one of your registered integrations and auto-posts your debrief notes as a discussion comment on the chosen item. The Azure DevOps integration is registered out of the box — it reads your cached assigned items (`az-Sync-AzDevOpsCache`), shows them sorted by State + Priority, and posts the debrief via `az boards work-item update --discussion`.
+`az-Start-TimerSession` runs a focus-timer Pomodoro against an item from one of your registered integrations and auto-posts your debrief notes as a discussion comment on the chosen item. The Azure DevOps integration is registered out of the box — it reads your cached assigned items (`az-Sync-AzDevOpsCache`), shows them sorted by State + Priority, and posts the debrief via `az boards work-item update --discussion`.
 
 ### Run a session
 
 ```powershell
 # 25-minute default
-Start-TimerSession
+az-Start-TimerSession
 
 # Custom duration
-Start-TimerSession -Minutes 45
+az-Start-TimerSession -Minutes 45
 
 # Skip the integration picker (one registered integration is also auto-selected)
-Start-TimerSession -Integration 'Azure DevOps - User Stories'
+az-Start-TimerSession -Integration 'Azure DevOps - User Stories'
 ```
 
 Flow:
@@ -504,19 +504,19 @@ Register-TimerIntegration `
 
 # <a name="unplanned-work"></a>Unplanned work sessions
 
-`Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
+`az-Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
 
 ### Run a session
 
 ```powershell
 # Prompts for the firefight title, reminds every 5 min
-Start-UnplannedWork
+az-Start-UnplannedWork
 
 # Skip the title prompt, custom reminder cadence
-Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
+az-Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
 
 # No balloon reminder
-Start-UnplannedWork -NoReminder
+az-Start-UnplannedWork -NoReminder
 ```
 
 Flow:
@@ -531,10 +531,10 @@ Start three separate firefights in a day and you get three Tasks under the one d
 
 ```powershell
 # Today
-New-UnplannedWorkDebrief
+az-New-UnplannedWorkDebrief
 
 # A past day
-New-UnplannedWorkDebrief -Date 2026-05-19
+az-New-UnplannedWorkDebrief -Date 2026-05-19
 ```
 
 Reads the day's local ledger (kept under the AzDO cache dir so total time can be summed — AzDO doesn't store per-session minutes), prints the per-Task breakdown with total time, and on confirm posts a roll-up comment on the daily story.

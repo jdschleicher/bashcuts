@@ -12,7 +12,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
 - [10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#10-az-register-az-unregister-azdevopssyncschedule--platform-branch)
-- [11. `Start-UnplannedWork` — firefighting session loop + debrief](#11-start-unplannedwork--firefighting-session-loop--debrief)
+- [11. `az-Start-UnplannedWork` — firefighting session loop + debrief](#11-az-start-unplannedwork--firefighting-session-loop--debrief)
 - [12. Function dependency map](#12-function-dependency-map)
 
 ---
@@ -570,13 +570,13 @@ Shared private helpers (named in CLAUDE.md):
 
 ---
 
-## 11. `Start-UnplannedWork` — firefighting session loop + debrief
+## 11. `az-Start-UnplannedWork` — firefighting session loop + debrief
 
-Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
+Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `az-New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
 ```mermaid
 flowchart TD
-    Start([Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
+    Start([az-Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
     Gate -- false --> Abort1([abort])
     Gate -- true --> Daily[Get-UnplannedWorkDailyStory]
 
@@ -603,7 +603,7 @@ flowchart TD
     PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
-    DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
+    DebriefDay([az-New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
     ReadLedger --> Rollup["Format-UnplannedDailyDebrief<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
 
@@ -657,8 +657,8 @@ graph LR
     FindProj(["az-Find-AzDevOpsProject"]):::pub
 
     %% Unplanned work sessions (azdevops_unplanned.ps1)
-    StartUW(["Start-UnplannedWork"]):::pub
-    NewUWDebrief(["New-UnplannedWorkDebrief"]):::pub
+    StartUW(["az-Start-UnplannedWork"]):::pub
+    NewUWDebrief(["az-New-UnplannedWorkDebrief"]):::pub
     GetDaily[Get-UnplannedWorkDailyStory]:::priv
     FindUW[Find-UnplannedWorkStoryId]:::priv
     NewUWStory[New-UnplannedWorkStory]:::priv
