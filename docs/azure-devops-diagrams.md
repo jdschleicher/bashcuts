@@ -1,6 +1,6 @@
 # Azure DevOps Functionality — Mermaid Diagrams
 
-Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
+Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`, `azdevops_unplanned.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
@@ -12,7 +12,8 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
 - [10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#10-az-register-az-unregister-azdevopssyncschedule--platform-branch)
-- [11. Function dependency map](#11-function-dependency-map)
+- [11. `Start-UnplannedWork` — firefighting session loop + debrief](#11-start-unplannedwork--firefighting-session-loop--debrief)
+- [12. Function dependency map](#12-function-dependency-map)
 
 ---
 
@@ -569,7 +570,52 @@ Shared private helpers (named in CLAUDE.md):
 
 ---
 
-## 11. Function dependency map
+## 11. `Start-UnplannedWork` — firefighting session loop + debrief
+
+Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
+
+```mermaid
+flowchart TD
+    Start([Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
+    Gate -- false --> Abort1([abort])
+    Gate -- true --> Daily[Get-UnplannedWorkDailyStory]
+
+    Daily --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
+    Find -- found --> HaveStory[daily story id]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
+    NewStory --> HaveStory
+
+    HaveStory --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
+    Task --> Loop[session loop — Read-UnplannedKeyPress poll]
+
+    Loop -- Space --> LogItem["Read-Host item<br/>append {Time, Text}"]
+    LogItem --> Loop
+    Loop -- every ReminderMinutes --> Balloon["Show-UnplannedReminder<br/>(New-UnplannedBalloon NotifyIcon)"]
+    Balloon --> Loop
+    Loop -- Esc/Q --> Debrief[Invoke-UnplannedDebrief]
+
+    Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
+    FlushDesc --> AskFuture{future-feature opportunity?}
+    AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
+    AskFuture -- no --> PostComment
+    MaybeStory --> PostComment
+    PostComment["Format-UnplannedDebriefComment<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+    PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
+    Ledger --> Done([end])
+
+    DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
+    ReadLedger --> Rollup["Format-UnplannedDailyDebrief<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
+    Rollup --> Done2([end])
+
+    classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
+    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup io
+```
+
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+
+---
+
+## 12. Function dependency map
 
 Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
 
@@ -609,6 +655,17 @@ graph LR
     ShowProj(["az-Show-AzDevOpsProject"]):::pub
     GetProjs(["az-Get-AzDevOpsProjects"]):::pub
     FindProj(["az-Find-AzDevOpsProject"]):::pub
+
+    %% Unplanned work sessions (azdevops_unplanned.ps1)
+    StartUW(["Start-UnplannedWork"]):::pub
+    NewUWDebrief(["New-UnplannedWorkDebrief"]):::pub
+    GetDaily[Get-UnplannedWorkDailyStory]:::priv
+    FindUW[Find-UnplannedWorkStoryId]:::priv
+    NewUWStory[New-UnplannedWorkStory]:::priv
+    NewUWTask[New-UnplannedWorkTask]:::priv
+    InvUWDebrief[Invoke-UnplannedDebrief]:::priv
+    UWBalloon[New-UnplannedBalloon]:::priv
+    UWLedger[Add-UnplannedLedgerEntry]:::priv
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -660,6 +717,8 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
+    SetField[Set-AzDevOpsWorkItemField]:::priv
+    AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
     ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
@@ -831,6 +890,9 @@ graph LR
     Boards --> AzJson
     ClassList --> AzJson
     AddDisc --> AzJson
+    SetField --> AzJson
+    NewWI --> AssertTok
+    SetField --> AssertTok
     WITypeDef --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
@@ -989,6 +1051,23 @@ graph LR
     ResIA --> PKind
     CrLink --> InvCreate --> NewWI --> AzJson
     CrLink --> InvLink --> AddRel --> AzJson
+
+    %% Unplanned work sessions
+    StartUW --> CGate
+    StartUW --> GetDaily
+    GetDaily --> FindUW --> Boards
+    GetDaily --> NewUWStory --> InvCreate
+    StartUW --> NewUWTask
+    NewUWTask --> NewWI
+    NewUWTask --> InvLink
+    StartUW --> UWBalloon
+    StartUW --> InvUWDebrief
+    InvUWDebrief --> SetField
+    InvUWDebrief --> AddDisc
+    InvUWDebrief --> NewS
+    InvUWDebrief --> UWLedger
+    NewUWDebrief --> AddDisc
+    NewUWDebrief --> UWLedger
 
     %% Parent picker shared between Feature and Epic pickers
     PFeat --> PParent
