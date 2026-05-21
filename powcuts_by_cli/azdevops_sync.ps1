@@ -410,8 +410,9 @@ function Get-AzDevOpsPlatform {
 # ---------------------------------------------------------------------------
 # On-open background refresh
 #
-# Start-AzDevOpsBackgroundSync runs at dot-source time (see the guarded call at
-# the bottom of this file). It keeps the foreground gate cheap — opt-out env
+# Start-AzDevOpsBackgroundSync runs on shell open (invoked from powcuts_home.ps1
+# after every azdevops_*.ps1 file is dot-sourced, so the active-project cache
+# path resolves correctly). It keeps the foreground gate cheap — opt-out env
 # var, az present, stale/missing cache, no active lock — then spawns a detached,
 # hidden pwsh running az-Sync-AzDevOpsCache so the interactive prompt is never
 # blocked. The network auth check is intentionally NOT done in the foreground
@@ -506,14 +507,4 @@ function Start-AzDevOpsBackgroundSync {
     finally {
         [Environment]::SetEnvironmentVariable($childVar, $null)
     }
-}
-
-
-# On shell open: kick a detached, silent refresh when the cache has gone stale.
-# Wrapped so a failure here can never break an interactive shell's profile load.
-try {
-    Start-AzDevOpsBackgroundSync
-}
-catch {
-    # swallow — the on-open refresh is best-effort and must not break the shell
 }

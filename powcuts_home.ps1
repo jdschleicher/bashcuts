@@ -146,3 +146,16 @@ if ($pow_timer -ne $NULL) {
 } else {
     Write-Host "no pow_timer.ps1"
 }
+
+# On shell open: silently refresh the Azure DevOps cache in the background when
+# it's stale. Invoked here (after every azdevops_*.ps1 file is dot-sourced) so
+# Get-AzDevOpsActiveProjectSlug is defined and the staleness check targets the
+# active project's cache. Wrapped so a failure can never break profile load.
+if (Get-Command Start-AzDevOpsBackgroundSync -ErrorAction SilentlyContinue) {
+    try {
+        Start-AzDevOpsBackgroundSync
+    }
+    catch {
+        # swallow — the on-open refresh is best-effort and must not break the shell
+    }
+}

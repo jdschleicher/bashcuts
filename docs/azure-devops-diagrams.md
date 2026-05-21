@@ -539,7 +539,7 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ## 10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh
 
-Runs at dot-source time on every shell open (the guarded call at the bottom of `azdevops_sync.ps1`). A cheap foreground gate decides whether to spawn a detached, hidden `pwsh` running `az-Sync-AzDevOpsCache`. The network auth check is intentionally left to the child (`az-Sync-AzDevOpsCache` → `Assert-AzDevOpsAuthOrAbort`) so the interactive prompt is never blocked by a smoke query. The child inherits `AZ_DEVOPS_AUTOSYNC_CHILD`, so its own profile load skips re-spawning — no cascade.
+Runs on every shell open — invoked from `powcuts_home.ps1` after all `azdevops_*.ps1` files are dot-sourced, so `Get-AzDevOpsActiveProjectSlug` is defined and the staleness check targets the active project's cache. A cheap foreground gate decides whether to spawn a detached, hidden `pwsh` running `az-Sync-AzDevOpsCache`. The network auth check is intentionally left to the child (`az-Sync-AzDevOpsCache` → `Assert-AzDevOpsAuthOrAbort`) so the interactive prompt is never blocked by a smoke query. The child inherits `AZ_DEVOPS_AUTOSYNC_CHILD`, so its own profile load skips re-spawning — no cascade.
 
 ```mermaid
 flowchart TD
