@@ -148,8 +148,7 @@ function Read-AzDevOpsJsonCache {
 
     if (-not (Test-Path -LiteralPath $Path)) {
         Write-Host "No $Description cache at $Path." -ForegroundColor Yellow
-        Write-Host "  Run: az-Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
-        Write-Host "  Run: az-Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
+        Write-Host "  Run: az-Sync-AzDevOpsCache   # one-shot refresh (also runs silently on shell open when stale)" -ForegroundColor Yellow
         return $null
     }
 
