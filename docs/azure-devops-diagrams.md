@@ -619,7 +619,7 @@ Capture lands in two places per firefight: the accumulated bullet items flush to
 
 ## 12. Function dependency map
 
-Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
+Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
 
 ```mermaid
 graph LR
