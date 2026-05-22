@@ -103,6 +103,32 @@ function Read-AzDevOpsAcceptanceCriteria {
 }
 
 
+function Read-AzDevOpsUserStoryDescription {
+    # Builds the User Story description from the canonical three-clause
+    # template. Each clause is required - re-prompts until a non-empty value
+    # is entered - then joins them single-spaced into one prose sentence:
+    # "As a <persona> I want <outcome> so that <benefit>".
+    $persona = ''
+    while (-not $persona) {
+        $persona = (Read-Host 'As a ...').Trim()
+    }
+
+    $outcome = ''
+    while (-not $outcome) {
+        $outcome = (Read-Host 'I want ...').Trim()
+    }
+
+    $benefit = ''
+    while (-not $benefit) {
+        $benefit = (Read-Host 'so that ...').Trim()
+    }
+
+    $description = "As a $persona I want $outcome so that $benefit"
+
+    return $description
+}
+
+
 function Test-AzDevOpsAreaPathMatch {
     # Returns $true when $CandidatePath equals any element of $AllowedPaths
     # exactly OR is a sub-path of one (matches at backslash boundary). Path
