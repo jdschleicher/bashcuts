@@ -294,13 +294,12 @@ function Find-AzDevOpsCachedWorkItem {
 }
 
 
-function Get-AzDevOpsWorkItemUrlPrefix {
-    # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
-    # az devops defaults are configured; returns '' when either is missing.
-    # Designed for callers that build URLs for many ids in a loop (e.g.
-    # Out-ConsoleGridView row projections in Get-AzDevOpsTreeRows) so the prefix
-    # is computed once instead of per row, and so per-row use does not pollute
-    # $LASTEXITCODE.
+function Get-AzDevOpsUrlBase {
+    # "$org/$projectEnc" from the configured az devops defaults, or '' when org
+    # or project is unset. Shared base for every project-scoped URL builder
+    # (work-item edit prefix, Boards hub) so the org-trim + project-encode lives
+    # in one place. Stays quiet (no $LASTEXITCODE / Write-Host) so per-row
+    # callers can branch on '' without side effects.
     $defaults = Get-AzDevOpsConfiguredDefaults
     if (-not $defaults.Org -or -not $defaults.Project) {
         return ''
@@ -308,7 +307,24 @@ function Get-AzDevOpsWorkItemUrlPrefix {
 
     $org        = $defaults.Org.TrimEnd('/')
     $projectEnc = [uri]::EscapeDataString($defaults.Project)
-    $prefix     = "$org/$projectEnc/_workitems/edit/"
+    $base       = "$org/$projectEnc"
+    return $base
+}
+
+
+function Get-AzDevOpsWorkItemUrlPrefix {
+    # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
+    # az devops defaults are configured; returns '' when either is missing.
+    # Designed for callers that build URLs for many ids in a loop (e.g.
+    # Out-ConsoleGridView row projections in Get-AzDevOpsTreeRows) so the prefix
+    # is computed once instead of per row, and so per-row use does not pollute
+    # $LASTEXITCODE.
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
+        return ''
+    }
+
+    $prefix = "$base/_workitems/edit/"
     return $prefix
 }
 
@@ -335,14 +351,12 @@ function Get-AzDevOpsBoardsUrl {
     # Best-effort link to the project's Boards hub. Used by empty-state hints
     # and the classification (Areas / Iterations) open-in-browser action, whose
     # rows carry no work-item id. Returns '' when az devops defaults are unset.
-    $defaults = Get-AzDevOpsConfiguredDefaults
-    if (-not $defaults.Org -or -not $defaults.Project) {
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
         return ''
     }
 
-    $org        = $defaults.Org.TrimEnd('/')
-    $projectEnc = [uri]::EscapeDataString($defaults.Project)
-    $url        = "$org/$projectEnc/_boards/board"
+    $url = "$base/_boards/board"
     return $url
 }
 
