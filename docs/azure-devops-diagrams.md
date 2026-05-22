@@ -389,7 +389,7 @@ flowchart TD
     TitleEmpty -- yes --> Abort4([abort])
     TitleEmpty -- no --> Desc
 
-    Desc -- no --> ReadDesc["Read-Host 'description'"]
+    Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
     Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
@@ -782,6 +782,7 @@ graph LR
     Pri[Read-AzDevOpsPriority]:::priv
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
+    USDesc[Read-AzDevOpsUserStoryDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
     PParent[Read-AzDevOpsParentPick]:::priv
@@ -1011,6 +1012,7 @@ graph LR
 
     NewS --> CGate
     NewS --> ReadH
+    NewS --> USDesc
     NewS --> Pri
     NewS --> Pts
     NewS --> AC
