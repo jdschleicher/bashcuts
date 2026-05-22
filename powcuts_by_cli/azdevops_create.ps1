@@ -379,7 +379,7 @@ function az-New-AzDevOpsUserStory {
     }
 
     if (-not $PSBoundParameters.ContainsKey('Description')) {
-        $Description = Read-Host 'What is the description?'
+        $Description = Read-AzDevOpsUserStoryDescription
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
