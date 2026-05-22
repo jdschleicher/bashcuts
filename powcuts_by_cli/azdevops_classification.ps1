@@ -3,7 +3,7 @@
 # ============================================================================
 # Get/Show/Find for the area-path and iteration-path classification trees:
 # az-Get-AzDevOpsAreas / az-Get-AzDevOpsIterations (pipeline-friendly rows),
-# az-Show-AzDevOpsAreas / az-Show-AzDevOpsIterations (human-readable trees),
+# az-Show-Areas / az-Show-Iterations (human-readable trees),
 # az-Find-AzDevOpsArea / az-Find-AzDevOpsIteration (interactive pickers).
 # Backed by ~/.bashcuts-az-devops-app/cache/{areas,iterations}.json with a
 # live `az boards iteration/area` fallback when the cache is missing.
@@ -145,8 +145,8 @@ function Get-AzDevOpsClassificationPaths {
 # Classification tree views
 #
 # Public functions:
-#   az-Show-AzDevOpsAreas       - prints the project's area-path tree
-#   az-Show-AzDevOpsIterations  - prints the project's iteration-path tree
+#   az-Show-Areas       - prints the project's area-path tree
+#   az-Show-Iterations  - prints the project's iteration-path tree
 #                                 (with start/finish dates per node)
 #
 # Both read from the cache first (areas.json / iterations.json built by
@@ -168,7 +168,7 @@ function ConvertFrom-AzDevOpsClassificationTree {
     #
     # StartDate / FinishDate are [datetime]? so pipeline callers can use
     # `Where-Object { $_.StartDate -ge (Get-Date) }`. Display callers
-    # (az-Show-AzDevOps*) format them to ISO yyyy-MM-dd strings just before
+    # (az-Show-*) format them to ISO yyyy-MM-dd strings just before
     # rendering.
     param(
         [Parameter(Mandatory)] $Tree,
@@ -265,8 +265,8 @@ function Format-AzDevOpsClassificationDate {
 
 function ConvertTo-AzDevOpsClassificationDisplayRows {
     # Projects the typed rows from ConvertFrom-AzDevOpsClassificationTree
-    # into the display-shaped rows az-Show-AzDevOpsAreas /
-    # az-Show-AzDevOpsIterations render in the grid: dates become ISO
+    # into the display-shaped rows az-Show-Areas /
+    # az-Show-Iterations render in the grid: dates become ISO
     # strings, HasChildren is dropped (display noise).
     param(
         [Parameter(Mandatory)] $Rows,
@@ -331,7 +331,7 @@ function Read-AzDevOpsClassificationRows {
     # the live-fetch notice as Write-Host side effects (metadata, not data).
     # Returns the typed rows from ConvertFrom-AzDevOpsClassificationTree, or
     # $null when neither the cache nor a live fetch yields a tree (e.g. the
-    # user cancels the auth gate). Shared by az-Show-AzDevOps* /
+    # user cancels the auth gate). Shared by az-Show-* /
     # az-Get-AzDevOps* / az-Find-AzDevOps* for the classification trees.
     param(
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
@@ -368,17 +368,17 @@ function Read-AzDevOpsClassificationRows {
 
 
 function Show-AzDevOpsClassification {
-    # Orchestrator for az-Show-AzDevOpsAreas / az-Show-AzDevOpsIterations.
+    # Orchestrator for az-Show-Areas / az-Show-Iterations.
     # Reads + flattens via Read-AzDevOpsClassificationRows, projects typed
     # rows to display rows, then renders to Out-ConsoleGridView when
     # available or to an indented text tree via Format-AzDevOpsClassificationNode
-    # otherwise. Mirrors the az-Show-AzDevOpsTree post-#36 shape so the Show-
+    # otherwise. Mirrors the az-Show-Tree post-#36 shape so the Show-
     # family stays uniform.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
     $azKind = $Kind.ToLower()
     $kindLabelLow = "${azKind}s"
-    $publicCommand = "az-Show-AzDevOps$($Kind)s"
+    $publicCommand = "az-Show-$($Kind)s"
 
     $rows = Read-AzDevOpsClassificationRows -Kind $Kind -CommandName $publicCommand
     if ($null -eq $rows) {
@@ -393,7 +393,8 @@ function Show-AzDevOpsClassification {
     if (Test-AzDevOpsGridAvailable) {
         $displayRows = ConvertTo-AzDevOpsClassificationDisplayRows -Rows $rows -Kind $Kind
         $title = "Azure DevOps $kindLabelLow - $(@($rows).Count) nodes"
-        Show-AzDevOpsRows -Rows $displayRows -Title $title
+        $selected = Show-AzDevOpsRows -Rows $displayRows -Title $title -PassThru
+        Invoke-AzDevOpsClassificationAction -Selected $selected
         return
     }
 
@@ -403,7 +404,32 @@ function Show-AzDevOpsClassification {
 }
 
 
-function az-Show-AzDevOpsAreas {
+function Invoke-AzDevOpsClassificationAction {
+    # Post-selection action for the classification views (Areas / Iterations).
+    # Those rows are area/iteration paths, not work items, so the only offered
+    # action is opening the project's Boards hub in the browser.
+    param($Selected)
+
+    if ($null -eq $Selected) {
+        return
+    }
+
+    $boardsUrl = Get-AzDevOpsBoardsUrl
+    if (-not $boardsUrl) {
+        Write-Host "az devops defaults not configured - cannot build a Boards URL." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    $resp = Read-Host "  [O]pen Boards in browser / [Enter]=skip"
+    if ($resp -match '^(o|open)$') {
+        Write-Host "Opening $boardsUrl" -ForegroundColor Cyan
+        Start-Process $boardsUrl
+    }
+}
+
+
+function az-Show-Areas {
     [CmdletBinding()]
     param()
 
@@ -411,7 +437,7 @@ function az-Show-AzDevOpsAreas {
 }
 
 
-function az-Show-AzDevOpsIterations {
+function az-Show-Iterations {
     [CmdletBinding()]
     param()
 
@@ -429,7 +455,7 @@ function az-Show-AzDevOpsIterations {
 #                                (adds StartDate / FinishDate as [datetime]?)
 #
 # Both wrap Read-AzDevOpsClassificationRows so the cache-first / live-fallback
-# behavior matches az-Show-AzDevOps*. Path is the work-item-path form
+# behavior matches az-Show-*. Path is the work-item-path form
 # ('MyProject\TeamA\Backend') so callers can pipe straight into WIQL or
 # `az boards work-item create --area-path ...`.
 # ---------------------------------------------------------------------------

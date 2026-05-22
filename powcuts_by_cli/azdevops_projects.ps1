@@ -52,7 +52,7 @@
 # User-facing functions:
 #   az-Use-AzDevOpsProject   - switch the active project board (hydrates env
 #                              vars + runs `az devops configure --defaults`)
-#   az-Show-AzDevOpsProject  - print the active project + resolved env vars
+#   az-Show-Project  - print the active project + resolved env vars
 #   az-Get-AzDevOpsProjects  - list every project name in the map, marking
 #                              the active one
 #   az-Find-AzDevOpsProject  - Out-ConsoleGridView picker over the map; emits
@@ -456,7 +456,7 @@ function az-Get-AzDevOpsProjects {
 }
 
 
-function az-Show-AzDevOpsProject {
+function az-Show-Project {
     # Prints the active project name and the four flat env vars it controls.
     # Cheap alternative to az-Connect-AzDevOps when you just want to confirm
     # which board your next az-* command will hit.

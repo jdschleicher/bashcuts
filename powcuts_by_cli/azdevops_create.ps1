@@ -32,9 +32,14 @@ function Invoke-AzDevOpsWorkItemCreate {
     )
 
     $fields = @(
-        "Microsoft.VSTS.Common.Priority=$Priority",
-        "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
+        "Microsoft.VSTS.Common.Priority=$Priority"
     )
+
+    # Tasks have no AcceptanceCriteria field in the stock templates, so only
+    # send it when the caller actually supplied one.
+    if ($AcceptanceCriteria) {
+        $fields += "Microsoft.VSTS.Common.AcceptanceCriteria=$AcceptanceCriteria"
+    }
 
     if ($StoryPoints -ge 0) {
         $fields += "Microsoft.VSTS.Scheduling.StoryPoints=$StoryPoints"
@@ -426,6 +431,94 @@ function az-New-AzDevOpsUserStory {
         -OrphanLabel   'story' `
         -CreateArgs    $createArgs `
         -ParentId      $FeatureId `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
+        return
+    }
+
+    $newId = $outcome.Id
+    return $newId
+}
+
+
+function az-New-Task {
+    # Interactive Task creator - one tier below az-New-AzDevOpsUserStory. Picks
+    # a parent User Story from the cached hierarchy, fills title / description /
+    # priority / area / iteration, creates the Task, and links it to the Story.
+    # Tasks carry neither story points nor acceptance criteria in the stock
+    # Agile / Scrum templates, so those prompts are skipped.
+    #
+    # -ParentStoryId pre-fills the parent (used by the az-Show-* post-selection
+    # "create child" action) so the picker is skipped. Returns the new Task's
+    # [int] id.
+    [CmdletBinding()]
+    param(
+        [string] $Title,
+        [string] $Description,
+        [int]    $Priority = -1,
+        [int]    $ParentStoryId = -1,
+        [string] $Iteration,
+        [string] $Area,
+        [switch] $NoOpen
+    )
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-Task')) {
+        return
+    }
+
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return
+    }
+
+    if (-not $Title) {
+        $Title = Read-Host 'What is the title of the Task?'
+    }
+    if (-not $Title) {
+        Write-Host "Title is required - aborting." -ForegroundColor Red
+        return
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('Description')) {
+        $Description = Read-Host 'What is the description?'
+    }
+
+    if ($Priority -lt 1 -or $Priority -gt 4) {
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'TASK'
+    }
+
+    if ($ParentStoryId -lt 0) {
+        $ParentStoryId = Read-AzDevOpsStoryPick -Hierarchy $hierarchy -ChildType 'TASK'
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'TASK'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'TASK'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'TASK'
+
+    $createArgs = @{
+        Type        = 'Task'
+        Title       = $Title
+        Description = $Description
+        Priority    = $Priority
+        Iteration   = $Iteration
+        Area        = $Area
+        Tags        = $tags
+        ExtraFields = $extraFields
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'Task' `
+        -ParentLabel   'User Story' `
+        -OrphanLabel   'task' `
+        -CreateArgs    $createArgs `
+        -ParentId      $ParentStoryId `
         -OpenInBrowser:(-not $NoOpen)
 
     if (-not $outcome.Ok) {

@@ -4,14 +4,14 @@ az-query-my-features() {
     az boards query --output table --wiql "select [id],[Work Item Type],[Title], [System.IterationPath], [System.AreaPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL' and [Work Item Type] = 'Feature'"
 }
 
-# Bash counterpart of PowerShell's az-Show-AzDevOpsFeatures. Bash has no
+# Bash counterpart of PowerShell's az-Show-Features. Bash has no
 # project map, so it queries one project at a time: pass a project name as
 # $1 to override $AZ_PROJECT. Open Features only (Closed / Removed excluded
 # at the WIQL level).
-az-show-azdevops-features() {
+az-show-features() {
     local project="${1:-$AZ_PROJECT}"
     if [ -z "$project" ]; then
-        echo "Usage: az-show-azdevops-features <project-name>"
+        echo "Usage: az-show-features <project-name>"
         echo "(or set \$AZ_PROJECT)"
         return 1
     fi

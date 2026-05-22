@@ -154,16 +154,26 @@ function Read-AzDevOpsParentPick {
     # the orphan path - acceptable while the create flow stays Agile/Scrum/
     # CMMI-focused.
     param(
-        [Parameter(Mandatory)] [ValidateSet('Feature', 'Epic')] [string] $ParentType,
+        [Parameter(Mandatory)] [ValidateSet('Feature', 'Epic', 'User Story')] [string] $ParentType,
         [Parameter(Mandatory)] $Hierarchy,
         [string]   $ChildLabel = 'item',
         [string[]] $AreaPaths
     )
 
     $closedStates = Get-AzDevOpsClosedStates
-    $candidates = @($Hierarchy |
-        Where-Object { $_.Type -eq $ParentType -and $_.State -notin $closedStates } |
-        Sort-Object Id)
+
+    # 'User Story' parents (Task creation) match every requirement-tier type so
+    # Scrum / CMMI / Basic projects still surface their leaf items; Epic and
+    # Feature stay exact-match.
+    $candidates = if ($ParentType -eq 'User Story') {
+        @($Hierarchy |
+            Where-Object { $_.Type -in $script:AzDevOpsRequirementTypes -and $_.State -notin $closedStates } |
+            Sort-Object Id)
+    } else {
+        @($Hierarchy |
+            Where-Object { $_.Type -eq $ParentType -and $_.State -notin $closedStates } |
+            Sort-Object Id)
+    }
 
     $orphanLabel = "(no parent - orphan $ChildLabel)"
 
@@ -303,6 +313,21 @@ function Read-AzDevOpsEpicPick {
     $areaPaths = Get-AzDevOpsParentScopeAreaPaths -ChildType $ChildType
     $epicId = Read-AzDevOpsParentPick -ParentType 'Epic' -Hierarchy $Hierarchy -ChildLabel 'Feature' -AreaPaths $areaPaths
     return $epicId
+}
+
+
+function Read-AzDevOpsStoryPick {
+    # Task -> User Story parent picker. Thin wrapper over Read-AzDevOpsParentPick
+    # used by az-New-Task. -ChildType drives the ParentScope.AreaPaths lookup;
+    # defaults to TASK.
+    param(
+        [Parameter(Mandatory)] $Hierarchy,
+        [string] $ChildType = 'TASK'
+    )
+
+    $areaPaths = Get-AzDevOpsParentScopeAreaPaths -ChildType $ChildType
+    $storyId = Read-AzDevOpsParentPick -ParentType 'User Story' -Hierarchy $Hierarchy -ChildLabel 'task' -AreaPaths $areaPaths
+    return $storyId
 }
 
 

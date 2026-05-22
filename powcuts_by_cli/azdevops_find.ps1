@@ -20,7 +20,7 @@
 #                              work-item ids on the pipeline.
 #
 # Reads the same $HOME/.bashcuts-az-devops-app/cache/hierarchy.json that
-# az-Show-AzDevOpsTree consumes; never calls `az` directly. Modeled on the
+# az-Show-Tree consumes; never calls `az` directly. Modeled on the
 # while ($running) { ... } + ".. [Go Back]" pattern from issue #39.
 # ---------------------------------------------------------------------------
 
