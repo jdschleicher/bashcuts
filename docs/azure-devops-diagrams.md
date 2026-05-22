@@ -727,6 +727,7 @@ graph LR
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
     CmdHead[Get-AzDevOpsCommandHeadline]:::priv
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
+    ConvNative[ConvertTo-AzDevOpsNativeArgList]:::priv
 
     %% Platform + on-open background-sync helpers
     Plat[Get-AzDevOpsPlatform]:::priv
@@ -899,6 +900,7 @@ graph LR
     AzJson --> CmdDisp
     AzJson --> CmdHead
     AzJson --> EchoLn
+    AzJson --> ConvNative
     AzJson --> Az
     InvokeDS --> Stderr1
     InvokeDS --> DStatus
