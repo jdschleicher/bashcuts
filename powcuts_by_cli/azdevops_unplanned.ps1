@@ -37,12 +37,6 @@ $script:UnplannedIconRocket = [char]::ConvertFromUtf32(0x1F680)   # rocket
 $script:UnplannedIconBullet = [char]::ConvertFromUtf32(0x2022)    # bullet
 
 
-function Test-UnplannedIsWindows {
-    $isWin = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
-    return $isWin
-}
-
-
 function Read-UnplannedYesNo {
     param([Parameter(Mandatory)] [string] $Prompt)
 
@@ -234,7 +228,7 @@ function New-UnplannedBalloon {
     # tick and disposed in the orchestrator's finally so a multi-hour session
     # doesn't accumulate tray icons. Returns $null off Windows or when the
     # Windows.Forms types aren't available, in which case reminders no-op.
-    if (-not (Test-UnplannedIsWindows)) {
+    if (-not (Test-WpfIsWindows)) {
         return $null
     }
 
@@ -553,6 +547,218 @@ function Invoke-UnplannedDebrief {
 }
 
 
+function Show-WpfStopwatch {
+    # WPF circular overlay stopwatch for Windows unplanned-work sessions.
+    # Arc fills as time passes (amber colour distinguishes it from the Pomodoro
+    # blue). "Log Item" opens an input dialog; "Capture Story" hides the overlay,
+    # runs az-New-AzDevOpsUserStory in the terminal, then resumes. "Stop" /
+    # right-click closes and returns the list of captured items.
+    param(
+        [Parameter(Mandatory)] [int]    $TaskId,
+        [Parameter(Mandatory)] [string] $TaskTitle,
+        [Parameter(Mandatory)] [int]    $ReminderMinutes,
+        [switch] $NoReminder
+    )
+
+    Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
+    Add-Type -AssemblyName Microsoft.VisualBasic
+
+    $maxDisplaySecs = $script:WpfStopwatchMaxSeconds
+
+    $Script:WpfElapsed = 0.0
+    $Script:WpfItems   = New-Object System.Collections.Generic.List[object]
+
+    $balloon = if ($NoReminder) {
+        $null
+    } else {
+        New-UnplannedBalloon
+    }
+
+    $reminderIntervalMs = $ReminderMinutes * 60 * 1000
+
+    # ---- Build window ----
+
+    $brushes    = New-WpfBrushSet -ProgressColor $script:WpfColorProgressUnplanned
+    $circleRes  = New-WpfCircleResources -Title 'Unplanned Work' -Brushes $brushes -ArcStartsFull $false
+    $mainWin    = $circleRes.Window
+    $circleGrid = $circleRes.Grid
+    $arcSegment = $circleRes.ArcSegment
+
+    $vbox = New-Object System.Windows.Controls.StackPanel -Property @{
+        VerticalAlignment   = 'Center'
+        HorizontalAlignment = 'Center'
+    }
+
+    $titleLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = "Task #$TaskId"
+        FontSize            = 11
+        Foreground          = $brushes.Hint
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,2'
+    }
+    $vbox.Children.Add($titleLabel) | Out-Null
+
+    $clockText = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = '00:00.0'
+        FontSize            = 34
+        FontFamily          = 'Consolas'
+        Foreground          = $brushes.White
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,6'
+    }
+    $vbox.Children.Add($clockText) | Out-Null
+
+    $itemCountLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = '0 item(s)'
+        FontSize            = 11
+        Foreground          = $brushes.Hint
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,6'
+    }
+    $vbox.Children.Add($itemCountLabel) | Out-Null
+
+    $btnRow = New-Object System.Windows.Controls.StackPanel -Property @{
+        Orientation         = 'Horizontal'
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,5'
+    }
+    $btnLogItem = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Log Item'
+        Width      = 72
+        Height     = 22
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 2
+    }
+    $btnCapture = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Capture Story'
+        Width      = 88
+        Height     = 22
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 2
+    }
+    $btnStop = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Stop'
+        Width      = 44
+        Height     = 22
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 2
+    }
+    $btnRow.Children.Add($btnLogItem) | Out-Null
+    $btnRow.Children.Add($btnCapture) | Out-Null
+    $btnRow.Children.Add($btnStop)    | Out-Null
+    $vbox.Children.Add($btnRow) | Out-Null
+
+    $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = 'Right-click to stop'
+        FontSize            = 9
+        Foreground          = $brushes.Hint
+        HorizontalAlignment = 'Center'
+        Margin              = '0,8,0,0'
+    }
+    $vbox.Children.Add($exitHint) | Out-Null
+
+    $circleGrid.Children.Add($vbox) | Out-Null
+
+    # ---- UI update helper ----
+
+    $updateUi = {
+        $ts = [TimeSpan]::FromSeconds($Script:WpfElapsed)
+        $clockText.Text      = $ts.ToString('mm\:ss\.f')
+        $itemCountLabel.Text = "$($Script:WpfItems.Count) item(s)"
+
+        $pct = $Script:WpfElapsed / $maxDisplaySecs
+        Set-WpfArcPoint -Pct $pct -ArcSegment $arcSegment
+    }
+
+    $clockTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+        Interval = [TimeSpan]::FromMilliseconds(100)
+    }
+
+    $reminderTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+        Interval = [TimeSpan]::FromMilliseconds($reminderIntervalMs)
+    }
+
+    # ---- Event handlers ----
+
+    $mainWin.Add_MouseLeftButtonDown({ $mainWin.DragMove() })
+
+    $mainWin.Add_MouseRightButtonDown({
+        $clockTick.Stop()
+        $reminderTick.Stop()
+        $mainWin.Close()
+    })
+
+    $clockTick.Add_Tick({
+        $Script:WpfElapsed += 0.1
+        & $updateUi
+    })
+
+    $reminderTick.Add_Tick({
+        if ($null -ne $balloon) {
+            Show-UnplannedReminder -Balloon $balloon -TaskId $TaskId -TaskTitle $TaskTitle
+        }
+    })
+
+    $btnLogItem.Add_Click({
+        $clockTick.Stop()
+        $itemText = [Microsoft.VisualBasic.Interaction]::InputBox('What happened?', 'Log Item', '')
+
+        if ($itemText) {
+            $record = [PSCustomObject]@{
+                Time = (Get-Date).ToString('HH:mm')
+                Text = $itemText
+            }
+            $Script:WpfItems.Add($record)
+            & $updateUi
+        }
+
+        $clockTick.Start()
+    })
+
+    $btnCapture.Add_Click({
+        $clockTick.Stop()
+        $reminderTick.Stop()
+        $mainWin.Hide()
+
+        az-New-AzDevOpsUserStory
+
+        $mainWin.Show()
+        $clockTick.Start()
+
+        if (-not $NoReminder) {
+            $reminderTick.Start()
+        }
+    })
+
+    $btnStop.Add_Click({
+        $clockTick.Stop()
+        $reminderTick.Stop()
+        $mainWin.Close()
+    })
+
+    # ---- Show ----
+
+    & $updateUi
+    $clockTick.Start()
+
+    if (-not $NoReminder) {
+        $reminderTick.Start()
+    }
+
+    $mainWin.ShowDialog() | Out-Null
+
+    if ($null -ne $balloon) {
+        $balloon.Dispose()
+    }
+
+    $items = @($Script:WpfItems)
+    return $items
+}
+
+
 function az-Start-UnplannedWork {
     # Orchestrator. Find-or-create today's daily story, create a child Task for
     # this firefight, then run the foreground session: Space logs a timestamped
@@ -596,75 +802,85 @@ function az-Start-UnplannedWork {
 
     Write-Host ""
     Write-Host "Firefight Task #$taskId created under story #$storyId." -ForegroundColor Green
-    Write-Host "Starting session. Space logs an item, Esc/Q stops and debriefs." -ForegroundColor Green
+    Write-Host "Starting session." -ForegroundColor Green
     Start-Sleep -Seconds 2
 
     $startTime = Get-Date
-    $items = New-Object System.Collections.Generic.List[object]
-
-    $balloon = if ($NoReminder) {
-        $null
-    } else {
-        New-UnplannedBalloon
-    }
+    $balloon   = $null
 
     $previousEncoding = [Console]::OutputEncoding
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
     try {
-        $reminderSeconds = $ReminderMinutes * 60
-        $pollsPerSecond  = $script:UnplannedPollsPerSecond
-        $pollIntervalMs  = $script:UnplannedPollIntervalMs
+        $onWindows = Test-WpfIsWindows
 
-        $elapsed        = 0
-        $lastReminderAt = 0
-        $stopRequested  = $false
+        if ($onWindows) {
+            $items = Show-WpfStopwatch `
+                -TaskId          $taskId `
+                -TaskTitle       $Title `
+                -ReminderMinutes $ReminderMinutes `
+                -NoReminder:$NoReminder
+        } else {
+            # Console loop — macOS / Linux fallback
+            $items   = New-Object System.Collections.Generic.List[object]
+            $balloon = New-UnplannedBalloon
 
-        Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds 0 -ItemCount 0 -ReminderMinutes $ReminderMinutes
+            $reminderSeconds = $ReminderMinutes * 60
+            $pollsPerSecond  = $script:UnplannedPollsPerSecond
+            $pollIntervalMs  = $script:UnplannedPollIntervalMs
 
-        while (-not $stopRequested) {
-            for ($p = 0; $p -lt $pollsPerSecond; $p++) {
-                $key = Read-UnplannedKeyPress
+            $elapsed        = 0
+            $lastReminderAt = 0
+            $stopRequested  = $false
 
-                if ($key -eq 'stop') {
-                    $stopRequested = $true
-                    break
-                }
+            Write-Host "Space logs an item, Esc/Q stops and debriefs." -ForegroundColor Green
 
-                if ($key -eq 'space') {
-                    Write-Host ""
-                    $itemText = Read-Host 'Log item'
+            Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds 0 -ItemCount 0 -ReminderMinutes $ReminderMinutes
 
-                    if ($itemText) {
-                        $record = [PSCustomObject]@{
-                            Time = (Get-Date).ToString('HH:mm')
-                            Text = $itemText
-                        }
-                        $items.Add($record)
+            while (-not $stopRequested) {
+                for ($p = 0; $p -lt $pollsPerSecond; $p++) {
+                    $key = Read-UnplannedKeyPress
+
+                    if ($key -eq 'stop') {
+                        $stopRequested = $true
+                        break
                     }
 
-                    $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
-                    Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
+                    if ($key -eq 'space') {
+                        Write-Host ""
+                        $itemText = Read-Host 'Log item'
+
+                        if ($itemText) {
+                            $record = [PSCustomObject]@{
+                                Time = (Get-Date).ToString('HH:mm')
+                                Text = $itemText
+                            }
+                            $items.Add($record)
+                        }
+
+                        $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
+                        Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
+                        break
+                    }
+
+                    Start-Sleep -Milliseconds $pollIntervalMs
+                }
+
+                if ($stopRequested) {
                     break
                 }
 
-                Start-Sleep -Milliseconds $pollIntervalMs
-            }
+                # Drive the display from wall-clock, not the iteration count — the
+                # space branch's blocking Read-Host means a single iteration can
+                # span many seconds, so $elapsed++ would undercount.
+                $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
 
-            if ($stopRequested) {
-                break
-            }
+                Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
 
-            # Drive the display from wall-clock, not the iteration count - the
-            # space branch's blocking Read-Host means a single iteration can
-            # span many seconds, so $elapsed++ would undercount.
-            $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
-
-            Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
-
-            if (-not $NoReminder -and ($elapsed - $lastReminderAt) -ge $reminderSeconds) {
-                Show-UnplannedReminder -Balloon $balloon -TaskId $taskId -TaskTitle $Title
-                $lastReminderAt = $elapsed
+                if (-not $NoReminder -and ($elapsed - $lastReminderAt) -ge $reminderSeconds) {
+                    Show-UnplannedReminder -Balloon $balloon -TaskId $taskId -TaskTitle $Title
+                    $lastReminderAt = $elapsed
+                }
             }
         }
 
@@ -672,6 +888,7 @@ function az-Start-UnplannedWork {
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding
+
         if ($null -ne $balloon) {
             $balloon.Dispose()
         }
