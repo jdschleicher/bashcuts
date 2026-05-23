@@ -512,6 +512,10 @@ function az-Use-AzDevOpsProject {
     Set-AzDevOpsActiveProjectEnv -Config $config
     $script:ActiveAzDevOpsProject = $Name
 
+    if (Get-Command Clear-AzDevOpsClassificationMemo -ErrorAction SilentlyContinue) {
+        Clear-AzDevOpsClassificationMemo
+    }
+
     if (-not $SkipConfigure) {
         if (Get-Command az -ErrorAction SilentlyContinue) {
             $org     = [string]$config['Org']
