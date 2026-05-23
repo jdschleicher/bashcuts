@@ -37,12 +37,6 @@ $script:UnplannedIconRocket = [char]::ConvertFromUtf32(0x1F680)   # rocket
 $script:UnplannedIconBullet = [char]::ConvertFromUtf32(0x2022)    # bullet
 
 
-function Test-UnplannedIsWindows {
-    $isWin = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
-    return $isWin
-}
-
-
 function Read-UnplannedYesNo {
     param([Parameter(Mandatory)] [string] $Prompt)
 
@@ -234,7 +228,7 @@ function New-UnplannedBalloon {
     # tick and disposed in the orchestrator's finally so a multi-hour session
     # doesn't accumulate tray icons. Returns $null off Windows or when the
     # Windows.Forms types aren't available, in which case reminders no-op.
-    if (-not (Test-UnplannedIsWindows)) {
+    if (-not (Test-WpfIsWindows)) {
         return $null
     }
 
@@ -818,7 +812,7 @@ function az-Start-UnplannedWork {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
     try {
-        $onWindows = Test-UnplannedIsWindows
+        $onWindows = Test-WpfIsWindows
 
         if ($onWindows) {
             $items = Show-WpfStopwatch `

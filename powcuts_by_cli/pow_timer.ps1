@@ -514,6 +514,8 @@ function Show-WpfTimerCountdown {
             } else {
                 $clockTick.Start()
             }
+
+            $args[1].Handled = $true
         })
 
         $clockTick.Add_Tick({
