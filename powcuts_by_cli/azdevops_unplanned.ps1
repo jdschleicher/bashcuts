@@ -569,27 +569,7 @@ function Show-WpfStopwatch {
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
     Add-Type -AssemblyName Microsoft.VisualBasic
 
-    $colorBg       = $script:WpfColorBackground
-    $colorStroke   = $script:WpfColorStroke
-    $colorButton   = $script:WpfColorButton
-    $colorHint     = $script:WpfColorHint
-    $colorProgress = '#D97706'   # Amber — distinguishes unplanned from Pomodoro (blue)
-
-    $converter     = [System.Windows.Media.BrushConverter]::new()
-    $brushBg       = $converter.ConvertFromString($colorBg)
-    $brushStroke   = $converter.ConvertFromString($colorStroke)
-    $brushProgress = $converter.ConvertFromString($colorProgress)
-    $brushButton   = $converter.ConvertFromString($colorButton)
-    $brushHint     = $converter.ConvertFromString($colorHint)
-    $brushWhite    = [System.Windows.Media.Brushes]::White
-    $brushClear    = [System.Windows.Media.Brushes]::Transparent
-
-    $windowSize     = $script:WpfWindowSize
-    $center         = $script:WpfCircleCenter
-    $radius         = $script:WpfCircleRadius
-    $arcStartX      = $script:WpfArcStartX
-    $arcStartY      = $script:WpfArcStartY
-    $maxDisplaySecs = 3600   # arc fills to full at 60 minutes
+    $maxDisplaySecs = $script:WpfStopwatchMaxSeconds
 
     $Script:WpfElapsed = 0.0
     $Script:WpfItems   = New-Object System.Collections.Generic.List[object]
@@ -604,49 +584,11 @@ function Show-WpfStopwatch {
 
     # ---- Build window ----
 
-    $mainWin = New-Object System.Windows.Window -Property @{
-        Title                 = 'Unplanned Work'
-        SizeToContent         = 'WidthAndHeight'
-        WindowStyle           = 'None'
-        AllowsTransparency    = $true
-        Background            = $brushClear
-        Topmost               = $true
-        WindowStartupLocation = 'CenterScreen'
-    }
-
-    $circleGrid = New-Object System.Windows.Controls.Grid -Property @{
-        Width  = $windowSize
-        Height = $windowSize
-    }
-
-    $mainCircle = New-Object System.Windows.Shapes.Ellipse -Property @{
-        Fill            = $brushBg
-        Stroke          = $brushStroke
-        StrokeThickness = 2
-    }
-    $circleGrid.Children.Add($mainCircle) | Out-Null
-
-    $pathGeometry = New-Object System.Windows.Media.PathGeometry
-    $pathFigure   = New-Object System.Windows.Media.PathFigure -Property @{
-        StartPoint = "$arcStartX,$arcStartY"
-        IsClosed   = $false
-    }
-    $arcSegment = New-Object System.Windows.Media.ArcSegment -Property @{
-        Size           = "$radius,$radius"
-        SweepDirection = 'Clockwise'
-        IsLargeArc     = $false
-    }
-    $pathFigure.Segments.Add($arcSegment) | Out-Null
-    $pathGeometry.Figures.Add($pathFigure) | Out-Null
-
-    $progressRing = New-Object System.Windows.Shapes.Path -Property @{
-        Stroke             = $brushProgress
-        StrokeThickness    = 6
-        StrokeStartLineCap = 'Round'
-        StrokeEndLineCap   = 'Round'
-        Data               = $pathGeometry
-    }
-    $circleGrid.Children.Add($progressRing) | Out-Null
+    $brushes    = New-WpfBrushSet -ProgressColor $script:WpfColorProgressUnplanned
+    $circleRes  = New-WpfCircleResources -Title 'Unplanned Work' -Brushes $brushes -ArcStartsFull $false
+    $mainWin    = $circleRes.Window
+    $circleGrid = $circleRes.Grid
+    $arcSegment = $circleRes.ArcSegment
 
     $vbox = New-Object System.Windows.Controls.StackPanel -Property @{
         VerticalAlignment   = 'Center'
@@ -656,7 +598,7 @@ function Show-WpfStopwatch {
     $titleLabel = New-Object System.Windows.Controls.TextBlock -Property @{
         Text                = "Task #$TaskId"
         FontSize            = 11
-        Foreground          = $brushHint
+        Foreground          = $brushes.Hint
         HorizontalAlignment = 'Center'
         Margin              = '0,0,0,2'
     }
@@ -666,7 +608,7 @@ function Show-WpfStopwatch {
         Text                = '00:00.0'
         FontSize            = 34
         FontFamily          = 'Consolas'
-        Foreground          = $brushWhite
+        Foreground          = $brushes.White
         HorizontalAlignment = 'Center'
         Margin              = '0,0,0,6'
     }
@@ -675,7 +617,7 @@ function Show-WpfStopwatch {
     $itemCountLabel = New-Object System.Windows.Controls.TextBlock -Property @{
         Text                = '0 item(s)'
         FontSize            = 11
-        Foreground          = $brushHint
+        Foreground          = $brushes.Hint
         HorizontalAlignment = 'Center'
         Margin              = '0,0,0,6'
     }
@@ -690,24 +632,24 @@ function Show-WpfStopwatch {
         Content    = 'Log Item'
         Width      = 72
         Height     = 22
-        Background = $brushButton
-        Foreground = $brushWhite
+        Background = $brushes.Button
+        Foreground = $brushes.White
         Margin     = 2
     }
     $btnCapture = New-Object System.Windows.Controls.Button -Property @{
         Content    = 'Capture Story'
         Width      = 88
         Height     = 22
-        Background = $brushButton
-        Foreground = $brushWhite
+        Background = $brushes.Button
+        Foreground = $brushes.White
         Margin     = 2
     }
     $btnStop = New-Object System.Windows.Controls.Button -Property @{
         Content    = 'Stop'
         Width      = 44
         Height     = 22
-        Background = $brushButton
-        Foreground = $brushWhite
+        Background = $brushes.Button
+        Foreground = $brushes.White
         Margin     = 2
     }
     $btnRow.Children.Add($btnLogItem) | Out-Null
@@ -718,14 +660,13 @@ function Show-WpfStopwatch {
     $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
         Text                = 'Right-click to stop'
         FontSize            = 9
-        Foreground          = $brushHint
+        Foreground          = $brushes.Hint
         HorizontalAlignment = 'Center'
         Margin              = '0,8,0,0'
     }
     $vbox.Children.Add($exitHint) | Out-Null
 
     $circleGrid.Children.Add($vbox) | Out-Null
-    $mainWin.Content = $circleGrid
 
     # ---- UI update helper ----
 
@@ -735,22 +676,7 @@ function Show-WpfStopwatch {
         $itemCountLabel.Text = "$($Script:WpfItems.Count) item(s)"
 
         $pct = $Script:WpfElapsed / $maxDisplaySecs
-
-        if ($pct -ge 0.9999) {
-            $pct = 0.9999
-        }
-
-        if ($pct -le 0.0001) {
-            $pct = 0.0001
-        }
-
-        $angle    = $pct * 360
-        $angleRad = [Math]::PI * ($angle - 90) / 180
-        $x        = $center + $radius * [Math]::Cos($angleRad)
-        $y        = $center + $radius * [Math]::Sin($angleRad)
-
-        $arcSegment.IsLargeArc = ($angle -gt 180)
-        $arcSegment.Point      = New-Object System.Windows.Point($x, $y)
+        Set-WpfArcPoint -Pct $pct -ArcSegment $arcSegment
     }
 
     $clockTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{

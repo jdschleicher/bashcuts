@@ -93,3 +93,134 @@ function Test-ConsoleGridAvailable {
     $available = ($null -ne $cmd)
     return $available
 }
+
+
+function Test-WpfIsWindows {
+    $result = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
+    return $result
+}
+
+
+function New-WpfBrushSet {
+    # Creates a named brush bundle from the shared WPF color constants
+    # (defined in pow_timer.ps1). -ProgressColor overrides the arc color so
+    # the Pomodoro (blue) and unplanned-work stopwatch (amber) share one helper.
+    param([Parameter(Mandatory)] [string] $ProgressColor)
+
+    $converter = [System.Windows.Media.BrushConverter]::new()
+    $result = [PSCustomObject]@{
+        Bg       = $converter.ConvertFromString($script:WpfColorBackground)
+        Stroke   = $converter.ConvertFromString($script:WpfColorStroke)
+        Progress = $converter.ConvertFromString($ProgressColor)
+        Button   = $converter.ConvertFromString($script:WpfColorButton)
+        Hint     = $converter.ConvertFromString($script:WpfColorHint)
+        White    = [System.Windows.Media.Brushes]::White
+        DarkRed  = [System.Windows.Media.Brushes]::DarkRed
+        Clear    = [System.Windows.Media.Brushes]::Transparent
+    }
+    return $result
+}
+
+
+function New-WpfCircleResources {
+    # Builds the shared WPF infrastructure: transparent Window, fixed-size Grid,
+    # dark Ellipse background, and progress-ring arc Path. Returns a PSCustomObject
+    # with Window, Grid, MainCircle, and ArcSegment so callers can add their own
+    # controls to the Grid and wire event handlers. -ArcStartsFull $true (default)
+    # sets the initial arc to full-circle (countdown drain); $false starts empty
+    # (stopwatch fill).
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] $Brushes,
+        [bool] $ArcStartsFull = $true
+    )
+
+    $windowSize = $script:WpfWindowSize
+    $arcStartX  = $script:WpfArcStartX
+    $arcStartY  = $script:WpfArcStartY
+    $radius     = $script:WpfCircleRadius
+
+    $mainWin = New-Object System.Windows.Window -Property @{
+        Title                 = $Title
+        SizeToContent         = 'WidthAndHeight'
+        WindowStyle           = 'None'
+        AllowsTransparency    = $true
+        Background            = $Brushes.Clear
+        Topmost               = $true
+        WindowStartupLocation = 'CenterScreen'
+    }
+
+    $circleGrid = New-Object System.Windows.Controls.Grid -Property @{
+        Width  = $windowSize
+        Height = $windowSize
+    }
+
+    $mainCircle = New-Object System.Windows.Shapes.Ellipse -Property @{
+        Fill            = $Brushes.Bg
+        Stroke          = $Brushes.Stroke
+        StrokeThickness = 2
+    }
+    $circleGrid.Children.Add($mainCircle) | Out-Null
+
+    $pathGeometry = New-Object System.Windows.Media.PathGeometry
+    $pathFigure   = New-Object System.Windows.Media.PathFigure -Property @{
+        StartPoint = "$arcStartX,$arcStartY"
+        IsClosed   = $false
+    }
+    $arcSegment = New-Object System.Windows.Media.ArcSegment -Property @{
+        Size           = "$radius,$radius"
+        SweepDirection = 'Clockwise'
+        IsLargeArc     = $ArcStartsFull
+    }
+    $pathFigure.Segments.Add($arcSegment) | Out-Null
+    $pathGeometry.Figures.Add($pathFigure) | Out-Null
+
+    $progressRing = New-Object System.Windows.Shapes.Path -Property @{
+        Stroke             = $Brushes.Progress
+        StrokeThickness    = 6
+        StrokeStartLineCap = 'Round'
+        StrokeEndLineCap   = 'Round'
+        Data               = $pathGeometry
+    }
+    $circleGrid.Children.Add($progressRing) | Out-Null
+
+    $mainWin.Content = $circleGrid
+
+    $result = [PSCustomObject]@{
+        Window     = $mainWin
+        Grid       = $circleGrid
+        MainCircle = $mainCircle
+        ArcSegment = $arcSegment
+    }
+    return $result
+}
+
+
+function Set-WpfArcPoint {
+    # Updates the arc endpoint for a progress ring. $Pct is clamped to
+    # (0.0001, 0.9999) so the arc is always a genuine arc (never a full circle,
+    # which renders as nothing in WPF path geometry).
+    param(
+        [Parameter(Mandatory)] [double] $Pct,
+        [Parameter(Mandatory)] $ArcSegment
+    )
+
+    $center = $script:WpfCircleCenter
+    $radius = $script:WpfCircleRadius
+
+    if ($Pct -ge 0.9999) {
+        $Pct = 0.9999
+    }
+
+    if ($Pct -le 0.0001) {
+        $Pct = 0.0001
+    }
+
+    $angle    = $Pct * 360
+    $angleRad = [Math]::PI * ($angle - 90) / 180
+    $x        = $center + $radius * [Math]::Cos($angleRad)
+    $y        = $center + $radius * [Math]::Sin($angleRad)
+
+    $ArcSegment.IsLargeArc = ($angle -gt 180)
+    $ArcSegment.Point      = New-Object System.Windows.Point($x, $y)
+}

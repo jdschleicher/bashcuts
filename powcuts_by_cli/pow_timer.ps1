@@ -56,6 +56,9 @@ $script:WpfCircleRadius = 124
 $script:WpfArcStartX    = 130
 $script:WpfArcStartY    = 6
 
+$script:WpfColorProgressUnplanned = '#D97706'
+$script:WpfStopwatchMaxSeconds    = 3600
+
 
 function Test-TimerEscPressed {
     # Non-blocking probe for an Esc keypress. Guarded so the timer still
@@ -273,7 +276,7 @@ function Show-TimerCountdown {
     # both paths so the orchestrator (az-Start-TimerSession) is unchanged.
     param([Parameter(Mandatory)] [int] $Seconds)
 
-    $onWindows = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
+    $onWindows = Test-WpfIsWindows
 
     if ($onWindows) {
         $result = Show-WpfTimerCountdown -Seconds $Seconds
@@ -349,34 +352,14 @@ function Show-WpfTimerCountdown {
 
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
 
-    $colorBg       = $script:WpfColorBackground
-    $colorStroke   = $script:WpfColorStroke
-    $colorProgress = $script:WpfColorProgress
-    $colorButton   = $script:WpfColorButton
-    $colorHint     = $script:WpfColorHint
-
-    $converter     = [System.Windows.Media.BrushConverter]::new()
-    $brushBg       = $converter.ConvertFromString($colorBg)
-    $brushStroke   = $converter.ConvertFromString($colorStroke)
-    $brushProgress = $converter.ConvertFromString($colorProgress)
-    $brushButton   = $converter.ConvertFromString($colorButton)
-    $brushHint     = $converter.ConvertFromString($colorHint)
-    $brushWhite    = [System.Windows.Media.Brushes]::White
-    $brushDarkRed  = [System.Windows.Media.Brushes]::DarkRed
-    $brushClear    = [System.Windows.Media.Brushes]::Transparent
-
-    $windowSize    = $script:WpfWindowSize
-    $center        = $script:WpfCircleCenter
-    $radius        = $script:WpfCircleRadius
-    $arcStartX     = $script:WpfArcStartX
-    $arcStartY     = $script:WpfArcStartY
-    $flashMaxTicks = 15
-
+    $flashMaxTicks  = 15
     $defaultSeconds = $Seconds
 
     $Script:WpfTimeRemaining = [double]$Seconds
     $Script:WpfTotalSeconds  = [double]$Seconds
     $Script:WpfOutcome       = 'Complete'
+
+    $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
 
     do {
         $Script:WpfOutcome    = 'Complete'
@@ -385,49 +368,11 @@ function Show-WpfTimerCountdown {
 
         # ---- Build window ----
 
-        $mainWin = New-Object System.Windows.Window -Property @{
-            Title                 = 'Timer Session'
-            SizeToContent         = 'WidthAndHeight'
-            WindowStyle           = 'None'
-            AllowsTransparency    = $true
-            Background            = $brushClear
-            Topmost               = $true
-            WindowStartupLocation = 'CenterScreen'
-        }
-
-        $circleGrid = New-Object System.Windows.Controls.Grid -Property @{
-            Width  = $windowSize
-            Height = $windowSize
-        }
-
-        $mainCircle = New-Object System.Windows.Shapes.Ellipse -Property @{
-            Fill            = $brushBg
-            Stroke          = $brushStroke
-            StrokeThickness = 2
-        }
-        $circleGrid.Children.Add($mainCircle) | Out-Null
-
-        $pathGeometry = New-Object System.Windows.Media.PathGeometry
-        $pathFigure   = New-Object System.Windows.Media.PathFigure -Property @{
-            StartPoint = "$arcStartX,$arcStartY"
-            IsClosed   = $false
-        }
-        $arcSegment = New-Object System.Windows.Media.ArcSegment -Property @{
-            Size           = "$radius,$radius"
-            SweepDirection = 'Clockwise'
-            IsLargeArc     = $true
-        }
-        $pathFigure.Segments.Add($arcSegment) | Out-Null
-        $pathGeometry.Figures.Add($pathFigure) | Out-Null
-
-        $progressRing = New-Object System.Windows.Shapes.Path -Property @{
-            Stroke             = $brushProgress
-            StrokeThickness    = 6
-            StrokeStartLineCap = 'Round'
-            StrokeEndLineCap   = 'Round'
-            Data               = $pathGeometry
-        }
-        $circleGrid.Children.Add($progressRing) | Out-Null
+        $circleRes  = New-WpfCircleResources -Title 'Timer Session' -Brushes $brushes
+        $mainWin    = $circleRes.Window
+        $circleGrid = $circleRes.Grid
+        $mainCircle = $circleRes.MainCircle
+        $arcSegment = $circleRes.ArcSegment
 
         $vbox = New-Object System.Windows.Controls.StackPanel -Property @{
             VerticalAlignment   = 'Center'
@@ -438,7 +383,7 @@ function Show-WpfTimerCountdown {
             Text                = '00:00.0'
             FontSize            = 34
             FontFamily          = 'Consolas'
-            Foreground          = $brushWhite
+            Foreground          = $brushes.White
             HorizontalAlignment = 'Center'
             Margin              = '0,0,0,8'
             Cursor              = [System.Windows.Input.Cursors]::Hand
@@ -454,16 +399,16 @@ function Show-WpfTimerCountdown {
             Content    = '+5 Min'
             Width      = 55
             Height     = 22
-            Background = $brushButton
-            Foreground = $brushWhite
+            Background = $brushes.Button
+            Foreground = $brushes.White
             Margin     = 2
         }
         $btnPlus10 = New-Object System.Windows.Controls.Button -Property @{
             Content    = '+10 Min'
             Width      = 55
             Height     = 22
-            Background = $brushButton
-            Foreground = $brushWhite
+            Background = $brushes.Button
+            Foreground = $brushes.White
             Margin     = 2
         }
         $adjustRow.Children.Add($btnPlus5)  | Out-Null
@@ -479,8 +424,8 @@ function Show-WpfTimerCountdown {
             Content    = 'New Pomodoro'
             Width      = 120
             Height     = 24
-            Background = $brushButton
-            Foreground = $brushWhite
+            Background = $brushes.Button
+            Foreground = $brushes.White
         }
         $pomoRow.Children.Add($btnNewPomo) | Out-Null
         $vbox.Children.Add($pomoRow) | Out-Null
@@ -494,16 +439,16 @@ function Show-WpfTimerCountdown {
             Content    = 'Capture Story'
             Width      = 92
             Height     = 22
-            Background = $brushButton
-            Foreground = $brushWhite
+            Background = $brushes.Button
+            Foreground = $brushes.White
             Margin     = 2
         }
         $btnComplete = New-Object System.Windows.Controls.Button -Property @{
             Content    = 'Mark Complete'
             Width      = 92
             Height     = 22
-            Background = $brushButton
-            Foreground = $brushWhite
+            Background = $brushes.Button
+            Foreground = $brushes.White
             Margin     = 2
         }
         $actionRow.Children.Add($btnCapture)  | Out-Null
@@ -513,14 +458,13 @@ function Show-WpfTimerCountdown {
         $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
             Text                = 'Click time to pause  ·  Right-click to exit'
             FontSize            = 9
-            Foreground          = $brushHint
+            Foreground          = $brushes.Hint
             HorizontalAlignment = 'Center'
             Margin              = '0,8,0,0'
         }
         $vbox.Children.Add($exitHint) | Out-Null
 
         $circleGrid.Children.Add($vbox) | Out-Null
-        $mainWin.Content = $circleGrid
 
         # ---- Timer state and UI update helper ----
 
@@ -534,22 +478,7 @@ function Show-WpfTimerCountdown {
 
             if ($Script:WpfTotalSeconds -gt 0) {
                 $pct = $Script:WpfTimeRemaining / $Script:WpfTotalSeconds
-
-                if ($pct -ge 0.9999) {
-                    $pct = 0.9999
-                }
-
-                if ($pct -le 0.0001) {
-                    $pct = 0.0001
-                }
-
-                $angle    = $pct * 360
-                $angleRad = [Math]::PI * ($angle - 90) / 180
-                $x        = $center + $radius * [Math]::Cos($angleRad)
-                $y        = $center + $radius * [Math]::Sin($angleRad)
-
-                $arcSegment.IsLargeArc = ($angle -gt 180)
-                $arcSegment.Point      = New-Object System.Windows.Point($x, $y)
+                Set-WpfArcPoint -Pct $pct -ArcSegment $arcSegment
             }
         }
 
@@ -578,7 +507,7 @@ function Show-WpfTimerCountdown {
             }
 
             $flashTick.Stop()
-            $mainCircle.Fill = $brushBg
+            $mainCircle.Fill = $brushes.Bg
 
             if ($clockTick.IsEnabled) {
                 $clockTick.Stop()
@@ -603,16 +532,16 @@ function Show-WpfTimerCountdown {
 
             if ($Script:WpfFlashCount -ge $flashMaxTicks) {
                 $flashTick.Stop()
-                $mainCircle.Fill = $brushBg
+                $mainCircle.Fill = $brushes.Bg
                 $mainWin.Close()
                 return
             }
 
             if ($Script:WpfIsFlashing) {
-                $mainCircle.Fill      = $brushBg
+                $mainCircle.Fill      = $brushes.Bg
                 $Script:WpfIsFlashing = $false
             } else {
-                $mainCircle.Fill      = $brushDarkRed
+                $mainCircle.Fill      = $brushes.DarkRed
                 $Script:WpfIsFlashing = $true
             }
         })
@@ -636,7 +565,7 @@ function Show-WpfTimerCountdown {
         $btnNewPomo.Add_Click({
             $clockTick.Stop()
             $flashTick.Stop()
-            $mainCircle.Fill         = $brushBg
+            $mainCircle.Fill         = $brushes.Bg
             $Script:WpfTotalSeconds  = [double]$defaultSeconds
             $Script:WpfTimeRemaining = $Script:WpfTotalSeconds
             & $updateUi
