@@ -601,13 +601,16 @@ flowchart TD
     NewStory --> HaveStory
 
     HaveStory --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
-    Task --> Loop[session loop — Read-UnplannedKeyPress poll]
+    Task --> PlatCheck{Test-WpfIsWindows?}
+    PlatCheck -- Windows --> WpfLoop["Show-WpfStopwatch<br/>(WPF circular overlay)<br/>Log Item / Capture Story / Stop"]
+    PlatCheck -- macOS/Linux --> Loop[session loop — Read-UnplannedKeyPress poll]
 
     Loop -- Space --> LogItem["Read-Host item<br/>append {Time, Text}"]
     LogItem --> Loop
     Loop -- every ReminderMinutes --> Balloon["Show-UnplannedReminder<br/>(New-UnplannedBalloon NotifyIcon)"]
     Balloon --> Loop
     Loop -- Esc/Q --> Debrief[Invoke-UnplannedDebrief]
+    WpfLoop -- Stop/right-click --> Debrief
 
     Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
     FlushDesc --> AskFuture{future-feature opportunity?}
@@ -680,6 +683,7 @@ graph LR
     NewUWTask[New-UnplannedWorkTask]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
     UWBalloon[New-UnplannedBalloon]:::priv
+    WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
 
     %% Step helpers
@@ -1130,6 +1134,7 @@ graph LR
     NewUWTask --> NewWI
     NewUWTask --> InvLink
     StartUW --> UWBalloon
+    StartUW --> WpfStopwatch
     StartUW --> InvUWDebrief
     InvUWDebrief --> SetField
     InvUWDebrief --> AddDisc
