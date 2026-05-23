@@ -169,7 +169,7 @@ function Read-TimerPick {
 }
 
 
-function Register-TimerIntegration {
+function az-Register-TimerIntegration {
     # Append (or replace by Name) an integration entry to
     # $script:TimerIntegrations. Replace-on-collision lets the user override
     # the built-in AzDO integration from their $profile without editing
@@ -373,8 +373,148 @@ function Format-TimerCommentBody {
     return $body
 }
 
+function Show-ModernMultiLinePrompt {
+    param (
+        [string]$PromptText,
+        [string]$WindowTitle = "Prompt"
+    )
 
-function Start-TimerSession {
+    # 1. LAZY LOAD TYPES: Ensure UI assemblies are ready
+    if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.Form').Type) {
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        [System.Windows.Forms.Application]::EnableVisualStyles()
+    }
+
+    # 2. NESTED HELPER FUNCTION: Creates and fires the OS balloon notification
+    function Show-BalloonNotification {
+        param (
+            [string]$Title = "Action Required",
+            [string]$Message = "Please complete your notes to proceed."
+        )
+        $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+        # Extracts the native PowerShell engine icon to use in the system tray
+        $notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $PID).Path)
+        $notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning
+        $notifyIcon.BalloonTipTitle = $Title
+        $notifyIcon.BalloonTipText = $Message
+        $notifyIcon.Visible = $true
+        
+        # Flash balloon for 3 seconds, then clean up memory immediately
+        $notifyIcon.ShowBalloonTip(3000)
+        Start-Sleep -Milliseconds 100
+        $notifyIcon.Dispose()
+    }
+
+    # 3. Modern Window Layout Canvas
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $WindowTitle
+    $form.Size = New-Object System.Drawing.Size(420, 300)
+    $form.StartPosition = "CenterScreen"
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+    $form.BackColor = [System.Drawing.Color]::FromArgb(245, 246, 248)
+    $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+
+    # 4. Clean Typography Label
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = $PromptText
+    $label.Location = New-Object System.Drawing.Point(20, 15)
+    $label.Size = New-Object System.Drawing.Size(365, 25)
+    $label.ForeColor = [System.Drawing.Color]::FromArgb(33, 37, 41)
+    $form.Controls.Add($label)
+
+    # 5. Modern Multi-Line TextBox
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Multiline = $true
+    $textBox.ScrollBars = "Vertical"
+    $textBox.Location = New-Object System.Drawing.Point(20, 45)
+    $textBox.Size = New-Object System.Drawing.Size(365, 130)
+    $textBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $textBox.BackColor = [System.Drawing.Color]::White
+    $textBox.AcceptsReturn = $true 
+    $form.Controls.Add($textBox)
+
+    # 6. IN-FORM ALERT LABEL: Red error warning block
+    $errorLabel = New-Object System.Windows.Forms.Label
+    $errorLabel.Text = "⚠️ Field cannot be empty! Please provide notes."
+    $errorLabel.Location = New-Object System.Drawing.Point(20, 185)
+    $errorLabel.Size = New-Object System.Drawing.Size(250, 25)
+    $errorLabel.ForeColor = [System.Drawing.Color]::Red
+    $errorLabel.Visible = $false
+    $form.Controls.Add($errorLabel)
+
+    # 7. Styled Button Control
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = "Submit"
+    $okButton.Location = New-Object System.Drawing.Point(285, 185)
+    $okButton.Size = New-Object System.Drawing.Size(100, 32)
+    $okButton.FlatStyle = [System.Windows.Forms.FlatStyle]::System
+    $form.Controls.Add($okButton)
+
+    # 8. VALIDATION LOGIC: Check form fields on Submit click
+    $okButton.add_Click({
+        if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
+            $errorLabel.Visible = $true
+            [System.Media.SystemSounds]::Hand.Play()
+            # Fire the balloon notification on a bad submit attempt
+            Show-BalloonNotification -Title "Submission Blocked" -Message "You must enter details for '$WindowTitle' before submitting."
+        } else {
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        }
+    })
+
+    # Clear red warning block instantly when user resumes typing
+    $textBox.add_TextChanged({
+        if ($errorLabel.Visible -and -not [string]::IsNullOrWhiteSpace($textBox.Text)) {
+            $errorLabel.Visible = $false
+        }
+    })
+
+    # Keyboard Shortcut Integration (Ctrl + Enter)
+    $textBox.add_KeyDown({
+        param($sender, $e)
+        if ($e.Control -and $e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) {
+            $e.SuppressKeyPress = $true 
+            $okButton.PerformClick()
+        }
+    })
+
+    # 9. BACKGROUND TIMER: Fires every 5 seconds if form remains empty
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 5000 
+    
+    $timer.add_Tick({
+        if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
+            [System.Media.SystemSounds]::Asterisk.Play()
+            $errorLabel.Visible = $true
+            # Fire system notification loop reminder
+            Show-BalloonNotification -Title "Friendly Reminder" -Message "Don't forget to fill out your '$WindowTitle' prompt!"
+        }
+    })
+
+    $form.add_Load({ 
+        $timer.Start()
+        $textBox.Focus()
+    })
+    $form.add_FormClosing({ $timer.Stop(); $timer.Dispose() })
+
+    # 10. Persistent Window Execution Execution Loop
+    while ($true) {
+        $result = $form.ShowDialog()
+        if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+            return $textBox.Text
+        }
+        # If user clicks the application exit 'X' icon:
+        [System.Media.SystemSounds]::Hand.Play()
+        Show-BalloonNotification -Title "Form Closed Prematurely" -Message "Data entry is required. The form has restarted."
+    }
+}
+
+
+function az-Start-TimerSession {
     # Orchestrator. Pick an integration (or use -Integration to skip),
     # fetch + pick an item, run the snake countdown (Esc to end early),
     # prompt for debrief notes, post the composed comment via the chosen
@@ -453,10 +593,13 @@ function Start-TimerSession {
             $finishIcon = $script:TimerIconFinish
             Write-Host "$finishIcon SESSION COMPLETE! $finishIcon" -ForegroundColor Green
 
-            $memoIcon = $script:TimerIconMemo
-            $rocketIcon = $script:TimerIconRocket
-            $debrief = Read-Host "$memoIcon Enter your debrief notes"
-            $next    = Read-Host "$rocketIcon What's next"
+            # --- Execution ---
+            $debrief = Show-ModernMultiLinePrompt -PromptText "Enter your debrief notes (Ctrl+Enter to submit):" -WindowTitle "Debrief"
+            $next    = Show-ModernMultiLinePrompt -PromptText "What's Next? (Ctrl+Enter to submit):" -WindowTitle "Next Steps"
+
+            Write-Host "`n--- SAVED DATA ---" -ForegroundColor Green
+            Write-Host "Debrief Note:`n$debrief"
+            Write-Host "`nNext Note:`n$next"
 
             $body = Format-TimerCommentBody `
                 -Interrupted    $countdownResult.Interrupted `
@@ -470,7 +613,7 @@ function Start-TimerSession {
             $commentResult = & $chosen.AddComment -Id $pickedItem.Id -Body $body
 
             $exitCode = if ($commentResult -and $commentResult.PSObject.Properties['ExitCode']) {
-                $commentResult.ExitCode
+
             } else {
                 0
             }
@@ -486,11 +629,14 @@ function Start-TimerSession {
                         Write-Host "   $hint" -ForegroundColor DarkGray
                     }
                 }
+
             } else {
+
                 Write-Host "$warnIcon Comment post failed (exit=$exitCode)." -ForegroundColor Red
                 if ($commentResult -and $commentResult.Error) {
                     Write-Host "   $($commentResult.Error)" -ForegroundColor Red
                 }
+
             }
 
             if ($countdownResult.Interrupted) {
@@ -503,6 +649,8 @@ function Start-TimerSession {
                     Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
                 }
             }
+
+            
         } while ($shouldRestart)
     }
     finally {
@@ -521,7 +669,7 @@ function Start-TimerSession {
 # debrief through the Add-AzDevOpsDiscussionComment wrapper in azdevops_db.ps1.
 # ---------------------------------------------------------------------------
 
-Register-TimerIntegration `
+az-Register-TimerIntegration `
     -Name        'Azure DevOps - User Stories' `
     -Description 'Pick from cached AzDO assigned work items, sorted by State + Priority' `
     -FetchItems  {
