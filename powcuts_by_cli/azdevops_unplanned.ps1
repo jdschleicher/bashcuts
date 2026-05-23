@@ -6,7 +6,7 @@
 # Story; every firefight you start becomes a child Task with its own debrief.
 #
 # Public surface:
-#   Start-UnplannedWork      - find-or-create today's daily story, create a
+#   az-Start-UnplannedWork      - find-or-create today's daily story, create a
 #                              child Task for this firefight, then run a
 #                              foreground session: press Space to log an item,
 #                              Esc/Q to stop and debrief. A reminder balloon
@@ -382,7 +382,7 @@ function Format-UnplannedDebriefComment {
         $lines += ''
     }
 
-    $lines += '<em>via bashcuts Start-UnplannedWork</em>'
+    $lines += '<em>via bashcuts az-Start-UnplannedWork</em>'
 
     $body = $lines -join '<br/>'
     return $body
@@ -485,7 +485,7 @@ function Format-UnplannedDailyDebrief {
 
 
 function Invoke-UnplannedDebrief {
-    # Stop-of-session tail, split out of Start-UnplannedWork so the orchestrator
+    # Stop-of-session tail, split out of az-Start-UnplannedWork so the orchestrator
     # reads as gate -> story -> task -> loop -> debrief. Flushes the captured
     # items to the Task description, prompts for debrief notes + an optional
     # future-feature opportunity (offering to create a user story for it via
@@ -553,7 +553,7 @@ function Invoke-UnplannedDebrief {
 }
 
 
-function Start-UnplannedWork {
+function az-Start-UnplannedWork {
     # Orchestrator. Find-or-create today's daily story, create a child Task for
     # this firefight, then run the foreground session: Space logs a timestamped
     # item, Esc/Q stops. A reminder balloon fires every -ReminderMinutes. On
@@ -570,7 +570,7 @@ function Start-UnplannedWork {
         [switch] $NoReminder
     )
 
-    if (-not (Test-AzDevOpsCreateGate -CommandName 'Start-UnplannedWork')) {
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-Start-UnplannedWork')) {
         return
     }
 
@@ -668,7 +668,7 @@ function Start-UnplannedWork {
             }
         }
 
-        Invoke-UnplannedDebrief -TaskId $taskId -StoryId $storyId -Title $Title -StartTime $startTime -Items @($items)
+        Invoke-UnplannedDebrief -TaskId $taskId -StoryId $storyId -Title $Title -StartTime $startTime -Items $items
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding
