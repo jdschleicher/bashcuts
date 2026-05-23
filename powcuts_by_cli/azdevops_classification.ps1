@@ -51,19 +51,29 @@ function Get-AzDevOpsClassificationMemoKey {
 }
 
 
+function Get-AzDevOpsClassificationCacheFile {
+    # Private. Maps a classification Kind to its on-disk cache file path so the
+    # cache reader and the picker's live-fallback alert share one selection.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $paths = Get-AzDevOpsCachePaths
+    $cacheFile = if ($Kind -eq 'Iteration') {
+        $paths.Iterations
+    } else {
+        $paths.Areas
+    }
+
+    return $cacheFile
+}
+
+
 function Read-AzDevOpsClassificationCache {
     # Reads iterations.json or areas.json from the cache. Returns the parsed
     # tree root, or $null when the cache file is missing / unparseable so
     # callers can fall back to a live `az` fetch.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $paths = Get-AzDevOpsCachePaths
-    $cachePath = if ($Kind -eq 'Iteration') {
-        $paths.Iterations
-    }
-    else {
-        $paths.Areas
-    }
+    $cachePath = Get-AzDevOpsClassificationCacheFile -Kind $Kind
 
     if (-not (Test-Path -LiteralPath $cachePath)) {
         return $null
@@ -182,12 +192,7 @@ function Get-AzDevOpsClassificationPaths {
     $tree = Read-AzDevOpsClassificationCache -Kind $Kind
     if ($null -eq $tree) {
         $azKind = $Kind.ToLower()
-        $allPaths = Get-AzDevOpsCachePaths
-        $cacheFile = if ($Kind -eq 'Iteration') {
-            $allPaths.Iterations
-        } else {
-            $allPaths.Areas
-        }
+        $cacheFile = Get-AzDevOpsClassificationCacheFile -Kind $Kind
 
         Write-Host "!  ${Kind} cache is EMPTY/MISSING - nothing local to read." -ForegroundColor Yellow
         Write-Host "   Expected at: $cacheFile" -ForegroundColor Yellow
