@@ -1109,11 +1109,6 @@ function Get-AzDevOpsFeaturesProjectNames {
         return @($Project)
     }
 
-    if (Test-AzDevOpsProjectMapDefined) {
-        $names = @($global:AzDevOpsProjectMap.Keys | Sort-Object)
-        return $names
-    }
-
     $active = Get-AzDevOpsActiveProjectName
     if ($active) {
         return @($active)
