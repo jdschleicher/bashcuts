@@ -44,6 +44,18 @@ $script:TimerPollsPerSecond = 10
 
 $script:TimerIntegrations = @()
 
+$script:WpfColorBackground = '#2D2D30'
+$script:WpfColorStroke     = '#444444'
+$script:WpfColorProgress   = '#007ACC'
+$script:WpfColorButton     = '#3E3E42'
+$script:WpfColorHint       = '#888888'
+
+$script:WpfWindowSize   = 260
+$script:WpfCircleCenter = 130
+$script:WpfCircleRadius = 124
+$script:WpfArcStartX    = 130
+$script:WpfArcStartY    = 6
+
 
 function Test-TimerEscPressed {
     # Non-blocking probe for an Esc keypress. Guarded so the timer still
@@ -256,11 +268,19 @@ function Get-TimerItemPick {
 
 
 function Show-TimerCountdown {
-    # Snake-animation countdown. Each elapsed second redraws the frame; the
-    # per-second wait is split into ~100ms key polls so Esc interrupts feel
-    # immediate without making the animation flicker. Returns the outcome so
-    # the orchestrator can branch on Interrupted.
+    # Delegates to the WPF circular overlay on Windows; falls back to the
+    # snake-animation on macOS / Linux. Returns the same outcome shape in
+    # both paths so the orchestrator (az-Start-TimerSession) is unchanged.
     param([Parameter(Mandatory)] [int] $Seconds)
+
+    $onWindows = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
+
+    if ($onWindows) {
+        $result = Show-WpfTimerCountdown -Seconds $Seconds
+        return $result
+    }
+
+    # ---- Snake-animation fallback (macOS / Linux) ----
 
     $iconSnakeHead = $script:TimerIconSnakeHead
     $iconSnakeBody = $script:TimerIconSnakeBody
@@ -320,6 +340,356 @@ function Show-TimerCountdown {
 }
 
 
+function Show-WpfTimerCountdown {
+    # WPF circular overlay countdown for Windows. Returns the same result shape
+    # as Show-TimerCountdown so az-Start-TimerSession needs no changes.
+    # If "Capture Story" is clicked the overlay closes, az-New-AzDevOpsUserStory
+    # runs in the terminal, then the overlay reopens with the remaining time.
+    param([Parameter(Mandatory)] [int] $Seconds)
+
+    Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
+
+    $colorBg       = $script:WpfColorBackground
+    $colorStroke   = $script:WpfColorStroke
+    $colorProgress = $script:WpfColorProgress
+    $colorButton   = $script:WpfColorButton
+    $colorHint     = $script:WpfColorHint
+
+    $converter     = [System.Windows.Media.BrushConverter]::new()
+    $brushBg       = $converter.ConvertFromString($colorBg)
+    $brushStroke   = $converter.ConvertFromString($colorStroke)
+    $brushProgress = $converter.ConvertFromString($colorProgress)
+    $brushButton   = $converter.ConvertFromString($colorButton)
+    $brushHint     = $converter.ConvertFromString($colorHint)
+    $brushWhite    = [System.Windows.Media.Brushes]::White
+    $brushDarkRed  = [System.Windows.Media.Brushes]::DarkRed
+    $brushClear    = [System.Windows.Media.Brushes]::Transparent
+
+    $windowSize    = $script:WpfWindowSize
+    $center        = $script:WpfCircleCenter
+    $radius        = $script:WpfCircleRadius
+    $arcStartX     = $script:WpfArcStartX
+    $arcStartY     = $script:WpfArcStartY
+    $flashMaxTicks = 15
+
+    $defaultSeconds = $Seconds
+
+    $Script:WpfTimeRemaining = [double]$Seconds
+    $Script:WpfTotalSeconds  = [double]$Seconds
+    $Script:WpfOutcome       = 'Complete'
+
+    do {
+        $Script:WpfOutcome    = 'Complete'
+        $Script:WpfIsFlashing = $false
+        $Script:WpfFlashCount = 0
+
+        # ---- Build window ----
+
+        $mainWin = New-Object System.Windows.Window -Property @{
+            Title                 = 'Timer Session'
+            SizeToContent         = 'WidthAndHeight'
+            WindowStyle           = 'None'
+            AllowsTransparency    = $true
+            Background            = $brushClear
+            Topmost               = $true
+            WindowStartupLocation = 'CenterScreen'
+        }
+
+        $circleGrid = New-Object System.Windows.Controls.Grid -Property @{
+            Width  = $windowSize
+            Height = $windowSize
+        }
+
+        $mainCircle = New-Object System.Windows.Shapes.Ellipse -Property @{
+            Fill            = $brushBg
+            Stroke          = $brushStroke
+            StrokeThickness = 2
+        }
+        $circleGrid.Children.Add($mainCircle) | Out-Null
+
+        $pathGeometry = New-Object System.Windows.Media.PathGeometry
+        $pathFigure   = New-Object System.Windows.Media.PathFigure -Property @{
+            StartPoint = "$arcStartX,$arcStartY"
+            IsClosed   = $false
+        }
+        $arcSegment = New-Object System.Windows.Media.ArcSegment -Property @{
+            Size           = "$radius,$radius"
+            SweepDirection = 'Clockwise'
+            IsLargeArc     = $true
+        }
+        $pathFigure.Segments.Add($arcSegment) | Out-Null
+        $pathGeometry.Figures.Add($pathFigure) | Out-Null
+
+        $progressRing = New-Object System.Windows.Shapes.Path -Property @{
+            Stroke             = $brushProgress
+            StrokeThickness    = 6
+            StrokeStartLineCap = 'Round'
+            StrokeEndLineCap   = 'Round'
+            Data               = $pathGeometry
+        }
+        $circleGrid.Children.Add($progressRing) | Out-Null
+
+        $vbox = New-Object System.Windows.Controls.StackPanel -Property @{
+            VerticalAlignment   = 'Center'
+            HorizontalAlignment = 'Center'
+        }
+
+        $clockText = New-Object System.Windows.Controls.TextBlock -Property @{
+            Text                = '00:00.0'
+            FontSize            = 34
+            FontFamily          = 'Consolas'
+            Foreground          = $brushWhite
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,8'
+            Cursor              = [System.Windows.Input.Cursors]::Hand
+        }
+        $vbox.Children.Add($clockText) | Out-Null
+
+        $adjustRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnPlus5 = New-Object System.Windows.Controls.Button -Property @{
+            Content    = '+5 Min'
+            Width      = 55
+            Height     = 22
+            Background = $brushButton
+            Foreground = $brushWhite
+            Margin     = 2
+        }
+        $btnPlus10 = New-Object System.Windows.Controls.Button -Property @{
+            Content    = '+10 Min'
+            Width      = 55
+            Height     = 22
+            Background = $brushButton
+            Foreground = $brushWhite
+            Margin     = 2
+        }
+        $adjustRow.Children.Add($btnPlus5)  | Out-Null
+        $adjustRow.Children.Add($btnPlus10) | Out-Null
+        $vbox.Children.Add($adjustRow) | Out-Null
+
+        $pomoRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnNewPomo = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'New Pomodoro'
+            Width      = 120
+            Height     = 24
+            Background = $brushButton
+            Foreground = $brushWhite
+        }
+        $pomoRow.Children.Add($btnNewPomo) | Out-Null
+        $vbox.Children.Add($pomoRow) | Out-Null
+
+        $actionRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnCapture = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'Capture Story'
+            Width      = 92
+            Height     = 22
+            Background = $brushButton
+            Foreground = $brushWhite
+            Margin     = 2
+        }
+        $btnComplete = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'Mark Complete'
+            Width      = 92
+            Height     = 22
+            Background = $brushButton
+            Foreground = $brushWhite
+            Margin     = 2
+        }
+        $actionRow.Children.Add($btnCapture)  | Out-Null
+        $actionRow.Children.Add($btnComplete) | Out-Null
+        $vbox.Children.Add($actionRow) | Out-Null
+
+        $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
+            Text                = 'Click time to pause  ·  Right-click to exit'
+            FontSize            = 9
+            Foreground          = $brushHint
+            HorizontalAlignment = 'Center'
+            Margin              = '0,8,0,0'
+        }
+        $vbox.Children.Add($exitHint) | Out-Null
+
+        $circleGrid.Children.Add($vbox) | Out-Null
+        $mainWin.Content = $circleGrid
+
+        # ---- Timer state and UI update helper ----
+
+        $updateUi = {
+            if ($Script:WpfTimeRemaining -le 0) {
+                $Script:WpfTimeRemaining = 0
+            }
+
+            $ts = [TimeSpan]::FromSeconds($Script:WpfTimeRemaining)
+            $clockText.Text = $ts.ToString('mm\:ss\.f')
+
+            if ($Script:WpfTotalSeconds -gt 0) {
+                $pct = $Script:WpfTimeRemaining / $Script:WpfTotalSeconds
+
+                if ($pct -ge 0.9999) {
+                    $pct = 0.9999
+                }
+
+                if ($pct -le 0.0001) {
+                    $pct = 0.0001
+                }
+
+                $angle    = $pct * 360
+                $angleRad = [Math]::PI * ($angle - 90) / 180
+                $x        = $center + $radius * [Math]::Cos($angleRad)
+                $y        = $center + $radius * [Math]::Sin($angleRad)
+
+                $arcSegment.IsLargeArc = ($angle -gt 180)
+                $arcSegment.Point      = New-Object System.Windows.Point($x, $y)
+            }
+        }
+
+        $clockTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+            Interval = [TimeSpan]::FromMilliseconds(100)
+        }
+
+        $flashTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+            Interval = [TimeSpan]::FromMilliseconds(300)
+        }
+
+        # ---- Event handlers ----
+
+        $mainWin.Add_MouseLeftButtonDown({ $mainWin.DragMove() })
+
+        $mainWin.Add_MouseRightButtonDown({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $Script:WpfOutcome = 'Interrupted'
+            $mainWin.Close()
+        })
+
+        $clockText.Add_MouseLeftButtonDown({
+            if ($Script:WpfTimeRemaining -le 0) {
+                return
+            }
+
+            $flashTick.Stop()
+            $mainCircle.Fill = $brushBg
+
+            if ($clockTick.IsEnabled) {
+                $clockTick.Stop()
+            } else {
+                $clockTick.Start()
+            }
+        })
+
+        $clockTick.Add_Tick({
+            $Script:WpfTimeRemaining -= 0.1
+            & $updateUi
+
+            if ($Script:WpfTimeRemaining -le 0) {
+                $clockTick.Stop()
+                $Script:WpfFlashCount = 0
+                $flashTick.Start()
+            }
+        })
+
+        $flashTick.Add_Tick({
+            $Script:WpfFlashCount++
+
+            if ($Script:WpfFlashCount -ge $flashMaxTicks) {
+                $flashTick.Stop()
+                $mainCircle.Fill = $brushBg
+                $mainWin.Close()
+                return
+            }
+
+            if ($Script:WpfIsFlashing) {
+                $mainCircle.Fill      = $brushBg
+                $Script:WpfIsFlashing = $false
+            } else {
+                $mainCircle.Fill      = $brushDarkRed
+                $Script:WpfIsFlashing = $true
+            }
+        })
+
+        $btnPlus5.Add_Click({
+            if (-not $clockTick.IsEnabled) {
+                $Script:WpfTotalSeconds  += 300
+                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
+                & $updateUi
+            }
+        })
+
+        $btnPlus10.Add_Click({
+            if (-not $clockTick.IsEnabled) {
+                $Script:WpfTotalSeconds  += 600
+                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
+                & $updateUi
+            }
+        })
+
+        $btnNewPomo.Add_Click({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $mainCircle.Fill         = $brushBg
+            $Script:WpfTotalSeconds  = [double]$defaultSeconds
+            $Script:WpfTimeRemaining = $Script:WpfTotalSeconds
+            & $updateUi
+        })
+
+        $btnCapture.Add_Click({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $Script:WpfOutcome = 'CaptureStory'
+            $mainWin.Close()
+        })
+
+        $btnComplete.Add_Click({
+            $confirmMsg    = 'End this session early and go to debrief?'
+            $confirmTitle  = 'Mark Complete Early'
+            $confirmResult = [System.Windows.MessageBox]::Show(
+                $confirmMsg,
+                $confirmTitle,
+                [System.Windows.MessageBoxButton]::YesNo,
+                [System.Windows.MessageBoxImage]::Question
+            )
+
+            if ($confirmResult -eq [System.Windows.MessageBoxResult]::Yes) {
+                $clockTick.Stop()
+                $flashTick.Stop()
+                $Script:WpfOutcome = 'Interrupted'
+                $mainWin.Close()
+            }
+        })
+
+        # ---- Show ----
+
+        & $updateUi
+        $mainWin.ShowDialog() | Out-Null
+
+        if ($Script:WpfOutcome -eq 'CaptureStory') {
+            az-New-AzDevOpsUserStory
+        }
+
+    } while ($Script:WpfOutcome -eq 'CaptureStory')
+
+    $elapsed     = [int]($Seconds - $Script:WpfTimeRemaining)
+    $interrupted = ($Script:WpfOutcome -eq 'Interrupted')
+
+    $result = [PSCustomObject]@{
+        ElapsedSeconds = $elapsed
+        TotalSeconds   = $Seconds
+        Interrupted    = $interrupted
+    }
+    return $result
+}
+
+
 function Format-TimerCommentBody {
     # Compose the discussion-comment text. Header reflects outcome; body has
     # labeled Debrief and Next sections; a trailing attribution line lets a
@@ -373,159 +743,15 @@ function Format-TimerCommentBody {
     return $body
 }
 
-function Show-ModernMultiLinePrompt {
-    param (
-        [string]$PromptText,
-        [string]$WindowTitle = "Prompt"
-    )
-
-    # 1. LAZY LOAD TYPES: Ensure UI assemblies are ready
-    if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.Form').Type) {
-        Add-Type -AssemblyName System.Windows.Forms
-        Add-Type -AssemblyName System.Drawing
-        [System.Windows.Forms.Application]::EnableVisualStyles()
-    }
-
-    # 2. NESTED HELPER FUNCTION: Creates and fires the OS balloon notification
-    function Show-BalloonNotification {
-        param (
-            [string]$Title = "Action Required",
-            [string]$Message = "Please complete your notes to proceed."
-        )
-        $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-        # Extracts the native PowerShell engine icon to use in the system tray
-        $notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $PID).Path)
-        $notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning
-        $notifyIcon.BalloonTipTitle = $Title
-        $notifyIcon.BalloonTipText = $Message
-        $notifyIcon.Visible = $true
-        
-        # Flash balloon for 3 seconds, then clean up memory immediately
-        $notifyIcon.ShowBalloonTip(3000)
-        Start-Sleep -Milliseconds 100
-        $notifyIcon.Dispose()
-    }
-
-    # 3. Modern Window Layout Canvas
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = $WindowTitle
-    $form.Size = New-Object System.Drawing.Size(420, 300)
-    $form.StartPosition = "CenterScreen"
-    $form.FormBorderStyle = "FixedDialog"
-    $form.MaximizeBox = $false
-    $form.MinimizeBox = $false
-    $form.BackColor = [System.Drawing.Color]::FromArgb(245, 246, 248)
-    $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-
-    # 4. Clean Typography Label
-    $label = New-Object System.Windows.Forms.Label
-    $label.Text = $PromptText
-    $label.Location = New-Object System.Drawing.Point(20, 15)
-    $label.Size = New-Object System.Drawing.Size(365, 25)
-    $label.ForeColor = [System.Drawing.Color]::FromArgb(33, 37, 41)
-    $form.Controls.Add($label)
-
-    # 5. Modern Multi-Line TextBox
-    $textBox = New-Object System.Windows.Forms.TextBox
-    $textBox.Multiline = $true
-    $textBox.ScrollBars = "Vertical"
-    $textBox.Location = New-Object System.Drawing.Point(20, 45)
-    $textBox.Size = New-Object System.Drawing.Size(365, 130)
-    $textBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-    $textBox.BackColor = [System.Drawing.Color]::White
-    $textBox.AcceptsReturn = $true 
-    $form.Controls.Add($textBox)
-
-    # 6. IN-FORM ALERT LABEL: Red error warning block
-    $errorLabel = New-Object System.Windows.Forms.Label
-    $errorLabel.Text = "⚠️ Field cannot be empty! Please provide notes."
-    $errorLabel.Location = New-Object System.Drawing.Point(20, 185)
-    $errorLabel.Size = New-Object System.Drawing.Size(250, 25)
-    $errorLabel.ForeColor = [System.Drawing.Color]::Red
-    $errorLabel.Visible = $false
-    $form.Controls.Add($errorLabel)
-
-    # 7. Styled Button Control
-    $okButton = New-Object System.Windows.Forms.Button
-    $okButton.Text = "Submit"
-    $okButton.Location = New-Object System.Drawing.Point(285, 185)
-    $okButton.Size = New-Object System.Drawing.Size(100, 32)
-    $okButton.FlatStyle = [System.Windows.Forms.FlatStyle]::System
-    $form.Controls.Add($okButton)
-
-    # 8. VALIDATION LOGIC: Check form fields on Submit click
-    $okButton.add_Click({
-        if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
-            $errorLabel.Visible = $true
-            [System.Media.SystemSounds]::Hand.Play()
-            # Fire the balloon notification on a bad submit attempt
-            Show-BalloonNotification -Title "Submission Blocked" -Message "You must enter details for '$WindowTitle' before submitting."
-        } else {
-            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
-            $form.Close()
-        }
-    })
-
-    # Clear red warning block instantly when user resumes typing
-    $textBox.add_TextChanged({
-        if ($errorLabel.Visible -and -not [string]::IsNullOrWhiteSpace($textBox.Text)) {
-            $errorLabel.Visible = $false
-        }
-    })
-
-    # Keyboard Shortcut Integration (Ctrl + Enter)
-    $textBox.add_KeyDown({
-        param($sender, $e)
-        if ($e.Control -and $e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) {
-            $e.SuppressKeyPress = $true 
-            $okButton.PerformClick()
-        }
-    })
-
-    # 9. BACKGROUND TIMER: Fires every 5 seconds if form remains empty
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 5000 
-    
-    $timer.add_Tick({
-        if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
-            [System.Media.SystemSounds]::Asterisk.Play()
-            $errorLabel.Visible = $true
-            # Fire system notification loop reminder
-            Show-BalloonNotification -Title "Friendly Reminder" -Message "Don't forget to fill out your '$WindowTitle' prompt!"
-        }
-    })
-
-    $form.add_Load({ 
-        $timer.Start()
-        $textBox.Focus()
-    })
-    $form.add_FormClosing({ $timer.Stop(); $timer.Dispose() })
-
-    # 10. Persistent Window Execution Execution Loop
-    while ($true) {
-        $result = $form.ShowDialog()
-        if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
-            return $textBox.Text
-        }
-        # If user clicks the application exit 'X' icon:
-        [System.Media.SystemSounds]::Hand.Play()
-        Show-BalloonNotification -Title "Form Closed Prematurely" -Message "Data entry is required. The form has restarted."
-    }
-}
-
-
 function az-Start-TimerSession {
     # Orchestrator. Pick an integration (or use -Integration to skip),
-    # fetch + pick an item, run the snake countdown (Esc to end early),
-    # prompt for debrief notes, post the composed comment via the chosen
-    # integration's AddComment. On an Esc-interrupted session also prompt
-    # whether to start another session — same -Minutes, fresh integration
-    # / item pick so the user can pivot to a different story.
+    # fetch + pick an item, run the countdown (WPF overlay on Windows, snake
+    # animation elsewhere), prompt for debrief notes in the terminal, post
+    # the composed comment via the chosen integration's AddComment. On an
+    # interrupted session also prompt whether to start another session.
     #
-    # UTF-8 encoding is applied around the snake animation so the emoji
-    # glyphs render in terminals that default to a non-UTF-8 codepage; the
-    # previous encoding is restored on exit (including Ctrl-C) so we don't
-    # leak a process-wide mutation back to the shell.
+    # UTF-8 encoding is applied so emoji glyphs render in terminals that
+    # default to a non-UTF-8 codepage; restored on exit (including Ctrl-C).
     [CmdletBinding()]
     param(
         [ValidateRange(1, [int]::MaxValue)] [int] $Minutes = $script:TimerDefaultMinutes,
@@ -569,37 +795,17 @@ function az-Start-TimerSession {
             Write-Host "Starting $Minutes-minute session on item $($pickedItem.Id): $($pickedItem.Title)" -ForegroundColor Green
             Start-Sleep -Seconds 2
 
-            $seconds = $Minutes * 60
+            $seconds         = $Minutes * 60
             $countdownResult = Show-TimerCountdown -Seconds $seconds
-
-            if (-not ([System.Management.Automation.PSTypeName]'System.Windows.Forms.NotifyIcon').Type) {
-                Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-            }
-
-            # Instantiate the objects cleanly
-            $Balloon = New-Object System.Windows.Forms.NotifyIcon
-            $Balloon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $PID).Path)
-
-            # Configure the alert elements
-            $Balloon.BalloonTipIcon  = [System.Windows.Forms.ToolTipIcon]::Warning
-            $Balloon.BalloonTipTitle = "🚨 POMODORO TASK EXPIRED! 🚨"
-            $Balloon.BalloonTipText  = "⏰ Time's up! Please provide debrief and next steps. 🛑"
-            $Balloon.Visible = $true
-
-            # Fire balloon simultaneously
-            $Balloon.ShowBalloonTip(0)
 
             Clear-Host
             $finishIcon = $script:TimerIconFinish
             Write-Host "$finishIcon SESSION COMPLETE! $finishIcon" -ForegroundColor Green
+            Write-Host ""
 
-            # --- Execution ---
-            $debrief = Show-ModernMultiLinePrompt -PromptText "Enter your debrief notes (Ctrl+Enter to submit):" -WindowTitle "Debrief"
-            $next    = Show-ModernMultiLinePrompt -PromptText "What's Next? (Ctrl+Enter to submit):" -WindowTitle "Next Steps"
-
-            Write-Host "`n--- SAVED DATA ---" -ForegroundColor Green
-            Write-Host "Debrief Note:`n$debrief"
-            Write-Host "`nNext Note:`n$next"
+            $iconMemo = $script:TimerIconMemo
+            $debrief  = Read-Host "$iconMemo Debrief — what did you accomplish?"
+            $next     = Read-Host "$iconMemo Next — what's the next step?"
 
             $body = Format-TimerCommentBody `
                 -Interrupted    $countdownResult.Interrupted `
@@ -613,7 +819,7 @@ function az-Start-TimerSession {
             $commentResult = & $chosen.AddComment -Id $pickedItem.Id -Body $body
 
             $exitCode = if ($commentResult -and $commentResult.PSObject.Properties['ExitCode']) {
-
+                $commentResult.ExitCode
             } else {
                 0
             }
