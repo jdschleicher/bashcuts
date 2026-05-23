@@ -135,11 +135,52 @@ function ConvertFrom-AzDevOpsAssignedItem {
 }
 
 
+# In-session parse memo for cache files, keyed by absolute path + the file's
+# last-write-time. Repeated reads of an unchanged file in one session skip the
+# Get-Content + ConvertFrom-Json + per-row conversion (the cost felt when, say,
+# creating several stories back-to-back re-parses hierarchy.json each time).
+# Keying on mtime means the detached background sync - which rewrites cache
+# files from a SEPARATE process - auto-invalidates the memo with no explicit
+# clear, and keying on the (per-project) path means switching projects can't
+# serve another project's rows. Failed parses are not memoized.
+$script:AzDevOpsParseMemo = @{}
+
+
+function Get-AzDevOpsMemoizedParse {
+    # Private. Returns the memoized parse of $Path while the file is unchanged
+    # since the last read (by LastWriteTimeUtc); otherwise runs $Parse, stores a
+    # non-null result keyed by path + mtime, and returns it. $Parse takes no args
+    # and must read $Path itself and return the finished object/array. Callers
+    # must confirm $Path exists before calling.
+    param(
+        [Parameter(Mandatory)] [string]      $Path,
+        [Parameter(Mandatory)] [scriptblock] $Parse
+    )
+
+    $mtime = (Get-Item -LiteralPath $Path).LastWriteTimeUtc
+
+    $entry = $script:AzDevOpsParseMemo[$Path]
+    if ($null -ne $entry -and $entry.Mtime -eq $mtime) {
+        $cached = $entry.Value
+        return $cached
+    }
+
+    $value = & $Parse
+
+    if ($null -ne $value) {
+        $script:AzDevOpsParseMemo[$Path] = @{ Mtime = $mtime; Value = $value }
+    }
+
+    return $value
+}
+
+
 function Read-AzDevOpsJsonCache {
     # Shared shape for every cache reader: missing-cache hint, ConvertFrom-Json
     # with try/catch, then map each row through a per-dataset converter. Each
     # caller supplies its own $Path, a short $Description for the hint line,
     # and a scriptblock that turns one parsed row into a typed PSCustomObject.
+    # The parse is memoized per path+mtime so repeat reads in a session are free.
     param(
         [Parameter(Mandatory)] [string]      $Path,
         [Parameter(Mandatory)] [string]      $Description,
@@ -152,15 +193,19 @@ function Read-AzDevOpsJsonCache {
         return $null
     }
 
-    try {
-        $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    }
-    catch {
-        Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
-        return $null
-    }
+    $items = Get-AzDevOpsMemoizedParse -Path $Path -Parse {
+        try {
+            $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        }
+        catch {
+            Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
+            return $null
+        }
 
-    $items = @($raw | ForEach-Object { & $Converter $_ })
+        $parsed = @($raw | ForEach-Object { & $Converter $_ })
+        return $parsed
+    }.GetNewClosure()
+
     return $items
 }
 
