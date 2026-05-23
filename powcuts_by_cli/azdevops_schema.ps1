@@ -34,7 +34,7 @@
 #                                  VALID / STALE / INVALID.
 #
 # Internal integration point (consumed by future schema-aware updates to
-# az-New-AzDevOpsUserStory, az-Get-AzDevOpsAssigned, az-Show-AzDevOpsTree, etc.):
+# az-New-AzDevOpsUserStory, az-Get-AzDevOpsAssigned, az-Show-Tree, etc.):
 #   Get-AzDevOpsSchemaForType   - returns the parsed schema entry for one
 #                                  work-item type, or $null if no schema
 #                                  is configured / type not present.

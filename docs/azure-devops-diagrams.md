@@ -7,7 +7,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
-- [6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render](#6-az-show-azdevopstree--epic--feature--requirement-tier-render)
+- [6. `az-Show-Tree` — Epic → Feature → requirement-tier render](#6-az-show-tree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
@@ -38,10 +38,10 @@ flowchart LR
         OpenA["az-Open-AzDevOpsAssigned"]
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-AzDevOpsMention"]
-        Tree["az-Show-AzDevOpsTree"]
-        Board["az-Show-AzDevOpsBoard"]
-        ShowAreas["az-Show-AzDevOpsAreas"]
-        ShowIters["az-Show-AzDevOpsIterations"]
+        Tree["az-Show-Tree"]
+        Board["az-Show-Board"]
+        ShowAreas["az-Show-Areas"]
+        ShowIters["az-Show-Iterations"]
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
@@ -51,7 +51,8 @@ flowchart LR
         NewStory["az-New-AzDevOpsUserStory"]
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
-        ShowFeats["az-Show-AzDevOpsFeatures"]
+        NewTask["az-New-Task"]
+        ShowFeats["az-Show-Features"]
         Help["az-help"]
     end
 
@@ -134,6 +135,11 @@ flowchart LR
     NewStory --> IterJson
     NewStory --> AreasJson
     NewStory --> AzBoards
+
+    NewTask --> HierJson
+    NewTask --> IterJson
+    NewTask --> AreasJson
+    NewTask --> AzBoards
 
     BgSync -.spawns hidden pwsh when stale.-> Sync
 
@@ -334,7 +340,7 @@ flowchart LR
 
 ---
 
-## 6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render
+## 6. `az-Show-Tree` — Epic → Feature → requirement-tier render
 
 Pure cache read, no `az`. Each of the three hierarchy WIQLs (epics / features / user-stories) selects `[System.Parent]` per row, and `Invoke-AzDevOpsHierarchyQueries` merges them into a single flat array on disk, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
 
@@ -342,7 +348,7 @@ The leaf-tier filter checks `Type -in $script:AzDevOpsRequirementTypes` — the 
 
 ```mermaid
 flowchart TD
-    Start([az-Show-AzDevOpsTree]) --> Read[Read-AzDevOpsHierarchyCache]
+    Start([az-Show-Tree]) --> Read[Read-AzDevOpsHierarchyCache]
     Read --> Banner[Write-AzDevOpsStaleBanner]
     Banner --> Index["build $byParent hashtable<br/>key = ParentId or 0"]
     Index --> Epics["filter Type='Epic', sort by Id"]
@@ -350,6 +356,11 @@ flowchart TD
     Grid -- yes --> Pfx["Get-AzDevOpsWorkItemUrlPrefix<br/>(once, not per row)"]
     Pfx --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path/Url)"]
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
+    Show --> Action["Invoke-AzDevOpsRowAction<br/>(per selected row)"]
+    Action --> Choice{Read-AzDevOpsRowActionChoice}
+    Choice -- open --> OpenSel["Open-AzDevOpsWorkItemUrl"]
+    Choice -- create --> Child["New-AzDevOpsChildForRow<br/>(Get-AzDevOpsChildTypeFor →<br/>az-New-AzDevOpsFeature / UserStory / az-New-Task)"]
+    Choice -- skip --> NoOp([skip])
     Grid -- no --> ForEpic{foreach epic}
     ForEpic --> NodeE["Format-AzDevOpsTreeNode -Depth 0<br/>uses Get-AzDevOpsTreeIcon (Epic icon)<br/>+ Get-AzDevOpsTreeIndent"]
     NodeE --> Features["children where Type='Feature'"]
@@ -366,6 +377,8 @@ flowchart TD
 ```
 
 Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, `$iconFeature`, `$iconStory`) — never raw `[char]0x...` literals at the call site.
+
+The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board` and `az-Show-Features` too; `az-Show-Features` passes `-DefaultType 'Feature'` since its rows omit a Type column. For each selected work-item row it offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
 
 ---
 
@@ -636,10 +649,10 @@ graph LR
     OpenA(["az-Open-AzDevOpsAssigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-AzDevOpsMention"]):::pub
-    Tree(["az-Show-AzDevOpsTree"]):::pub
-    Board(["az-Show-AzDevOpsBoard"]):::pub
-    ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
-    ShowIters(["az-Show-AzDevOpsIterations"]):::pub
+    Tree(["az-Show-Tree"]):::pub
+    Board(["az-Show-Board"]):::pub
+    ShowAreas(["az-Show-Areas"]):::pub
+    ShowIters(["az-Show-Iterations"]):::pub
     GetAreas(["az-Get-AzDevOpsAreas"]):::pub
     GetIters(["az-Get-AzDevOpsIterations"]):::pub
     FindArea(["az-Find-AzDevOpsArea"]):::pub
@@ -647,13 +660,14 @@ graph LR
     NewS(["az-New-AzDevOpsUserStory"]):::pub
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
+    NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
     OpenHWiql(["az-Open-AzDevOpsHierarchyWiqls"]):::pub
-    ShowFeats(["az-Show-AzDevOpsFeatures"]):::pub
+    ShowFeats(["az-Show-Features"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
     UseProj(["az-Use-AzDevOpsProject"]):::pub
-    ShowProj(["az-Show-AzDevOpsProject"]):::pub
+    ShowProj(["az-Show-Project"]):::pub
     GetProjs(["az-Get-AzDevOpsProjects"]):::pub
     FindProj(["az-Find-AzDevOpsProject"]):::pub
 
@@ -773,6 +787,25 @@ graph LR
     GridPick[Read-AzDevOpsGridPick]:::priv
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
     ActionRow[New-AzDevOpsActionRow]:::priv
+
+    %% Interactive post-selection row actions (azdevops_views.ps1 + azdevops_classification.ps1)
+    RowAction[Invoke-AzDevOpsRowAction]:::priv
+    RowChoice[Read-AzDevOpsRowActionChoice]:::priv
+    ChildType[Get-AzDevOpsChildTypeFor]:::priv
+    ChildForRow[New-AzDevOpsChildForRow]:::priv
+    RowType[Resolve-AzDevOpsRowType]:::priv
+    ClsAction[Invoke-AzDevOpsClassificationAction]:::priv
+
+    %% URL builders (shared base)
+    UrlBase[Get-AzDevOpsUrlBase]:::priv
+    BoardsUrl[Get-AzDevOpsBoardsUrl]:::priv
+
+    %% Show-Features cache source + empty-state hint
+    FeatSrc[Read-AzDevOpsFeaturesSource]:::priv
+    NoFeatHint[Write-AzDevOpsNoFeaturesHint]:::priv
+
+    %% az-New-Task picker
+    PStory[Read-AzDevOpsStoryPick]:::priv
 
     %% NewStory helpers
     ReadCls[Read-AzDevOpsClassificationCache]:::priv
@@ -965,6 +998,29 @@ graph LR
     Board --> TitleCol
     Board --> ShowRows
 
+    %% Post-selection row actions (shared by Tree / Board / Features)
+    Tree --> RowAction
+    Board --> RowAction
+    ShowFeats --> RowAction
+    RowAction --> RowType
+    RowAction --> ChildType
+    RowAction --> RowChoice
+    RowAction --> ChildForRow
+    RowAction --> OpenUrl
+    ChildForRow --> NewF
+    ChildForRow --> NewS
+    ChildForRow --> NewTask
+
+    %% URL builders share one base
+    WiPfx --> UrlBase
+    BoardsUrl --> UrlBase
+    UrlBase --> ConfDef
+
+    %% Classification post-selection (Areas / Iterations: Boards-hub open only)
+    ShowAreas --> ClsAction
+    ShowIters --> ClsAction
+    ClsAction --> BoardsUrl
+
     %% Classification tree views (cache-first, live fallback)
     ClsRows[ConvertFrom-AzDevOpsClassificationTree]:::priv
     ClsNode[Format-AzDevOpsClassificationNode]:::priv
@@ -1041,6 +1097,14 @@ graph LR
     NewF --> YN
     NewF -.hand-off on yes.-> NewSB
 
+    NewTask --> CGate
+    NewTask --> ReadH
+    NewTask --> RPriP
+    NewTask --> PStory
+    NewTask --> ResIA
+    NewTask --> CrLink
+    PStory --> PParent
+
     NewSB --> CGate
     NewSB --> ReadH
     NewSB --> ParentTest
@@ -1110,11 +1174,14 @@ graph LR
     ShowFeats --> FeatNames
     FeatNames --> MapDef
     FeatNames --> ActName
-    ShowFeats --> ReadHForProj
-    ShowFeats --> ReadH
+    ShowFeats --> FeatSrc
+    ShowFeats --> NoFeatHint
     ShowFeats --> SelAct
     ShowFeats --> TitleCol
     ShowFeats --> ShowRows
+    FeatSrc --> ReadHForProj
+    FeatSrc -.legacy fallback.-> ReadH
+    NoFeatHint --> BoardsUrl
     ReadHForProj --> ToSlug
     ReadHForProj --> PathsForSlug
     ReadHForProj --> ReadJson
