@@ -224,3 +224,68 @@ function Set-WpfArcPoint {
     $ArcSegment.IsLargeArc = ($angle -gt 180)
     $ArcSegment.Point      = New-Object System.Windows.Point($x, $y)
 }
+
+
+$script:CommonSpinnerFrames = @('|', '/', '-', '\')
+
+
+function Invoke-WithSpinner {
+    # Runs $ScriptBlock while showing a console loading/posting indicator, then
+    # returns whatever the scriptblock returned. The work runs synchronously on
+    # the calling thread — a wrapped az call blocks until it returns — so this
+    # prints a single "working" line that stays on screen for the duration
+    # rather than a continuously spinning glyph (a true animation would need a
+    # second thread, and the wrapped call's own command echo would clash with
+    # it on the same console). It exists to give feedback that a slow call is
+    # in flight and to be the shared seam the repo-wide az spinner (#105) wraps.
+    param(
+        [Parameter(Mandatory)] [scriptblock] $ScriptBlock,
+        [string] $Message = 'Working'
+    )
+
+    $frame = $script:CommonSpinnerFrames[0]
+    Write-Host "$frame $Message..." -ForegroundColor Cyan
+
+    $result = & $ScriptBlock
+    return $result
+}
+
+
+function New-WpfSpinnerControl {
+    # Reusable WPF spinner: a TextBlock whose text cycles through the shared
+    # spinner frames on a DispatcherTimer tick. Caller adds .Text to its layout
+    # and starts/stops .Timer. Frames advance only while the dispatcher is free,
+    # so a long synchronous call on the UI thread stalls the animation until it
+    # returns — acceptable for the brief az posts this wraps. Returns the
+    # TextBlock + Timer so callers own placement and start/stop timing.
+    param(
+        [Parameter(Mandatory)] $Brushes,
+        [int] $FontSize = 22
+    )
+
+    $frames = $script:CommonSpinnerFrames
+
+    $textBlock = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = $frames[0]
+        FontSize            = $FontSize
+        FontFamily          = 'Consolas'
+        Foreground          = $Brushes.White
+        HorizontalAlignment = 'Center'
+    }
+
+    $timer = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+        Interval = [TimeSpan]::FromMilliseconds(120)
+    }
+
+    $frameIndex = [ref] 0
+    $timer.Add_Tick({
+        $frameIndex.Value = ($frameIndex.Value + 1) % $frames.Count
+        $textBlock.Text   = $frames[$frameIndex.Value]
+    }.GetNewClosure())
+
+    $result = [PSCustomObject]@{
+        Text  = $textBlock
+        Timer = $timer
+    }
+    return $result
+}
