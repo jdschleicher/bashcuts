@@ -3,9 +3,13 @@
 #
 # Public surface:
 #   Start-TimerSession         - pick integration -> pick item -> run timer ->
-#                                prompt for debrief -> post comment.
-#                                Press Esc during the countdown to end early
-#                                and still post a debrief.
+#                                collect debrief -> post comment. On Windows the
+#                                countdown morphs into a themed WPF debrief form
+#                                (Show-WpfTimerDebrief) that posts under a spinner
+#                                and loops back to a fresh timer; elsewhere the
+#                                debrief is collected via terminal Read-Host with
+#                                a console posting indicator. Press Esc during the
+#                                countdown to end early and still post a debrief.
 #   Register-TimerIntegration  - add an integration (Name, Description,
 #                                FetchItems, AddComment, optional ViewHint).
 #                                Registering with an existing Name replaces it.
@@ -675,6 +679,22 @@ function Format-TimerCommentBody {
 }
 
 
+function Get-TimerResultExitCode {
+    # Names the "missing ExitCode means success (0)" contract for an AddComment
+    # envelope ({ Json, Error, ExitCode }) in one place, so both the console
+    # verdict and the WPF post-gate read the outcome the same way.
+    param([Parameter(Mandatory)] $Result)
+
+    $exitCode = if ($Result -and $Result.PSObject.Properties['ExitCode']) {
+        $Result.ExitCode
+    } else {
+        0
+    }
+
+    return $exitCode
+}
+
+
 function Write-TimerPostVerdict {
     # Prints the post-comment verdict shared by both the WPF and terminal
     # debrief paths: a green check + optional ViewHint on success, a red warning
@@ -686,11 +706,7 @@ function Write-TimerPostVerdict {
         [Parameter(Mandatory)] $Integration
     )
 
-    $exitCode = if ($Result -and $Result.PSObject.Properties['ExitCode']) {
-        $Result.ExitCode
-    } else {
-        0
-    }
+    $exitCode = Get-TimerResultExitCode -Result $Result
 
     $checkIcon = $script:TimerIconCheck
     $warnIcon  = $script:TimerIconWarn
@@ -945,11 +961,7 @@ function Show-WpfTimerDebrief {
         $spinner.Timer.Stop()
         $spinner.Text.Visibility = [System.Windows.Visibility]::Collapsed
 
-        $exitCode = if ($postResult -and $postResult.PSObject.Properties['ExitCode']) {
-            $postResult.ExitCode
-        } else {
-            0
-        }
+        $exitCode = Get-TimerResultExitCode -Result $postResult
 
         if ($exitCode -eq 0) {
             $Script:WpfDebriefPostResult = $postResult
