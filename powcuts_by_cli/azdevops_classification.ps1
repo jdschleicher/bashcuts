@@ -10,19 +10,70 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
+# In-session memo for resolved Area/Iteration path arrays. Keyed by
+# "<active-project>|<Kind>" so a multi-project shell keeps separate entries.
+# Populated on the first successful resolve (cache hit or live fetch) so the
+# two pickers in a single create - and the batch "change area/iteration"
+# rounds - never re-read the cache or re-call `az` after the first hit.
+# Cleared explicitly by az-Sync-AzDevOpsCache and az-Use-AzDevOpsProject.
+$script:AzDevOpsClassificationPathMemo = @{}
+
+# Memo-key project segment used when no $global:AzDevOpsProjectMap is set
+# (single-project flat-env mode). Keeps the key shape stable.
+$script:AzDevOpsSingleProjectMemoKey = '__single_project__'
+
+
+function Clear-AzDevOpsClassificationMemo {
+    # Private. Drops the in-session Area/Iteration path memo so the next picker
+    # call re-reads the freshly-synced cache or re-targets the new active
+    # project. Unapproved verb is fine - this is not a user-facing function.
+    $script:AzDevOpsClassificationPathMemo = @{}
+}
+
+
+function Get-AzDevOpsClassificationMemoKey {
+    # Private. Builds the "<active-project>|<Kind>" memo key for the active
+    # project, falling back to a stable constant in single-project mode.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $projectKey = $null
+    if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
+        $slug = Get-AzDevOpsActiveProjectSlug
+        $projectKey = $slug
+    }
+
+    if (-not $projectKey) {
+        $projectKey = $script:AzDevOpsSingleProjectMemoKey
+    }
+
+    $key = "$projectKey|$Kind"
+    return $key
+}
+
+
+function Get-AzDevOpsClassificationCacheFile {
+    # Private. Maps a classification Kind to its on-disk cache file path so the
+    # cache reader and the picker's live-fallback alert share one selection.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $paths = Get-AzDevOpsCachePaths
+    $cacheFile = if ($Kind -eq 'Iteration') {
+        $paths.Iterations
+    } else {
+        $paths.Areas
+    }
+
+    return $cacheFile
+}
+
+
 function Read-AzDevOpsClassificationCache {
     # Reads iterations.json or areas.json from the cache. Returns the parsed
     # tree root, or $null when the cache file is missing / unparseable so
     # callers can fall back to a live `az` fetch.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $paths = Get-AzDevOpsCachePaths
-    $cachePath = if ($Kind -eq 'Iteration') {
-        $paths.Iterations
-    }
-    else {
-        $paths.Areas
-    }
+    $cachePath = Get-AzDevOpsClassificationCacheFile -Kind $Kind
 
     if (-not (Test-Path -LiteralPath $cachePath)) {
         return $null
@@ -124,19 +175,38 @@ function ConvertTo-AzDevOpsClassificationPaths {
 
 
 function Get-AzDevOpsClassificationPaths {
-    # Single entry point for picker consumers: read from cache first, fall
-    # back to live `az` with a one-line "(run az-Sync-AzDevOpsCache to make this
-    # instant)" notice so the function stays usable before the user re-syncs.
+    # Single entry point for picker consumers. Returns from the in-session memo
+    # when present; otherwise reads the local cache, falling back to a live `az`
+    # call - with a loud "cache is empty/missing, going to Azure now (slow)"
+    # alert - only when the cache file is missing/unparseable. A successful
+    # resolve (cache hit or live fetch) is memoized so the second picker in a
+    # create, and the batch "change area/iteration" rounds, stay instant.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $memoKey = Get-AzDevOpsClassificationMemoKey -Kind $Kind
+    if ($script:AzDevOpsClassificationPathMemo.ContainsKey($memoKey)) {
+        $memoized = $script:AzDevOpsClassificationPathMemo[$memoKey]
+        return $memoized
+    }
 
     $tree = Read-AzDevOpsClassificationCache -Kind $Kind
     if ($null -eq $tree) {
         $azKind = $Kind.ToLower()
-        Write-Host "(fetching ${azKind}s live - run az-Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
+        $cacheFile = Get-AzDevOpsClassificationCacheFile -Kind $Kind
+
+        Write-Host "!  ${Kind} cache is EMPTY/MISSING - nothing local to read." -ForegroundColor Yellow
+        Write-Host "   Expected at: $cacheFile" -ForegroundColor Yellow
+        Write-Host "   Calling Azure live for ${azKind}s now (slow). Run az-Sync-AzDevOpsCache to populate the cache and make this instant." -ForegroundColor Yellow
+
         $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
     }
 
     $paths = ConvertTo-AzDevOpsClassificationPaths -Root $tree -Kind $Kind
+
+    if ($null -ne $tree) {
+        $script:AzDevOpsClassificationPathMemo[$memoKey] = $paths
+    }
+
     return $paths
 }
 

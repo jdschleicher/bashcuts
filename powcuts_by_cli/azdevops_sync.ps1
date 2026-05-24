@@ -258,6 +258,10 @@ function az-Sync-AzDevOpsCache {
     Write-AzDevOpsCacheFile -Path $paths.LastSync -Content ($lastSync | ConvertTo-Json -Depth 5)
     Write-AzDevOpsSyncLog 'sync complete'
 
+    if (Get-Command Clear-AzDevOpsClassificationMemo -ErrorAction SilentlyContinue) {
+        Clear-AzDevOpsClassificationMemo
+    }
+
     Write-Host ""
     Write-Host "Cache: $($paths.Dir)" -ForegroundColor Cyan
     if ($errored -gt 0) {

@@ -122,6 +122,43 @@ function Invoke-AzDevOpsSmokeQuery {
 }
 
 
+# In-session auth memo. Assert-AzDevOpsAuthOrAbort is the prologue for every
+# az-New-AzDevOps* / az-Sync / schema command, and az-Test-AzDevOpsAuth proves
+# auth with a live `az boards query` @Me smoke test - a network round-trip on
+# the start of EVERY command. Once auth is proven we record the time and
+# short-circuit the re-check for AzDevOpsAuthMemoTtlMinutes. Success only:
+# failures are never memoized, so fixing auth and retrying re-checks instantly.
+# Bounded by a TTL (not session-forever) so a token that expires mid-session is
+# re-verified within the window rather than masked until a new shell.
+$script:AzDevOpsAuthOkAt = $null
+$script:AzDevOpsAuthMemoTtlMinutes = 10
+
+
+function Clear-AzDevOpsAuthMemo {
+    # Private. Forgets the proven-auth timestamp so the next gate re-runs the
+    # live smoke test. Called on connect and on project switch.
+    $script:AzDevOpsAuthOkAt = $null
+}
+
+
+function Set-AzDevOpsAuthOk {
+    # Private. Records "auth proven now" so subsequent gates short-circuit.
+    $script:AzDevOpsAuthOkAt = Get-Date
+}
+
+
+function Test-AzDevOpsAuthMemoValid {
+    # Private. True when auth was proven within the TTL window.
+    if ($null -eq $script:AzDevOpsAuthOkAt) {
+        return $false
+    }
+
+    $age = (Get-Date) - $script:AzDevOpsAuthOkAt
+    $valid = $age.TotalMinutes -lt $script:AzDevOpsAuthMemoTtlMinutes
+    return $valid
+}
+
+
 function az-Test-AzDevOpsAuth {
     if (-not (Test-AzDevOpsCliPresent)) {
         return $false
@@ -143,10 +180,16 @@ function Assert-AzDevOpsAuthOrAbort {
     # returns $false so callers `if (-not (Assert-...)) { return }`.
     param([Parameter(Mandatory)] [string] $CommandName)
 
-    if (az-Test-AzDevOpsAuth) {
+    if (Test-AzDevOpsAuthMemoValid) {
         return $true
     }
 
+    if (az-Test-AzDevOpsAuth) {
+        Set-AzDevOpsAuthOk
+        return $true
+    }
+
+    Clear-AzDevOpsAuthMemo
     Write-Host "$CommandName aborted - az-Test-AzDevOpsAuth returned false. Run az-Connect-AzDevOps." -ForegroundColor Red
     return $false
 }
@@ -424,6 +467,8 @@ function az-Connect-AzDevOps {
             return
         }
     }
+
+    Set-AzDevOpsAuthOk
 
     Write-Host ""
     $defaults = Get-AzDevOpsConfiguredDefaults
