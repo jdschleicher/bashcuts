@@ -467,17 +467,23 @@ Start-TimerSession -Integration 'Azure DevOps - User Stories'
 Flow:
 1. Pick an integration (skipped when `-Integration` is supplied or only one is registered)
 2. Pick an item from the integration's grid
-3. Snake-animation countdown runs for `$Minutes`
-4. Debrief prompts (`debrief notes`, `what's next`) → comment posted on the picked item
+3. Countdown runs for `$Minutes` — WPF circular overlay on Windows, snake animation on macOS/Linux
+4. Capture your debrief (`debrief notes`, `what's next`) → comment posted on the picked item
+
+### The debrief
+
+On **Windows** the countdown morphs into a themed debrief form that shares the timer's dark/blue style: one window with a **Debrief** field and a **Next step** field plus a **Post Debrief** button. While the comment posts, the button is replaced by a spinner / `Posting...` state, and the **Start another session?** choice only appears once the comment posts successfully — so you always know the debrief landed before deciding whether to loop into a fresh timer. Choosing **Start another** reopens a new countdown; **Done** ends the session. Right-click the form to cancel without posting. A failed post keeps the form open with the error so you can retry.
+
+On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
 ### Interrupting a session
 
-Press **Esc** during the countdown to end the session early and still go through the debrief prompts. The posted comment header reflects the outcome:
+Press **Esc** during the countdown (or use **Mark Complete Early** on the Windows overlay) to end the session early and still go through the debrief. The posted comment header reflects the outcome:
 
 - Completed: `Pomodoro complete — 25:00`
 - Interrupted: `Session interrupted at 04:30 of 25:00`
 
-After an interrupted session's comment posts, you're asked `Start a new session? [Y/n]` so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
+On Windows the debrief form's **Start another session?** prompt appears after every successful post (completed or interrupted). On macOS/Linux you're asked `Start a new session? [Y/n]` only after an *interrupted* session's comment posts, so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
 
 ### Registering your own integration
 
