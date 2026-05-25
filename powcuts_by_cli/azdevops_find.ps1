@@ -129,7 +129,7 @@ function az-Find-AzDevOpsWorkItem {
             }
 
             if ($picked.Title -eq $openEpicLabel) {
-                Open-AzDevOpsWorkItemUrl -Id $currentEpic.Id
+                az-Open-WorkItemById -Id $currentEpic.Id
                 Write-Output $currentEpic.Id
                 continue
             }
@@ -152,7 +152,7 @@ function az-Find-AzDevOpsWorkItem {
             }
 
             if ($picked.Title -eq $openFeatureLabel) {
-                Open-AzDevOpsWorkItemUrl -Id $currentFeature.Id
+                az-Open-WorkItemById -Id $currentFeature.Id
                 Write-Output $currentFeature.Id
                 continue
             }
@@ -176,7 +176,7 @@ function az-Find-AzDevOpsWorkItem {
                 continue
             }
 
-            Open-AzDevOpsWorkItemUrl -Id $currentStory.Id
+            az-Open-WorkItemById -Id $currentStory.Id
             Write-Output $currentStory.Id
 
             $tier = 1

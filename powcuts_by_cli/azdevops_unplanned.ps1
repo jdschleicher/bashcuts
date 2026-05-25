@@ -538,7 +538,7 @@ function Invoke-UnplannedDebrief {
     $commentResult = Add-AzDevOpsDiscussionComment -Id $TaskId -Body $commentBody
     if ($commentResult.ExitCode -eq 0) {
         Write-Host "$iconCheck Debrief posted on Task #$TaskId." -ForegroundColor Green
-        Write-Host "   View: az-Open-AzDevOpsAssigned $TaskId" -ForegroundColor DarkGray
+        Write-Host "   View: az-Open-WorkItemById $TaskId" -ForegroundColor DarkGray
     } else {
         Write-Host "Debrief comment failed: $($commentResult.Error)" -ForegroundColor Red
     }

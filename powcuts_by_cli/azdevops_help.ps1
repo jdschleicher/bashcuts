@@ -122,23 +122,23 @@ $script:AzDevOpsHelpCatalog = @(
         Purpose       = 'Grid of work items assigned to you (from cache)'
         Args          = '(none)'
         Example       = 'az-Get-AzDevOpsAssigned'
-        RunsBefore    = 'az-Open-AzDevOpsAssigned'
+        RunsBefore    = 'az-Open-Assigned'
         RequiresSync  = 'Yes'
-        DiagramAnchor = '#5-cache-consumers-az-get-az-open-azdevopsassignedmentions'
+        DiagramAnchor = '#5-cache-consumers-az-get-azdevopsassignedmentions-and-az-open-assignedmention'
         Issues        = @()
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Open-AzDevOpsAssigned'
+        Name          = 'az-Open-Assigned'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 2
         Purpose       = 'Pick an assigned work item from the grid; open it in your browser'
         Args          = '(none)'
-        Example       = 'az-Open-AzDevOpsAssigned'
+        Example       = 'az-Open-Assigned'
         RunsBefore    = ''
         RequiresSync  = 'Yes'
-        DiagramAnchor = '#5-cache-consumers-az-get-az-open-azdevopsassignedmentions'
+        DiagramAnchor = '#5-cache-consumers-az-get-azdevopsassignedmentions-and-az-open-assignedmention'
         Issues        = @()
     },
 
@@ -150,23 +150,37 @@ $script:AzDevOpsHelpCatalog = @(
         Purpose       = 'Grid of work items where you have been @-mentioned in discussion'
         Args          = '(none) - reads $env:AZ_USER_EMAIL for the WIQL filter'
         Example       = 'az-Get-AzDevOpsMentions'
-        RunsBefore    = 'az-Open-AzDevOpsMention'
+        RunsBefore    = 'az-Open-Mention'
         RequiresSync  = 'Yes'
-        DiagramAnchor = '#5-cache-consumers-az-get-az-open-azdevopsassignedmentions'
+        DiagramAnchor = '#5-cache-consumers-az-get-azdevopsassignedmentions-and-az-open-assignedmention'
         Issues        = @()
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Open-AzDevOpsMention'
+        Name          = 'az-Open-Mention'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 4
         Purpose       = 'Pick a mentioned work item from the grid; open it in your browser'
         Args          = '(none)'
-        Example       = 'az-Open-AzDevOpsMention'
+        Example       = 'az-Open-Mention'
         RunsBefore    = ''
         RequiresSync  = 'Yes'
-        DiagramAnchor = '#5-cache-consumers-az-get-az-open-azdevopsassignedmentions'
+        DiagramAnchor = '#5-cache-consumers-az-get-azdevopsassignedmentions-and-az-open-assignedmention'
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Open-WorkItemById'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 5
+        Purpose       = 'Open any work item in the browser by raw ID - no cache lookup, works for items not assigned to or mentioning you'
+        Args          = '<id>'
+        Example       = 'az-Open-WorkItemById 12345'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
+        DiagramAnchor = ''
         Issues        = @()
     },
 
@@ -174,7 +188,7 @@ $script:AzDevOpsHelpCatalog = @(
         Name          = 'az-Show-Tree'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
-        Order         = 5
+        Order         = 6
         Purpose       = 'Epic -> Feature -> requirement-tier indented tree; select a row to open it or create a child work item'
         Args          = '[-IncludeClosed]'
         Example       = 'az-Show-Tree'
@@ -188,7 +202,7 @@ $script:AzDevOpsHelpCatalog = @(
         Name          = 'az-Show-Board'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
-        Order         = 6
+        Order         = 7
         Purpose       = 'Group-by-State board view of the cached items; select a row to open it or create a child work item'
         Args          = '[-IncludeClosed]'
         Example       = 'az-Show-Board'
@@ -202,7 +216,7 @@ $script:AzDevOpsHelpCatalog = @(
         Name          = 'az-Show-Features'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
-        Order         = 7
+        Order         = 8
         Purpose       = 'Features across the project map from the hierarchy cache; select a row to open it or create a child story'
         Args          = '[-Project <name>] [-State <states>]'
         Example       = 'az-Show-Features'

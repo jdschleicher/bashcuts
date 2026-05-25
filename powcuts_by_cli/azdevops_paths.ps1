@@ -215,7 +215,7 @@ function Initialize-AzDevOpsQueryFiles {
     # Idempotent: creates the queries directory if absent and seeds each
     # default .wiql file only when the file does not already exist. Returns
     # the resolved paths plus per-file Seeded flags so callers (the
-    # az-Connect-AzDevOps step and az-Open-AzDevOpsHierarchyWiqls) can print
+    # az-Connect-AzDevOps step and az-Open-HierarchyWiqls) can print
     # consistent status lines.
     $paths = Get-AzDevOpsConfigPaths
     New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
