@@ -472,7 +472,7 @@ Flow:
 
 ### The debrief
 
-On **Windows** the countdown morphs into a themed debrief form that shares the timer's dark/blue style: one window with a **Debrief** field and a **Next step** field plus a **Post Debrief** button. While the comment posts, the button is replaced by a spinner / `Posting...` state, and the **Start another session?** choice only appears once the comment posts successfully — so you always know the debrief landed before deciding whether to loop into a fresh timer. Choosing **Start another** reopens a new countdown; **Done** ends the session. Right-click the form to cancel without posting. A failed post keeps the form open with the error so you can retry.
+On **Windows** the countdown morphs into a themed debrief form that shares the timer's dark/blue style: one window with a **Debrief** field and a **Next step** field plus a **Post Debrief** button. While the comment posts, the button is replaced by a spinner / `Posting...` state, and the **Start another session?** choice only appears once the comment posts successfully — so you always know the debrief landed before deciding whether to loop into a fresh timer. The choice is three buttons: **Same item** reopens a new countdown on the work item you just debriefed (skipping both the integration and item pickers so you can keep grinding on the same ID), **Pick another** loops back to the picker, and **Done** ends the session. Right-click the form to cancel without posting. A failed post keeps the form open with the error so you can retry.
 
 On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
@@ -483,7 +483,7 @@ Press **Esc** during the countdown (or use **Mark Complete Early** on the Window
 - Completed: `Pomodoro complete — 25:00`
 - Interrupted: `Session interrupted at 04:30 of 25:00`
 
-On Windows the debrief form's **Start another session?** prompt appears after every successful post (completed or interrupted). On macOS/Linux you're asked `Start a new session? [Y/n]` only after an *interrupted* session's comment posts, so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
+On both platforms the **Start another session?** choice appears after every successful post (completed or interrupted). On macOS/Linux it's a terminal prompt — `[s] Same item / [p] Pick another item / [d] Done` (blank or `d` ends the session) — mirroring the Windows buttons: **Same item** loops straight back to the countdown on the work item you just debriefed, **Pick another** returns to the picker so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
 
 ### Registering your own integration
 
