@@ -5,6 +5,7 @@
 * [How to use bashcuts](#how-to)
 * [Azure DevOps work-item shortcuts](#azure-devops)
 * [Timer sessions](#timer-sessions)
+* [Unplanned work sessions](#unplanned-work)
 
 <br>
 
@@ -161,7 +162,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 > **Lost in the surface?** Run `az-help` (defined in `powcuts_by_cli/azdevops_help.ps1`) for an interactive `Out-ConsoleGridView` walkthrough that groups every `az-AzDevOps*` function by workflow phase (Onboarding → DailyRead → Create → MultiProject) and shows the order of operations + source / diagram / issue links for each function. `az-h<Tab>` lands directly on it.
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`) provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache` + `az-Register-AzDevOpsSyncSchedule`), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-AzDevOpsTree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), a board-style group-by-State view of the same cached items (`az-Show-AzDevOpsBoard`), area- and iteration-path tree views (`az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), an interactive new-Feature creator one tier up (parent-Epic picker, area / iteration / priority / AC) with a hand-off prompt to spawn child stories (`az-New-AzDevOpsFeature`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`) provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache`, which also refreshes itself silently on shell open when the cache is stale), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-Tree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), a board-style group-by-State view of the same cached items (`az-Show-Board`), area- and iteration-path tree views (`az-Show-Areas`, `az-Show-Iterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), an interactive new-Feature creator one tier up (parent-Epic picker, area / iteration / priority / AC) with a hand-off prompt to spawn child stories (`az-New-AzDevOpsFeature`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), an interactive Task creator one tier down with a parent-User-Story picker (`az-New-Task`, also the child action when you select a Story in `az-Show-Tree` / `az-Show-Board`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
@@ -263,7 +264,7 @@ az-Open-AzDevOpsSchema
 
 ### Day-to-day work-item shortcuts
 
-These read the local cache populated by `az-Sync-AzDevOpsCache` (and the recurring `az-Register-AzDevOpsSyncSchedule` job). They never call `az` directly, so they return instantly.
+These read the local cache populated by `az-Sync-AzDevOpsCache` (which also runs silently in the background on shell open when the cache is stale — see below). They never call `az` directly, so they return instantly.
 
 ```powershell
 az-Get-AzDevOpsAssigned                       # everything assigned to you (excludes Closed/Removed)
@@ -281,18 +282,18 @@ az-Get-AzDevOpsMentions | Format-Table -AutoSize
 
 az-Open-AzDevOpsMention 12345                 # open one of your mentioned items in the browser
 
-az-Show-AzDevOpsTree                          # print the project's Epic -> Feature -> User Story tree
-az-Show-AzDevOpsBoard                         # board view: cached items grouped by State (click the State header in the grid to group)
-az-Show-AzDevOpsBoard -State Active,New       # filter to one or more states (default excludes Closed/Removed)
-az-Show-AzDevOpsBoard -State Closed,Resolved  # flip to the archive view
-az-Show-AzDevOpsBoard -Type Bug,Task          # custom-template work-item types (default: Epic, Feature, User Story)
+az-Show-Tree                          # Epic -> Feature -> User Story tree; select a row to open it or create a child work item
+az-Show-Board                         # board view: cached items grouped by State (click the State header in the grid to group)
+az-Show-Board -State Active,New       # filter to one or more states (default excludes Closed/Removed)
+az-Show-Board -State Closed,Resolved  # flip to the archive view
+az-Show-Board -Type Bug,Task          # custom-template work-item types (default: Epic, Feature, User Story)
 
-az-Show-AzDevOpsFeatures                      # cross-project Features view: every project in $global:AzDevOpsProjectMap, tagged with a Project column
-az-Show-AzDevOpsFeatures -Project ProjectABC  # narrow to one registered project's Features (no need to az-Use-AzDevOpsProject first)
-az-Show-AzDevOpsFeatures -State Closed        # flip to the archive view across all projects
+az-Show-Features                      # cross-project Features view: every project in $global:AzDevOpsProjectMap, tagged with a Project column
+az-Show-Features -Project ProjectABC  # narrow to one registered project's Features (no need to az-Use-AzDevOpsProject first)
+az-Show-Features -State Closed        # flip to the archive view across all projects
 
-az-Show-AzDevOpsAreas                         # print the project's area-path tree (cache-first, live fallback)
-az-Show-AzDevOpsIterations                    # print the project's iteration-path tree (with start/finish dates)
+az-Show-Areas                         # print the project's area-path tree (cache-first, live fallback)
+az-Show-Iterations                    # print the project's iteration-path tree (with start/finish dates)
 
 az-Get-AzDevOpsAreas                          # pipeable rows for the area tree (Depth / Name / Path / HasChildren)
 az-Get-AzDevOpsIterations                     # pipeable iteration rows + [datetime]? StartDate / FinishDate, e.g.:
@@ -306,11 +307,15 @@ az-Find-AzDevOpsProject                       # pick from $global:AzDevOpsProjec
 az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-Use-AzDevOpsProject on the pick)
 ```
 
-If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsFeatures`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Areas`, `az-Show-Iterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
-`az-Show-AzDevOpsTree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
+**Automatic on-open refresh.** You don't have to schedule anything. Every time a PowerShell session loads bashcuts, it checks the cache age and — if it's stale (older than 6 hours, or never synced) — spawns a detached, hidden `pwsh` that runs `az-Sync-AzDevOpsCache` in the background. Your prompt returns instantly and no sync chatter prints into the terminal; the next command you run reads the freshly-updated cache (the background sync's progress goes to `~/.bashcuts-az-devops-app/cache/sync.log`). The background process does the network auth check itself and exits quietly if you're not connected, so a not-connected shell is a silent no-op. To disable this entirely, set `$env:AZ_DEVOPS_NO_AUTOSYNC = '1'` in your `$profile` (run `az-Sync-AzDevOpsCache` by hand when you want a refresh). A short-lived lock under the cache directory keeps several terminals opened in quick succession from each kicking off a sync.
 
-Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-AzDevOpsTree`, `az-Show-AzDevOpsBoard`, `az-Show-AzDevOpsFeatures`, `az-Show-AzDevOpsAreas`, `az-Show-AzDevOpsIterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
+`az-Show-Tree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
+
+After you select a row in `az-Show-Tree`, `az-Show-Board`, or `az-Show-Features`, you're prompted to either open the item in your browser or create the hierarchically-appropriate child work item — a Feature under an Epic, a User Story under a Feature, or a Task under a User Story (via `az-New-Task`) — with the selected row pre-filled as the new item's parent. Selecting a node in `az-Show-Areas` / `az-Show-Iterations` offers to open the project's Boards hub. (The post-selection prompt is PowerShell-only; the bash `az-show-features` shortcut prints a static query table.)
+
+Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
 
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 
@@ -398,7 +403,7 @@ az-New-AzDevOpsFeatureStories -ParentId 1240 `
 
 ### Per-org field-schema config
 
-Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `az-New-AzDevOpsUserStory`, `az-Get-AzDevOpsAssigned`, `az-Show-AzDevOpsTree`, etc. can prompt for / surface them automatically.
+Every Azure DevOps org configures its own required + custom fields via process templates (e.g. a "Customer Impact" required field on every User Story, or a "Compliance Risk" picklist). The schema-management commands let you declare those fields once per org so future schema-aware updates to `az-New-AzDevOpsUserStory`, `az-Get-AzDevOpsAssigned`, `az-Show-Tree`, etc. can prompt for / surface them automatically.
 
 The schema lives at `$HOME/.bashcuts-az-devops-app/schema/schema-<org>.json` (per-org keyed off `$env:AZ_DEVOPS_ORG`; falls back to `schema.json` when unset). The directory is created with `0700` permissions on macOS / Linux; Windows inherits the user-only ACL from `%USERPROFILE%`.
 
@@ -462,17 +467,23 @@ Start-TimerSession -Integration 'Azure DevOps - User Stories'
 Flow:
 1. Pick an integration (skipped when `-Integration` is supplied or only one is registered)
 2. Pick an item from the integration's grid
-3. Snake-animation countdown runs for `$Minutes`
-4. Debrief prompts (`debrief notes`, `what's next`) → comment posted on the picked item
+3. Countdown runs for `$Minutes` — WPF circular overlay on Windows, snake animation on macOS/Linux
+4. Capture your debrief (`debrief notes`, `what's next`) → comment posted on the picked item
+
+### The debrief
+
+On **Windows** the countdown morphs into a themed debrief form that shares the timer's dark/blue style: one window with a **Debrief** field and a **Next step** field plus a **Post Debrief** button. While the comment posts, the button is replaced by a spinner / `Posting...` state, and the **Start another session?** choice only appears once the comment posts successfully — so you always know the debrief landed before deciding whether to loop into a fresh timer. Choosing **Start another** reopens a new countdown; **Done** ends the session. Right-click the form to cancel without posting. A failed post keeps the form open with the error so you can retry.
+
+On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
 ### Interrupting a session
 
-Press **Esc** during the countdown to end the session early and still go through the debrief prompts. The posted comment header reflects the outcome:
+Press **Esc** during the countdown (or use **Mark Complete Early** on the Windows overlay) to end the session early and still go through the debrief. The posted comment header reflects the outcome:
 
 - Completed: `Pomodoro complete — 25:00`
 - Interrupted: `Session interrupted at 04:30 of 25:00`
 
-After an interrupted session's comment posts, you're asked `Start a new session? [Y/n]` so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
+On Windows the debrief form's **Start another session?** prompt appears after every successful post (completed or interrupted). On macOS/Linux you're asked `Start a new session? [Y/n]` only after an *interrupted* session's comment posts, so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
 
 ### Registering your own integration
 
@@ -496,4 +507,45 @@ Register-TimerIntegration `
         "View: my-tracker open $Id"
     }
 ```
+
+<br>
+
+***
+
+# <a name="unplanned-work"></a>Unplanned work sessions
+
+`Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
+
+### Run a session
+
+```powershell
+# Prompts for the firefight title, reminds every 5 min
+Start-UnplannedWork
+
+# Skip the title prompt, custom reminder cadence
+Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
+
+# No balloon reminder
+Start-UnplannedWork -NoReminder
+```
+
+Flow:
+1. Finds (or creates) today's daily **Unplanned Work** story, then creates a child **Task** for this firefight and links it
+2. Runs a foreground session — press **Space** to log a timestamped item, **Esc/Q** to stop
+3. A reminder balloon pops every `-ReminderMinutes` until you stop
+4. On stop: captured items flush to the Task **description**, then you're prompted for debrief notes and whether there's an opportunity for a new feature / user story to prevent the firefight in future (it can spin one up via `az-New-AzDevOpsUserStory`). A single debrief comment (time spent + notes + opportunity) is posted on the Task.
+
+Start three separate firefights in a day and you get three Tasks under the one daily story — exactly the "three different chats, three different efforts" shape.
+
+### End-of-day roll-up
+
+```powershell
+# Today
+New-UnplannedWorkDebrief
+
+# A past day
+New-UnplannedWorkDebrief -Date 2026-05-19
+```
+
+Reads the day's local ledger (kept under the AzDO cache dir so total time can be summed — AzDO doesn't store per-session minutes), prints the per-Task breakdown with total time, and on confirm posts a roll-up comment on the daily story.
 

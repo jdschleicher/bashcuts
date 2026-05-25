@@ -105,6 +105,20 @@ if ($azdevops_create -ne $NULL) {
     Write-Host "no azdevops_create.ps1"
 }
 
+$pow_timer = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
+if ($pow_timer -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
+} else {
+    Write-Host "no pow_timer.ps1"
+}
+
+$azdevops_unplanned = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
+if ($azdevops_unplanned -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
+} else {
+    Write-Host "no azdevops_unplanned.ps1"
+}
+
 $azdevops_schema = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
 if ($azdevops_schema -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_schema.ps1"
@@ -133,9 +147,15 @@ if ($azdevops_help -ne $NULL) {
     Write-Host "no azdevops_help.ps1"
 }
 
-$pow_timer = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
-if ($pow_timer -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
-} else {
-    Write-Host "no pow_timer.ps1"
+# On shell open: silently refresh the Azure DevOps cache in the background when
+# it's stale. Invoked here (after every azdevops_*.ps1 file is dot-sourced) so
+# Get-AzDevOpsActiveProjectSlug is defined and the staleness check targets the
+# active project's cache. Wrapped so a failure can never break profile load.
+if (Get-Command Start-AzDevOpsBackgroundSync -ErrorAction SilentlyContinue) {
+    try {
+        Start-AzDevOpsBackgroundSync
+    }
+    catch {
+        # swallow — the on-open refresh is best-effort and must not break the shell
+    }
 }

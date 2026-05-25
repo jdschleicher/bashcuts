@@ -36,9 +36,11 @@ function Get-AzDevOpsAppRoot {
 # Public functions:
 #   az-Sync-AzDevOpsCache              - one-shot refresh of all three datasets
 #   az-Get-AzDevOpsCacheStatus         - prints freshness vs 6h threshold
-#   az-Register-AzDevOpsSyncSchedule   - Task Scheduler (Windows) or crontab
-#                                      (macOS/Linux) entry, every 5 hours
-#   az-Unregister-AzDevOpsSyncSchedule - removes the schedule on either OS
+#
+# Staleness is also refreshed automatically: Start-AzDevOpsBackgroundSync (in
+# azdevops_sync.ps1) fires on shell open and spawns a detached, hidden pwsh
+# running az-Sync-AzDevOpsCache whenever the cache is older than the 6h
+# threshold. Set $env:AZ_DEVOPS_NO_AUTOSYNC to opt out.
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsCachePathsForSlug {

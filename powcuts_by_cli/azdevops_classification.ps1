@@ -3,12 +3,69 @@
 # ============================================================================
 # Get/Show/Find for the area-path and iteration-path classification trees:
 # az-Get-AzDevOpsAreas / az-Get-AzDevOpsIterations (pipeline-friendly rows),
-# az-Show-AzDevOpsAreas / az-Show-AzDevOpsIterations (human-readable trees),
+# az-Show-Areas / az-Show-Iterations (human-readable trees),
 # az-Find-AzDevOpsArea / az-Find-AzDevOpsIteration (interactive pickers).
 # Backed by ~/.bashcuts-az-devops-app/cache/{areas,iterations}.json with a
 # live `az boards iteration/area` fallback when the cache is missing.
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
+
+# In-session memo for resolved Area/Iteration path arrays. Keyed by
+# "<active-project>|<Kind>" so a multi-project shell keeps separate entries.
+# Populated on the first successful resolve (cache hit or live fetch) so the
+# two pickers in a single create - and the batch "change area/iteration"
+# rounds - never re-read the cache or re-call `az` after the first hit.
+# Cleared explicitly by az-Sync-AzDevOpsCache and az-Use-AzDevOpsProject.
+$script:AzDevOpsClassificationPathMemo = @{}
+
+# Memo-key project segment used when no $global:AzDevOpsProjectMap is set
+# (single-project flat-env mode). Keeps the key shape stable.
+$script:AzDevOpsSingleProjectMemoKey = '__single_project__'
+
+
+function Clear-AzDevOpsClassificationMemo {
+    # Private. Drops the in-session Area/Iteration path memo so the next picker
+    # call re-reads the freshly-synced cache or re-targets the new active
+    # project. Unapproved verb is fine - this is not a user-facing function.
+    $script:AzDevOpsClassificationPathMemo = @{}
+}
+
+
+function Get-AzDevOpsClassificationMemoKey {
+    # Private. Builds the "<active-project>|<Kind>" memo key for the active
+    # project, falling back to a stable constant in single-project mode.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $projectKey = $null
+    if (Get-Command Get-AzDevOpsActiveProjectSlug -ErrorAction SilentlyContinue) {
+        $slug = Get-AzDevOpsActiveProjectSlug
+        $projectKey = $slug
+    }
+
+    if (-not $projectKey) {
+        $projectKey = $script:AzDevOpsSingleProjectMemoKey
+    }
+
+    $key = "$projectKey|$Kind"
+    return $key
+}
+
+
+function Get-AzDevOpsClassificationCacheFile {
+    # Private. Maps a classification Kind to its on-disk cache file path so the
+    # cache reader and the picker's live-fallback alert share one selection.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $paths = Get-AzDevOpsCachePaths
+    $cacheFile = if ($Kind -eq 'Iteration') {
+        $paths.Iterations
+    } else {
+        $paths.Areas
+    }
+
+    return $cacheFile
+}
+
 
 function Read-AzDevOpsClassificationCache {
     # Reads iterations.json or areas.json from the cache. Returns the parsed
@@ -16,13 +73,7 @@ function Read-AzDevOpsClassificationCache {
     # callers can fall back to a live `az` fetch.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
-    $paths = Get-AzDevOpsCachePaths
-    $cachePath = if ($Kind -eq 'Iteration') {
-        $paths.Iterations
-    }
-    else {
-        $paths.Areas
-    }
+    $cachePath = Get-AzDevOpsClassificationCacheFile -Kind $Kind
 
     if (-not (Test-Path -LiteralPath $cachePath)) {
         return $null
@@ -124,19 +175,38 @@ function ConvertTo-AzDevOpsClassificationPaths {
 
 
 function Get-AzDevOpsClassificationPaths {
-    # Single entry point for picker consumers: read from cache first, fall
-    # back to live `az` with a one-line "(run az-Sync-AzDevOpsCache to make this
-    # instant)" notice so the function stays usable before the user re-syncs.
+    # Single entry point for picker consumers. Returns from the in-session memo
+    # when present; otherwise reads the local cache, falling back to a live `az`
+    # call - with a loud "cache is empty/missing, going to Azure now (slow)"
+    # alert - only when the cache file is missing/unparseable. A successful
+    # resolve (cache hit or live fetch) is memoized so the second picker in a
+    # create, and the batch "change area/iteration" rounds, stay instant.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $memoKey = Get-AzDevOpsClassificationMemoKey -Kind $Kind
+    if ($script:AzDevOpsClassificationPathMemo.ContainsKey($memoKey)) {
+        $memoized = $script:AzDevOpsClassificationPathMemo[$memoKey]
+        return $memoized
+    }
 
     $tree = Read-AzDevOpsClassificationCache -Kind $Kind
     if ($null -eq $tree) {
         $azKind = $Kind.ToLower()
-        Write-Host "(fetching ${azKind}s live - run az-Sync-AzDevOpsCache to make this instant)" -ForegroundColor Yellow
+        $cacheFile = Get-AzDevOpsClassificationCacheFile -Kind $Kind
+
+        Write-Host "!  ${Kind} cache is EMPTY/MISSING - nothing local to read." -ForegroundColor Yellow
+        Write-Host "   Expected at: $cacheFile" -ForegroundColor Yellow
+        Write-Host "   Calling Azure live for ${azKind}s now (slow). Run az-Sync-AzDevOpsCache to populate the cache and make this instant." -ForegroundColor Yellow
+
         $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
     }
 
     $paths = ConvertTo-AzDevOpsClassificationPaths -Root $tree -Kind $Kind
+
+    if ($null -ne $tree) {
+        $script:AzDevOpsClassificationPathMemo[$memoKey] = $paths
+    }
+
     return $paths
 }
 
@@ -145,8 +215,8 @@ function Get-AzDevOpsClassificationPaths {
 # Classification tree views
 #
 # Public functions:
-#   az-Show-AzDevOpsAreas       - prints the project's area-path tree
-#   az-Show-AzDevOpsIterations  - prints the project's iteration-path tree
+#   az-Show-Areas       - prints the project's area-path tree
+#   az-Show-Iterations  - prints the project's iteration-path tree
 #                                 (with start/finish dates per node)
 #
 # Both read from the cache first (areas.json / iterations.json built by
@@ -168,7 +238,7 @@ function ConvertFrom-AzDevOpsClassificationTree {
     #
     # StartDate / FinishDate are [datetime]? so pipeline callers can use
     # `Where-Object { $_.StartDate -ge (Get-Date) }`. Display callers
-    # (az-Show-AzDevOps*) format them to ISO yyyy-MM-dd strings just before
+    # (az-Show-*) format them to ISO yyyy-MM-dd strings just before
     # rendering.
     param(
         [Parameter(Mandatory)] $Tree,
@@ -265,8 +335,8 @@ function Format-AzDevOpsClassificationDate {
 
 function ConvertTo-AzDevOpsClassificationDisplayRows {
     # Projects the typed rows from ConvertFrom-AzDevOpsClassificationTree
-    # into the display-shaped rows az-Show-AzDevOpsAreas /
-    # az-Show-AzDevOpsIterations render in the grid: dates become ISO
+    # into the display-shaped rows az-Show-Areas /
+    # az-Show-Iterations render in the grid: dates become ISO
     # strings, HasChildren is dropped (display noise).
     param(
         [Parameter(Mandatory)] $Rows,
@@ -331,7 +401,7 @@ function Read-AzDevOpsClassificationRows {
     # the live-fetch notice as Write-Host side effects (metadata, not data).
     # Returns the typed rows from ConvertFrom-AzDevOpsClassificationTree, or
     # $null when neither the cache nor a live fetch yields a tree (e.g. the
-    # user cancels the auth gate). Shared by az-Show-AzDevOps* /
+    # user cancels the auth gate). Shared by az-Show-* /
     # az-Get-AzDevOps* / az-Find-AzDevOps* for the classification trees.
     param(
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
@@ -368,17 +438,17 @@ function Read-AzDevOpsClassificationRows {
 
 
 function Show-AzDevOpsClassification {
-    # Orchestrator for az-Show-AzDevOpsAreas / az-Show-AzDevOpsIterations.
+    # Orchestrator for az-Show-Areas / az-Show-Iterations.
     # Reads + flattens via Read-AzDevOpsClassificationRows, projects typed
     # rows to display rows, then renders to Out-ConsoleGridView when
     # available or to an indented text tree via Format-AzDevOpsClassificationNode
-    # otherwise. Mirrors the az-Show-AzDevOpsTree post-#36 shape so the Show-
+    # otherwise. Mirrors the az-Show-Tree post-#36 shape so the Show-
     # family stays uniform.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
     $azKind = $Kind.ToLower()
     $kindLabelLow = "${azKind}s"
-    $publicCommand = "az-Show-AzDevOps$($Kind)s"
+    $publicCommand = "az-Show-$($Kind)s"
 
     $rows = Read-AzDevOpsClassificationRows -Kind $Kind -CommandName $publicCommand
     if ($null -eq $rows) {
@@ -393,7 +463,8 @@ function Show-AzDevOpsClassification {
     if (Test-AzDevOpsGridAvailable) {
         $displayRows = ConvertTo-AzDevOpsClassificationDisplayRows -Rows $rows -Kind $Kind
         $title = "Azure DevOps $kindLabelLow - $(@($rows).Count) nodes"
-        Show-AzDevOpsRows -Rows $displayRows -Title $title
+        $selected = Show-AzDevOpsRows -Rows $displayRows -Title $title -PassThru
+        Invoke-AzDevOpsClassificationAction -Selected $selected
         return
     }
 
@@ -403,7 +474,32 @@ function Show-AzDevOpsClassification {
 }
 
 
-function az-Show-AzDevOpsAreas {
+function Invoke-AzDevOpsClassificationAction {
+    # Post-selection action for the classification views (Areas / Iterations).
+    # Those rows are area/iteration paths, not work items, so the only offered
+    # action is opening the project's Boards hub in the browser.
+    param($Selected)
+
+    if ($null -eq $Selected) {
+        return
+    }
+
+    $boardsUrl = Get-AzDevOpsBoardsUrl
+    if (-not $boardsUrl) {
+        Write-Host "az devops defaults not configured - cannot build a Boards URL." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    $resp = Read-Host "  [O]pen Boards in browser / [Enter]=skip"
+    if ($resp -match '^(o|open)$') {
+        Write-Host "Opening $boardsUrl" -ForegroundColor Cyan
+        Start-Process $boardsUrl
+    }
+}
+
+
+function az-Show-Areas {
     [CmdletBinding()]
     param()
 
@@ -411,7 +507,7 @@ function az-Show-AzDevOpsAreas {
 }
 
 
-function az-Show-AzDevOpsIterations {
+function az-Show-Iterations {
     [CmdletBinding()]
     param()
 
@@ -429,7 +525,7 @@ function az-Show-AzDevOpsIterations {
 #                                (adds StartDate / FinishDate as [datetime]?)
 #
 # Both wrap Read-AzDevOpsClassificationRows so the cache-first / live-fallback
-# behavior matches az-Show-AzDevOps*. Path is the work-item-path form
+# behavior matches az-Show-*. Path is the work-item-path form
 # ('MyProject\TeamA\Backend') so callers can pipe straight into WIQL or
 # `az boards work-item create --area-path ...`.
 # ---------------------------------------------------------------------------

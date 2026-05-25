@@ -1,18 +1,19 @@
 # Azure DevOps Functionality — Mermaid Diagrams
 
-Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
+Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`, `azdevops_unplanned.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
 - [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
-- [6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render](#6-az-show-azdevopstree--epic--feature--requirement-tier-render)
+- [6. `az-Show-Tree` — Epic → Feature → requirement-tier render](#6-az-show-tree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
-- [10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch](#10-az-register-az-unregister-azdevopssyncschedule--platform-branch)
-- [11. Function dependency map](#11-function-dependency-map)
+- [10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#10-start-azdevopsbackgroundsync--silent-on-open-refresh)
+- [11. `Start-UnplannedWork` — firefighting session loop + debrief](#11-start-unplannedwork--firefighting-session-loop--debrief)
+- [12. Function dependency map](#12-function-dependency-map)
 
 ---
 
@@ -32,16 +33,15 @@ flowchart LR
         TestAuth["az-Test-AzDevOpsAuth"]
         Sync["az-Sync-AzDevOpsCache"]
         Status["az-Get-AzDevOpsCacheStatus"]
-        Reg["az-Register-AzDevOpsSyncSchedule"]
-        Unreg["az-Unregister-AzDevOpsSyncSchedule"]
+        BgSync["Start-AzDevOpsBackgroundSync<br/>(on-open, internal)"]
         GetA["az-Get-AzDevOpsAssigned"]
         OpenA["az-Open-AzDevOpsAssigned"]
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-AzDevOpsMention"]
-        Tree["az-Show-AzDevOpsTree"]
-        Board["az-Show-AzDevOpsBoard"]
-        ShowAreas["az-Show-AzDevOpsAreas"]
-        ShowIters["az-Show-AzDevOpsIterations"]
+        Tree["az-Show-Tree"]
+        Board["az-Show-Board"]
+        ShowAreas["az-Show-Areas"]
+        ShowIters["az-Show-Iterations"]
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
@@ -51,7 +51,8 @@ flowchart LR
         NewStory["az-New-AzDevOpsUserStory"]
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
-        ShowFeats["az-Show-AzDevOpsFeatures"]
+        NewTask["az-New-Task"]
+        ShowFeats["az-Show-Features"]
         Help["az-help"]
     end
 
@@ -135,8 +136,12 @@ flowchart LR
     NewStory --> AreasJson
     NewStory --> AzBoards
 
-    Reg -.task scheduler / cron.-> Sync
-    Unreg -.removes schedule.-> Reg
+    NewTask --> HierJson
+    NewTask --> IterJson
+    NewTask --> AreasJson
+    NewTask --> AzBoards
+
+    BgSync -.spawns hidden pwsh when stale.-> Sync
 
     OpensFolders -.opens dir.-> Cache
     OpensFolders -.opens dir.-> Config
@@ -335,7 +340,7 @@ flowchart LR
 
 ---
 
-## 6. `az-Show-AzDevOpsTree` — Epic → Feature → requirement-tier render
+## 6. `az-Show-Tree` — Epic → Feature → requirement-tier render
 
 Pure cache read, no `az`. Each of the three hierarchy WIQLs (epics / features / user-stories) selects `[System.Parent]` per row, and `Invoke-AzDevOpsHierarchyQueries` merges them into a single flat array on disk, so a single pass into a `byParent` hashtable is enough — no follow-up queries.
 
@@ -343,7 +348,7 @@ The leaf-tier filter checks `Type -in $script:AzDevOpsRequirementTypes` — the 
 
 ```mermaid
 flowchart TD
-    Start([az-Show-AzDevOpsTree]) --> Read[Read-AzDevOpsHierarchyCache]
+    Start([az-Show-Tree]) --> Read[Read-AzDevOpsHierarchyCache]
     Read --> Banner[Write-AzDevOpsStaleBanner]
     Banner --> Index["build $byParent hashtable<br/>key = ParentId or 0"]
     Index --> Epics["filter Type='Epic', sort by Id"]
@@ -351,6 +356,11 @@ flowchart TD
     Grid -- yes --> Pfx["Get-AzDevOpsWorkItemUrlPrefix<br/>(once, not per row)"]
     Pfx --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path/Url)"]
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
+    Show --> Action["Invoke-AzDevOpsRowAction<br/>(per selected row)"]
+    Action --> Choice{Read-AzDevOpsRowActionChoice}
+    Choice -- open --> OpenSel["Open-AzDevOpsWorkItemUrl"]
+    Choice -- create --> Child["New-AzDevOpsChildForRow<br/>(Get-AzDevOpsChildTypeFor →<br/>az-New-AzDevOpsFeature / UserStory / az-New-Task)"]
+    Choice -- skip --> NoOp([skip])
     Grid -- no --> ForEpic{foreach epic}
     ForEpic --> NodeE["Format-AzDevOpsTreeNode -Depth 0<br/>uses Get-AzDevOpsTreeIcon (Epic icon)<br/>+ Get-AzDevOpsTreeIndent"]
     NodeE --> Features["children where Type='Feature'"]
@@ -367,6 +377,8 @@ flowchart TD
 ```
 
 Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, `$iconFeature`, `$iconStory`) — never raw `[char]0x...` literals at the call site.
+
+The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board` and `az-Show-Features` too; `az-Show-Features` passes `-DefaultType 'Feature'` since its rows omit a Type column. For each selected work-item row it offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
 
 ---
 
@@ -390,7 +402,7 @@ flowchart TD
     TitleEmpty -- yes --> Abort4([abort])
     TitleEmpty -- no --> Desc
 
-    Desc -- no --> ReadDesc["Read-Host 'description'"]
+    Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
     Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
@@ -538,40 +550,92 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 10. `az-Register-/az-Unregister-AzDevOpsSyncSchedule` — platform branch
+## 10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh
 
-Both functions delegate the OS check to `Get-AzDevOpsPlatform` so the branch lives in one place. The cron line itself is built by `Get-AzDevOpsCronLine` (also reused) so register and unregister stay symmetric.
+Runs on every shell open — invoked from `powcuts_home.ps1` after all `azdevops_*.ps1` files are dot-sourced, so `Get-AzDevOpsActiveProjectSlug` is defined and the staleness check targets the active project's cache. A cheap foreground gate decides whether to spawn a detached, hidden `pwsh` running `az-Sync-AzDevOpsCache`. The network auth check is intentionally left to the child (`az-Sync-AzDevOpsCache` → `Assert-AzDevOpsAuthOrAbort`) so the interactive prompt is never blocked by a smoke query. The child inherits `AZ_DEVOPS_AUTOSYNC_CHILD`, so its own profile load skips re-spawning — no cascade.
 
 ```mermaid
 flowchart TD
-    Reg([az-Register-AzDevOpsSyncSchedule]) --> P1{Get-AzDevOpsPlatform}
-    P1 -- Windows --> WReg["New-ScheduledTaskAction + Trigger<br/>Register-ScheduledTask -TaskName<br/>Get-AzDevOpsScheduledTaskName<br/>(every Get-AzDevOpsSyncIntervalHours)"]
-    P1 -- Posix --> PReg["Get-AzDevOpsCronLine -PwshPath<br/>+ Get-AzDevOpsCrontabSplit<br/>append + crontab -"]
-    P1 -- Unknown --> ErrR([Unsupported OS])
-
-    Unreg([az-Unregister-AzDevOpsSyncSchedule]) --> P2{Get-AzDevOpsPlatform}
-    P2 -- Windows --> WUn["Get-ScheduledTask?<br/>Unregister-ScheduledTask -Confirm:$false"]
-    P2 -- Posix --> PUn["Get-AzDevOpsCrontabSplit<br/>(filter Get-AzDevOpsCronTag)<br/>crontab -"]
-    P2 -- Unknown --> ErrU([Unsupported OS])
+    Open([shell open: azdevops_sync.ps1 dot-sourced]) --> Bg([Start-AzDevOpsBackgroundSync])
+    Bg --> C1{AZ_DEVOPS_AUTOSYNC_CHILD set?}
+    C1 -- yes --> Skip([return — no-op])
+    C1 -- no --> C2{AZ_DEVOPS_NO_AUTOSYNC set?}
+    C2 -- yes --> Skip
+    C2 -- no --> C3{az present?}
+    C3 -- no --> Skip
+    C3 -- yes --> C4{cache stale or missing?}
+    C4 -- no --> Skip
+    C4 -- yes --> C5{autosync.lock active < 30 min?}
+    C5 -- yes --> Skip
+    C5 -- no --> Spawn["write autosync.lock<br/>set AZ_DEVOPS_AUTOSYNC_CHILD<br/>Start-Process pwsh -WindowStyle Hidden<br/>-Command az-Sync-AzDevOpsCache"]
+    Spawn --> Child([detached child loads $profile,<br/>auth-gates, runs az-Sync-AzDevOpsCache,<br/>logs to sync.log])
 
     classDef shared fill:#3a2a5f,stroke:#a070ff,color:#fff
-    class P1,P2 shared
+    class C1,C2,C3,C4,C5 shared
 ```
 
-Shared private helpers (named in CLAUDE.md):
+Private helpers:
 
-- `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'`
-- `Get-AzDevOpsScheduledTaskName` → `'BashcutsAzDevOpsSync'`
-- `Get-AzDevOpsSyncIntervalHours` → `5`
-- `Get-AzDevOpsCronTag` → `'# bashcuts-azdevops-sync'`
-- `Get-AzDevOpsCronLine -PwshPath` → assembled cron line
-- `Get-AzDevOpsCrontabSplit` → `{Other, HadBashcuts}` partition
+- `Get-AzDevOpsAutoSyncChildVar` → `'AZ_DEVOPS_AUTOSYNC_CHILD'` (loop guard for the spawned child)
+- `Get-AzDevOpsAutoSyncOptOutVar` → `'AZ_DEVOPS_NO_AUTOSYNC'` (user opt-out)
+- `Get-AzDevOpsAutoSyncLockPath` → `<cache dir>/autosync.lock`
+- `Get-AzDevOpsAutoSyncLockMaxAgeMinutes` → `30`
+- `Test-AzDevOpsAutoSyncLockActive` → `$true` when the lock is younger than the TTL
+- `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'` (retained — still used by `azdevops_schema.ps1`)
 
 ---
 
-## 11. Function dependency map
+## 11. `Start-UnplannedWork` — firefighting session loop + debrief
 
-Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs and the parallel `Register-/Unregister-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
+Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
+
+```mermaid
+flowchart TD
+    Start([Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
+    Gate -- false --> Abort1([abort])
+    Gate -- true --> Daily[Get-UnplannedWorkDailyStory]
+
+    Daily --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
+    Find -- found --> HaveStory[daily story id]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
+    NewStory --> HaveStory
+
+    HaveStory --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
+    Task --> PlatCheck{Test-WpfIsWindows?}
+    PlatCheck -- Windows --> WpfLoop["Show-WpfStopwatch<br/>(WPF circular overlay)<br/>Log Item / Capture Story / Stop"]
+    PlatCheck -- macOS/Linux --> Loop[session loop — Read-UnplannedKeyPress poll]
+
+    Loop -- Space --> LogItem["Read-Host item<br/>append {Time, Text}"]
+    LogItem --> Loop
+    Loop -- every ReminderMinutes --> Balloon["Show-UnplannedReminder<br/>(New-UnplannedBalloon NotifyIcon)"]
+    Balloon --> Loop
+    Loop -- Esc/Q --> Debrief[Invoke-UnplannedDebrief]
+    WpfLoop -- Stop/right-click --> Debrief
+
+    Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
+    FlushDesc --> AskFuture{future-feature opportunity?}
+    AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
+    AskFuture -- no --> PostComment
+    MaybeStory --> PostComment
+    PostComment["Format-UnplannedDebriefComment<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+    PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
+    Ledger --> Done([end])
+
+    DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
+    ReadLedger --> Rollup["Format-UnplannedDailyDebrief<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
+    Rollup --> Done2([end])
+
+    classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
+    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup io
+```
+
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+
+---
+
+## 12. Function dependency map
+
+Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
 
 ```mermaid
 graph LR
@@ -583,16 +647,15 @@ graph LR
     TestAuth(["az-Test-AzDevOpsAuth"]):::pub
     Sync(["az-Sync-AzDevOpsCache"]):::pub
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
-    Reg(["az-Register-AzDevOpsSyncSchedule"]):::pub
-    Unreg(["az-Unregister-AzDevOpsSyncSchedule"]):::pub
+    BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
     OpenA(["az-Open-AzDevOpsAssigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-AzDevOpsMention"]):::pub
-    Tree(["az-Show-AzDevOpsTree"]):::pub
-    Board(["az-Show-AzDevOpsBoard"]):::pub
-    ShowAreas(["az-Show-AzDevOpsAreas"]):::pub
-    ShowIters(["az-Show-AzDevOpsIterations"]):::pub
+    Tree(["az-Show-Tree"]):::pub
+    Board(["az-Show-Board"]):::pub
+    ShowAreas(["az-Show-Areas"]):::pub
+    ShowIters(["az-Show-Iterations"]):::pub
     GetAreas(["az-Get-AzDevOpsAreas"]):::pub
     GetIters(["az-Get-AzDevOpsIterations"]):::pub
     FindArea(["az-Find-AzDevOpsArea"]):::pub
@@ -600,15 +663,28 @@ graph LR
     NewS(["az-New-AzDevOpsUserStory"]):::pub
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
+    NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
     OpenHWiql(["az-Open-AzDevOpsHierarchyWiqls"]):::pub
-    ShowFeats(["az-Show-AzDevOpsFeatures"]):::pub
+    ShowFeats(["az-Show-Features"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
     UseProj(["az-Use-AzDevOpsProject"]):::pub
-    ShowProj(["az-Show-AzDevOpsProject"]):::pub
+    ShowProj(["az-Show-Project"]):::pub
     GetProjs(["az-Get-AzDevOpsProjects"]):::pub
     FindProj(["az-Find-AzDevOpsProject"]):::pub
+
+    %% Unplanned work sessions (azdevops_unplanned.ps1)
+    StartUW(["Start-UnplannedWork"]):::pub
+    NewUWDebrief(["New-UnplannedWorkDebrief"]):::pub
+    GetDaily[Get-UnplannedWorkDailyStory]:::priv
+    FindUW[Find-UnplannedWorkStoryId]:::priv
+    NewUWStory[New-UnplannedWorkStory]:::priv
+    NewUWTask[New-UnplannedWorkTask]:::priv
+    InvUWDebrief[Invoke-UnplannedDebrief]:::priv
+    UWBalloon[New-UnplannedBalloon]:::priv
+    WpfStopwatch[Show-WpfStopwatch]:::priv
+    UWLedger[Add-UnplannedLedgerEntry]:::priv
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -660,6 +736,8 @@ graph LR
     NewWI[New-AzDevOpsWorkItem]:::priv
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
+    SetField[Set-AzDevOpsWorkItemField]:::priv
+    AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
     ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
@@ -667,14 +745,15 @@ graph LR
     CmdDisp[Format-AzDevOpsCommandDisplay]:::priv
     CmdHead[Get-AzDevOpsCommandHeadline]:::priv
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
+    ConvNative[ConvertTo-AzDevOpsNativeArgList]:::priv
 
-    %% Schedule helpers
+    %% Platform + on-open background-sync helpers
     Plat[Get-AzDevOpsPlatform]:::priv
-    TaskName[Get-AzDevOpsScheduledTaskName]:::priv
-    Interval[Get-AzDevOpsSyncIntervalHours]:::priv
-    CronTag[Get-AzDevOpsCronTag]:::priv
-    CronLine[Get-AzDevOpsCronLine]:::priv
-    CronSplit[Get-AzDevOpsCrontabSplit]:::priv
+    AutoChild[Get-AzDevOpsAutoSyncChildVar]:::priv
+    AutoOptOut[Get-AzDevOpsAutoSyncOptOutVar]:::priv
+    AutoLockPath[Get-AzDevOpsAutoSyncLockPath]:::priv
+    AutoLockTtl[Get-AzDevOpsAutoSyncLockMaxAgeMinutes]:::priv
+    AutoLockActive[Test-AzDevOpsAutoSyncLockActive]:::priv
 
     %% Read helpers
     ReadJson[Read-AzDevOpsJsonCache]:::priv
@@ -713,6 +792,25 @@ graph LR
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
     ActionRow[New-AzDevOpsActionRow]:::priv
 
+    %% Interactive post-selection row actions (azdevops_views.ps1 + azdevops_classification.ps1)
+    RowAction[Invoke-AzDevOpsRowAction]:::priv
+    RowChoice[Read-AzDevOpsRowActionChoice]:::priv
+    ChildType[Get-AzDevOpsChildTypeFor]:::priv
+    ChildForRow[New-AzDevOpsChildForRow]:::priv
+    RowType[Resolve-AzDevOpsRowType]:::priv
+    ClsAction[Invoke-AzDevOpsClassificationAction]:::priv
+
+    %% URL builders (shared base)
+    UrlBase[Get-AzDevOpsUrlBase]:::priv
+    BoardsUrl[Get-AzDevOpsBoardsUrl]:::priv
+
+    %% Show-Features cache source + empty-state hint
+    FeatSrc[Read-AzDevOpsFeaturesSource]:::priv
+    NoFeatHint[Write-AzDevOpsNoFeaturesHint]:::priv
+
+    %% az-New-Task picker
+    PStory[Read-AzDevOpsStoryPick]:::priv
+
     %% NewStory helpers
     ReadCls[Read-AzDevOpsClassificationCache]:::priv
     InvCls[Invoke-AzDevOpsClassificationLive]:::priv
@@ -722,6 +820,7 @@ graph LR
     Pri[Read-AzDevOpsPriority]:::priv
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
+    USDesc[Read-AzDevOpsUserStoryDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
     PParent[Read-AzDevOpsParentPick]:::priv
@@ -831,11 +930,15 @@ graph LR
     Boards --> AzJson
     ClassList --> AzJson
     AddDisc --> AzJson
+    SetField --> AzJson
+    NewWI --> AssertTok
+    SetField --> AssertTok
     WITypeDef --> AzJson
     Boards --> EchoLn
     AzJson --> CmdDisp
     AzJson --> CmdHead
     AzJson --> EchoLn
+    AzJson --> ConvNative
     AzJson --> Az
     InvokeDS --> Stderr1
     InvokeDS --> DStatus
@@ -845,14 +948,14 @@ graph LR
 
     Status --> Age --> Paths
     Status --> StatusRows --> ShowRows
-    Reg --> Plat
-    Reg --> TaskName
-    Reg --> Interval
-    Reg --> CronLine --> CronTag
-    Reg --> CronSplit --> CronTag
-    Unreg --> Plat
-    Unreg --> TaskName
-    Unreg --> CronSplit
+    BgSync --> AutoChild
+    BgSync --> AutoOptOut
+    BgSync --> TCli
+    BgSync --> Age
+    BgSync --> AutoLockPath --> Paths
+    BgSync --> AutoLockActive --> AutoLockTtl
+    BgSync --> InitDir
+    BgSync -.spawns hidden pwsh.-> Sync
 
     ReadA --> ReadJson --> Paths
     ReadA --> ConvA
@@ -898,6 +1001,29 @@ graph LR
     Board --> SelAct
     Board --> TitleCol
     Board --> ShowRows
+
+    %% Post-selection row actions (shared by Tree / Board / Features)
+    Tree --> RowAction
+    Board --> RowAction
+    ShowFeats --> RowAction
+    RowAction --> RowType
+    RowAction --> ChildType
+    RowAction --> RowChoice
+    RowAction --> ChildForRow
+    RowAction --> OpenUrl
+    ChildForRow --> NewF
+    ChildForRow --> NewS
+    ChildForRow --> NewTask
+
+    %% URL builders share one base
+    WiPfx --> UrlBase
+    BoardsUrl --> UrlBase
+    UrlBase --> ConfDef
+
+    %% Classification post-selection (Areas / Iterations: Boards-hub open only)
+    ShowAreas --> ClsAction
+    ShowIters --> ClsAction
+    ClsAction --> BoardsUrl
 
     %% Classification tree views (cache-first, live fallback)
     ClsRows[ConvertFrom-AzDevOpsClassificationTree]:::priv
@@ -948,6 +1074,7 @@ graph LR
 
     NewS --> CGate
     NewS --> ReadH
+    NewS --> USDesc
     NewS --> Pri
     NewS --> Pts
     NewS --> AC
@@ -974,6 +1101,14 @@ graph LR
     NewF --> YN
     NewF -.hand-off on yes.-> NewSB
 
+    NewTask --> CGate
+    NewTask --> ReadH
+    NewTask --> RPriP
+    NewTask --> PStory
+    NewTask --> ResIA
+    NewTask --> CrLink
+    PStory --> PParent
+
     NewSB --> CGate
     NewSB --> ReadH
     NewSB --> ParentTest
@@ -989,6 +1124,24 @@ graph LR
     ResIA --> PKind
     CrLink --> InvCreate --> NewWI --> AzJson
     CrLink --> InvLink --> AddRel --> AzJson
+
+    %% Unplanned work sessions
+    StartUW --> CGate
+    StartUW --> GetDaily
+    GetDaily --> FindUW --> Boards
+    GetDaily --> NewUWStory --> InvCreate
+    StartUW --> NewUWTask
+    NewUWTask --> NewWI
+    NewUWTask --> InvLink
+    StartUW --> UWBalloon
+    StartUW --> WpfStopwatch
+    StartUW --> InvUWDebrief
+    InvUWDebrief --> SetField
+    InvUWDebrief --> AddDisc
+    InvUWDebrief --> NewS
+    InvUWDebrief --> UWLedger
+    NewUWDebrief --> AddDisc
+    NewUWDebrief --> UWLedger
 
     %% Parent picker shared between Feature and Epic pickers
     PFeat --> PParent
@@ -1026,11 +1179,14 @@ graph LR
     ShowFeats --> FeatNames
     FeatNames --> MapDef
     FeatNames --> ActName
-    ShowFeats --> ReadHForProj
-    ShowFeats --> ReadH
+    ShowFeats --> FeatSrc
+    ShowFeats --> NoFeatHint
     ShowFeats --> SelAct
     ShowFeats --> TitleCol
     ShowFeats --> ShowRows
+    FeatSrc --> ReadHForProj
+    FeatSrc -.legacy fallback.-> ReadH
+    NoFeatHint --> BoardsUrl
     ReadHForProj --> ToSlug
     ReadHForProj --> PathsForSlug
     ReadHForProj --> ReadJson

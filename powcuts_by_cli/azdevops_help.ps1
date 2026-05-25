@@ -103,10 +103,10 @@ $script:AzDevOpsHelpCatalog = @(
         File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'Onboarding'
         Order         = 4
-        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations)'
+        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
         Args          = '(none)'
         Example       = 'az-Sync-AzDevOpsCache'
-        RunsBefore    = 'az-Show-AzDevOpsTree (or any DailyRead function)'
+        RunsBefore    = 'az-Show-Tree (or any DailyRead function)'
         RequiresSync  = 'No'
         DiagramAnchor = '#4-az-sync-azdevopscache--dataset-fan-out'
         Issues        = @(61, 65)
@@ -171,27 +171,27 @@ $script:AzDevOpsHelpCatalog = @(
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Show-AzDevOpsTree'
+        Name          = 'az-Show-Tree'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 5
-        Purpose       = 'Epic -> Feature -> requirement-tier indented tree of the hierarchy cache'
+        Purpose       = 'Epic -> Feature -> requirement-tier indented tree; select a row to open it or create a child work item'
         Args          = '[-IncludeClosed]'
-        Example       = 'az-Show-AzDevOpsTree'
+        Example       = 'az-Show-Tree'
         RunsBefore    = ''
         RequiresSync  = 'Yes'
-        DiagramAnchor = '#6-az-show-azdevopstree--epic--feature--requirement-tier-render'
+        DiagramAnchor = '#6-az-show-tree--epic--feature--requirement-tier-render'
         Issues        = @()
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Show-AzDevOpsBoard'
+        Name          = 'az-Show-Board'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 6
-        Purpose       = 'Group-by-State board view of the same cached items'
+        Purpose       = 'Group-by-State board view of the cached items; select a row to open it or create a child work item'
         Args          = '[-IncludeClosed]'
-        Example       = 'az-Show-AzDevOpsBoard'
+        Example       = 'az-Show-Board'
         RunsBefore    = ''
         RequiresSync  = 'Yes'
         DiagramAnchor = ''
@@ -199,15 +199,15 @@ $script:AzDevOpsHelpCatalog = @(
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Show-AzDevOpsFeatures'
+        Name          = 'az-Show-Features'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 7
-        Purpose       = 'Open-only Features list for the current project (live WIQL, not cached)'
-        Args          = '[-Project <name>]'
-        Example       = 'az-Show-AzDevOpsFeatures'
+        Purpose       = 'Features across the project map from the hierarchy cache; select a row to open it or create a child story'
+        Args          = '[-Project <name>] [-State <states>]'
+        Example       = 'az-Show-Features'
         RunsBefore    = ''
-        RequiresSync  = 'No'
+        RequiresSync  = 'Yes'
         DiagramAnchor = ''
         Issues        = @()
     },
@@ -256,6 +256,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @()
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-New-Task'
+        File          = 'powcuts_by_cli/azdevops_create.ps1'
+        Phase         = 'Create'
+        Order         = 4
+        Purpose       = 'Interactive new Task with parent-User-Story picker; also the child action when a Story is selected in az-Show-Tree / Board'
+        Args          = '[-ParentStoryId <id>] (else parent Story picked interactively)'
+        Example       = 'az-New-Task'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
     # --- MultiProject ------------------------------------------------------
 
     [PSCustomObject]@{
@@ -284,34 +298,6 @@ $script:AzDevOpsHelpCatalog = @(
         RequiresSync  = 'No'
         DiagramAnchor = ''
         Issues        = @(57, 76)
-    },
-
-    [PSCustomObject]@{
-        Name          = 'az-Register-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_sync.ps1'
-        Phase         = 'MultiProject'
-        Order         = 3
-        Purpose       = 'Register background sync (Scheduled Task on Windows / cron on POSIX)'
-        Args          = '[-IntervalMinutes <n>]'
-        Example       = 'az-Register-AzDevOpsSyncSchedule -IntervalMinutes 30'
-        RunsBefore    = ''
-        RequiresSync  = 'No'
-        DiagramAnchor = '#10-az-register-az-unregister-azdevopssyncschedule--platform-branch'
-        Issues        = @(61)
-    },
-
-    [PSCustomObject]@{
-        Name          = 'az-Unregister-AzDevOpsSyncSchedule'
-        File          = 'powcuts_by_cli/azdevops_sync.ps1'
-        Phase         = 'MultiProject'
-        Order         = 4
-        Purpose       = 'Remove the background sync schedule (cron entry / Scheduled Task)'
-        Args          = '(none)'
-        Example       = 'az-Unregister-AzDevOpsSyncSchedule'
-        RunsBefore    = ''
-        RequiresSync  = 'No'
-        DiagramAnchor = '#10-az-register-az-unregister-azdevopssyncschedule--platform-branch'
-        Issues        = @()
     }
 )
 

@@ -125,6 +125,39 @@ function Get-AzDevOpsConfiguredDefaults {
 }
 
 
+function ConvertTo-AzDevOpsNativeArgList {
+    # Escapes embedded double quotes in each native-command argument so values
+    # survive the hand-off to the az CLI intact. PowerShell does not escape an
+    # embedded " when marshaling an argument array to a native process on
+    # Windows PowerShell 5.1, nor when the target is a batch wrapper like
+    # az.cmd under PowerShell 7.x - the quote terminates the argument early and
+    # a Title such as  Add "dark mode" toggle  reaches az mangled.
+    #
+    # Per the Win32 CommandLineToArgvW rules each literal " becomes \" and any
+    # run of backslashes immediately preceding a quote is doubled, so the
+    # python process az.cmd launches reconstructs the original text. Outer
+    # quoting (for values containing spaces) is left to PowerShell's Legacy
+    # marshaling, which Invoke-AzDevOpsAzJson pins. Private helper - unapproved
+    # verb is fine since it isn't user-facing.
+    param([Parameter(Mandatory)] [string[]] $ArgList)
+
+    $quoteEscapePattern = '(\\*)"'
+    $quoteEscapeReplace = '${1}${1}\"'
+
+    $escaped = @(foreach ($arg in $ArgList) {
+        $value = [string]$arg
+
+        if ($value -notmatch '"') {
+            $value
+        } else {
+            $value -replace $quoteEscapePattern, $quoteEscapeReplace
+        }
+    })
+
+    return $escaped
+}
+
+
 function Invoke-AzDevOpsAzJson {
     # Generic wrapper around `az ... --output json` that captures stdout JSON
     # and stderr text separately. The canonical JSON+error path used by every
@@ -143,10 +176,20 @@ function Invoke-AzDevOpsAzJson {
     $commandDisplay = Format-AzDevOpsCommandDisplay -ArgList $ArgList
     Write-AzDevOpsQueryEcho -Message $commandDisplay -Color 'DarkCyan'
 
+    $invokeArgs = ConvertTo-AzDevOpsNativeArgList -ArgList $ArgList
+
+    # Pin Legacy native-arg marshaling so the manual " -> \" escaping in
+    # ConvertTo-AzDevOpsNativeArgList is the only escaping applied. Under
+    # PowerShell 7.3+ Standard mode PS would re-escape our backslashes and
+    # double-mangle the value; Legacy leaves them untouched and just adds outer
+    # quotes for values containing spaces. The variable does not exist on
+    # Windows PowerShell 5.1 (already Legacy), where this is a harmless local.
+    $PSNativeCommandArgumentPassing = 'Legacy'
+
     $stderrFile = [System.IO.Path]::GetTempFileName()
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        $json = & az @ArgList --output json 2>$stderrFile
+        $json = & az @invokeArgs --output json 2>$stderrFile
         $exit = $LASTEXITCODE
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
             (Get-Content -LiteralPath $stderrFile -Raw)
@@ -213,6 +256,23 @@ function Get-AzDevOpsClassificationList {
 }
 
 
+function Assert-AzDevOpsFieldTokens {
+    # Guards the variadic `--fields` slot shared by New-AzDevOpsWorkItem and
+    # Set-AzDevOpsWorkItemField: every entry must be a 'Ref.Name=value'
+    # assignment so a stray `--`-prefixed token can't escape the slot and be
+    # reinterpreted by az's argparse as a new flag. The value (after the first
+    # '=') is intentionally unconstrained. Throws on the first malformed token.
+    # Private helper (unapproved verb is fine - not user-facing).
+    param([string[]] $Fields)
+
+    foreach ($f in $Fields) {
+        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
+            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
+        }
+    }
+}
+
+
 function New-AzDevOpsWorkItem {
     # `az boards work-item create` wrapper. Title and Type are required; every
     # other parameter is optional so callers can populate only what they have.
@@ -231,15 +291,7 @@ function New-AzDevOpsWorkItem {
         [switch]   $Open
     )
 
-    # Reject `--`-prefixed or otherwise malformed field tokens so a stray
-    # value cannot escape the variadic --fields slot and be reinterpreted
-    # by az's argparse as a new flag (defense in depth — callers are
-    # interactive and self-trusted but the class of bug is worth killing).
-    foreach ($f in $Fields) {
-        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
-            throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
-        }
-    }
+    Assert-AzDevOpsFieldTokens -Fields $Fields
 
     $argList = @(
         'boards', 'work-item', 'create',
@@ -311,6 +363,27 @@ function Add-AzDevOpsDiscussionComment {
         '--id',         "$Id",
         '--discussion', $Body
     )
+    return $result
+}
+
+
+function Set-AzDevOpsWorkItemField {
+    # `az boards work-item update --id <id> --fields Field=value ...` wrapper.
+    # Each entry of -Fields is a 'Ref.Name=value' assignment (e.g.
+    # 'System.Description=...'). Field tokens are validated the same way
+    # New-AzDevOpsWorkItem validates them so a stray '--'-prefixed value can't
+    # escape the variadic --fields slot and be reinterpreted as a new flag.
+    # Returns the canonical { Json, Error, ExitCode } envelope.
+    param(
+        [Parameter(Mandatory)] [int]      $Id,
+        [Parameter(Mandatory)] [string[]] $Fields
+    )
+
+    Assert-AzDevOpsFieldTokens -Fields $Fields
+
+    $argList = @('boards', 'work-item', 'update', '--id', "$Id", '--fields') + $Fields
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
     return $result
 }
 

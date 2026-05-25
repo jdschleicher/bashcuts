@@ -3,9 +3,13 @@
 #
 # Public surface:
 #   Start-TimerSession         - pick integration -> pick item -> run timer ->
-#                                prompt for debrief -> post comment.
-#                                Press Esc during the countdown to end early
-#                                and still post a debrief.
+#                                collect debrief -> post comment. On Windows the
+#                                countdown morphs into a themed WPF debrief form
+#                                (Show-WpfTimerDebrief) that posts under a spinner
+#                                and loops back to a fresh timer; elsewhere the
+#                                debrief is collected via terminal Read-Host with
+#                                a console posting indicator. Press Esc during the
+#                                countdown to end early and still post a debrief.
 #   Register-TimerIntegration  - add an integration (Name, Description,
 #                                FetchItems, AddComment, optional ViewHint).
 #                                Registering with an existing Name replaces it.
@@ -43,6 +47,21 @@ $script:TimerPollIntervalMs = 100
 $script:TimerPollsPerSecond = 10
 
 $script:TimerIntegrations = @()
+
+$script:WpfColorBackground = '#2D2D30'
+$script:WpfColorStroke     = '#444444'
+$script:WpfColorProgress   = '#007ACC'
+$script:WpfColorButton     = '#3E3E42'
+$script:WpfColorHint       = '#888888'
+
+$script:WpfWindowSize   = 260
+$script:WpfCircleCenter = 130
+$script:WpfCircleRadius = 124
+$script:WpfArcStartX    = 130
+$script:WpfArcStartY    = 6
+
+$script:WpfColorProgressUnplanned = '#D97706'
+$script:WpfStopwatchMaxSeconds    = 3600
 
 
 function Test-TimerEscPressed {
@@ -169,7 +188,7 @@ function Read-TimerPick {
 }
 
 
-function Register-TimerIntegration {
+function az-Register-TimerIntegration {
     # Append (or replace by Name) an integration entry to
     # $script:TimerIntegrations. Replace-on-collision lets the user override
     # the built-in AzDO integration from their $profile without editing
@@ -256,11 +275,19 @@ function Get-TimerItemPick {
 
 
 function Show-TimerCountdown {
-    # Snake-animation countdown. Each elapsed second redraws the frame; the
-    # per-second wait is split into ~100ms key polls so Esc interrupts feel
-    # immediate without making the animation flicker. Returns the outcome so
-    # the orchestrator can branch on Interrupted.
+    # Delegates to the WPF circular overlay on Windows; falls back to the
+    # snake-animation on macOS / Linux. Returns the same outcome shape in
+    # both paths so the orchestrator (az-Start-TimerSession) is unchanged.
     param([Parameter(Mandatory)] [int] $Seconds)
+
+    $onWindows = Test-WpfIsWindows
+
+    if ($onWindows) {
+        $result = Show-WpfTimerCountdown -Seconds $Seconds
+        return $result
+    }
+
+    # ---- Snake-animation fallback (macOS / Linux) ----
 
     $iconSnakeHead = $script:TimerIconSnakeHead
     $iconSnakeBody = $script:TimerIconSnakeBody
@@ -320,6 +347,284 @@ function Show-TimerCountdown {
 }
 
 
+function Show-WpfTimerCountdown {
+    # WPF circular overlay countdown for Windows. Returns the same result shape
+    # as Show-TimerCountdown so az-Start-TimerSession needs no changes.
+    # If "Capture Story" is clicked the overlay closes, az-New-AzDevOpsUserStory
+    # runs in the terminal, then the overlay reopens with the remaining time.
+    param([Parameter(Mandatory)] [int] $Seconds)
+
+    Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
+
+    $flashMaxTicks  = 15
+    $defaultSeconds = $Seconds
+
+    $Script:WpfTimeRemaining = [double]$Seconds
+    $Script:WpfTotalSeconds  = [double]$Seconds
+    $Script:WpfOutcome       = 'Complete'
+
+    $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
+
+    do {
+        $Script:WpfOutcome    = 'Complete'
+        $Script:WpfIsFlashing = $false
+        $Script:WpfFlashCount = 0
+
+        # ---- Build window ----
+
+        $circleRes  = New-WpfCircleResources -Title 'Timer Session' -Brushes $brushes
+        $mainWin    = $circleRes.Window
+        $circleGrid = $circleRes.Grid
+        $mainCircle = $circleRes.MainCircle
+        $arcSegment = $circleRes.ArcSegment
+
+        $vbox = New-Object System.Windows.Controls.StackPanel -Property @{
+            VerticalAlignment   = 'Center'
+            HorizontalAlignment = 'Center'
+        }
+
+        $clockText = New-Object System.Windows.Controls.TextBlock -Property @{
+            Text                = '00:00.0'
+            FontSize            = 34
+            FontFamily          = 'Consolas'
+            Foreground          = $brushes.White
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,8'
+            Cursor              = [System.Windows.Input.Cursors]::Hand
+        }
+        $vbox.Children.Add($clockText) | Out-Null
+
+        $adjustRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnPlus5 = New-Object System.Windows.Controls.Button -Property @{
+            Content    = '+5 Min'
+            Width      = 55
+            Height     = 22
+            Background = $brushes.Button
+            Foreground = $brushes.White
+            Margin     = 2
+        }
+        $btnPlus10 = New-Object System.Windows.Controls.Button -Property @{
+            Content    = '+10 Min'
+            Width      = 55
+            Height     = 22
+            Background = $brushes.Button
+            Foreground = $brushes.White
+            Margin     = 2
+        }
+        $adjustRow.Children.Add($btnPlus5)  | Out-Null
+        $adjustRow.Children.Add($btnPlus10) | Out-Null
+        $vbox.Children.Add($adjustRow) | Out-Null
+
+        $pomoRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnNewPomo = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'New Pomodoro'
+            Width      = 120
+            Height     = 24
+            Background = $brushes.Button
+            Foreground = $brushes.White
+        }
+        $pomoRow.Children.Add($btnNewPomo) | Out-Null
+        $vbox.Children.Add($pomoRow) | Out-Null
+
+        $actionRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+        }
+        $btnCapture = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'Capture Story'
+            Width      = 92
+            Height     = 22
+            Background = $brushes.Button
+            Foreground = $brushes.White
+            Margin     = 2
+        }
+        $btnComplete = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'Mark Complete'
+            Width      = 92
+            Height     = 22
+            Background = $brushes.Button
+            Foreground = $brushes.White
+            Margin     = 2
+        }
+        $actionRow.Children.Add($btnCapture)  | Out-Null
+        $actionRow.Children.Add($btnComplete) | Out-Null
+        $vbox.Children.Add($actionRow) | Out-Null
+
+        $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
+            Text                = 'Click time to pause  ·  Right-click to exit'
+            FontSize            = 9
+            Foreground          = $brushes.Hint
+            HorizontalAlignment = 'Center'
+            Margin              = '0,8,0,0'
+        }
+        $vbox.Children.Add($exitHint) | Out-Null
+
+        $circleGrid.Children.Add($vbox) | Out-Null
+
+        # ---- Timer state and UI update helper ----
+
+        $updateUi = {
+            if ($Script:WpfTimeRemaining -le 0) {
+                $Script:WpfTimeRemaining = 0
+            }
+
+            $ts = [TimeSpan]::FromSeconds($Script:WpfTimeRemaining)
+            $clockText.Text = $ts.ToString('mm\:ss\.f')
+
+            if ($Script:WpfTotalSeconds -gt 0) {
+                $pct = $Script:WpfTimeRemaining / $Script:WpfTotalSeconds
+                Set-WpfArcPoint -Pct $pct -ArcSegment $arcSegment
+            }
+        }
+
+        $clockTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+            Interval = [TimeSpan]::FromMilliseconds(100)
+        }
+
+        $flashTick = New-Object System.Windows.Threading.DispatcherTimer -Property @{
+            Interval = [TimeSpan]::FromMilliseconds(300)
+        }
+
+        # ---- Event handlers ----
+
+        $mainWin.Add_MouseLeftButtonDown({ $mainWin.DragMove() })
+
+        $mainWin.Add_MouseRightButtonDown({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $Script:WpfOutcome = 'Interrupted'
+            $mainWin.Close()
+        })
+
+        $clockText.Add_MouseLeftButtonDown({
+            if ($Script:WpfTimeRemaining -le 0) {
+                return
+            }
+
+            $flashTick.Stop()
+            $mainCircle.Fill = $brushes.Bg
+
+            if ($clockTick.IsEnabled) {
+                $clockTick.Stop()
+            } else {
+                $clockTick.Start()
+            }
+
+            $args[1].Handled = $true
+        })
+
+        $clockTick.Add_Tick({
+            $Script:WpfTimeRemaining -= 0.1
+            & $updateUi
+
+            if ($Script:WpfTimeRemaining -le 0) {
+                $clockTick.Stop()
+                $Script:WpfFlashCount = 0
+                $flashTick.Start()
+            }
+        })
+
+        $flashTick.Add_Tick({
+            $Script:WpfFlashCount++
+
+            if ($Script:WpfFlashCount -ge $flashMaxTicks) {
+                $flashTick.Stop()
+                $mainCircle.Fill = $brushes.Bg
+                $mainWin.Close()
+                return
+            }
+
+            if ($Script:WpfIsFlashing) {
+                $mainCircle.Fill      = $brushes.Bg
+                $Script:WpfIsFlashing = $false
+            } else {
+                $mainCircle.Fill      = $brushes.DarkRed
+                $Script:WpfIsFlashing = $true
+            }
+        })
+
+        $btnPlus5.Add_Click({
+            if (-not $clockTick.IsEnabled) {
+                $Script:WpfTotalSeconds  += 300
+                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
+                & $updateUi
+            }
+        })
+
+        $btnPlus10.Add_Click({
+            if (-not $clockTick.IsEnabled) {
+                $Script:WpfTotalSeconds  += 600
+                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
+                & $updateUi
+            }
+        })
+
+        $btnNewPomo.Add_Click({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $mainCircle.Fill         = $brushes.Bg
+            $Script:WpfTotalSeconds  = [double]$defaultSeconds
+            $Script:WpfTimeRemaining = $Script:WpfTotalSeconds
+            & $updateUi
+        })
+
+        $btnCapture.Add_Click({
+            $clockTick.Stop()
+            $flashTick.Stop()
+            $Script:WpfOutcome = 'CaptureStory'
+            $mainWin.Close()
+        })
+
+        $btnComplete.Add_Click({
+            $confirmMsg    = 'End this session early and go to debrief?'
+            $confirmTitle  = 'Mark Complete Early'
+            $confirmResult = [System.Windows.MessageBox]::Show(
+                $confirmMsg,
+                $confirmTitle,
+                [System.Windows.MessageBoxButton]::YesNo,
+                [System.Windows.MessageBoxImage]::Question
+            )
+
+            if ($confirmResult -eq [System.Windows.MessageBoxResult]::Yes) {
+                $clockTick.Stop()
+                $flashTick.Stop()
+                $Script:WpfOutcome = 'Interrupted'
+                $mainWin.Close()
+            }
+        })
+
+        # ---- Show ----
+
+        & $updateUi
+        $mainWin.ShowDialog() | Out-Null
+
+        if ($Script:WpfOutcome -eq 'CaptureStory') {
+            az-New-AzDevOpsUserStory
+        }
+
+    } while ($Script:WpfOutcome -eq 'CaptureStory')
+
+    $elapsed     = [int]($Seconds - $Script:WpfTimeRemaining)
+    $interrupted = ($Script:WpfOutcome -eq 'Interrupted')
+
+    $result = [PSCustomObject]@{
+        ElapsedSeconds = $elapsed
+        TotalSeconds   = $Seconds
+        Interrupted    = $interrupted
+    }
+    return $result
+}
+
+
 function Format-TimerCommentBody {
     # Compose the discussion-comment text. Header reflects outcome; body has
     # labeled Debrief and Next sections; a trailing attribution line lets a
@@ -374,18 +679,349 @@ function Format-TimerCommentBody {
 }
 
 
-function Start-TimerSession {
-    # Orchestrator. Pick an integration (or use -Integration to skip),
-    # fetch + pick an item, run the snake countdown (Esc to end early),
-    # prompt for debrief notes, post the composed comment via the chosen
-    # integration's AddComment. On an Esc-interrupted session also prompt
-    # whether to start another session — same -Minutes, fresh integration
-    # / item pick so the user can pivot to a different story.
+function Get-TimerResultExitCode {
+    # Names the "missing ExitCode means success (0)" contract for an AddComment
+    # envelope ({ Json, Error, ExitCode }) in one place, so both the console
+    # verdict and the WPF post-gate read the outcome the same way.
+    param([Parameter(Mandatory)] $Result)
+
+    $exitCode = if ($Result -and $Result.PSObject.Properties['ExitCode']) {
+        $Result.ExitCode
+    } else {
+        0
+    }
+
+    return $exitCode
+}
+
+
+function Write-TimerPostVerdict {
+    # Prints the post-comment verdict shared by both the WPF and terminal
+    # debrief paths: a green check + optional ViewHint on success, a red warning
+    # + error text on failure. $Result is the integration's AddComment envelope
+    # ({ Json, Error, ExitCode }); a missing ExitCode is treated as success (0).
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)] $Item,
+        [Parameter(Mandatory)] $Integration
+    )
+
+    $exitCode = Get-TimerResultExitCode -Result $Result
+
+    $checkIcon = $script:TimerIconCheck
+    $warnIcon  = $script:TimerIconWarn
+
+    if ($exitCode -eq 0) {
+        Write-Host "$checkIcon Comment posted on item $($Item.Id)." -ForegroundColor Green
+
+        if ($Integration.ViewHint) {
+            $hint = & $Integration.ViewHint -Id $Item.Id
+            if ($hint) {
+                Write-Host "   $hint" -ForegroundColor DarkGray
+            }
+        }
+
+    } else {
+
+        Write-Host "$warnIcon Comment post failed (exit=$exitCode)." -ForegroundColor Red
+        if ($Result -and $Result.Error) {
+            Write-Host "   $($Result.Error)" -ForegroundColor Red
+        }
+    }
+}
+
+
+function Show-WpfTimerDebrief {
+    # Windows-only themed debrief form the countdown overlay morphs into. Two
+    # multiline fields (Debrief + Next) share the timer's dark/blue theme. On
+    # Post the form disables the button, shows a spinner, and runs -SubmitAction
+    # (which composes + posts the comment and returns the { Json, Error,
+    # ExitCode } envelope). The "Start another session?" choice is revealed ONLY
+    # after a successful post (ExitCode 0); a failed post keeps the form open
+    # with the error so the user can retry. Returns
+    # { Cancelled; StartAnother; PostResult } for the orchestrator.
     #
-    # UTF-8 encoding is applied around the snake animation so the emoji
-    # glyphs render in terminals that default to a non-UTF-8 codepage; the
-    # previous encoding is restored on exit (including Ctrl-C) so we don't
-    # leak a process-wide mutation back to the shell.
+    # The az post is synchronous on the dispatcher thread, so the spinner can't
+    # truly animate during the call. The form forces a Render-priority dispatch
+    # before posting so the "Posting..." overlay paints, then blocks briefly on
+    # the call — feedback without spinning up a worker runspace.
+    param(
+        [Parameter(Mandatory)] [bool]        $Interrupted,
+        [Parameter(Mandatory)] [scriptblock] $SubmitAction
+    )
+
+    Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
+
+    $formWidth = 360
+
+    $Script:WpfDebriefOutcome      = 'Cancelled'
+    $Script:WpfDebriefStartAnother = $false
+    $Script:WpfDebriefPostResult   = $null
+
+    $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
+
+    # ---- Window + container ----
+
+    $mainWin = New-Object System.Windows.Window -Property @{
+        Title                 = 'Timer Debrief'
+        SizeToContent         = 'WidthAndHeight'
+        WindowStyle           = 'None'
+        AllowsTransparency    = $true
+        Background            = $brushes.Clear
+        Topmost               = $true
+        WindowStartupLocation = 'CenterScreen'
+    }
+
+    $border = New-Object System.Windows.Controls.Border -Property @{
+        Background      = $brushes.Bg
+        BorderBrush     = $brushes.Stroke
+        BorderThickness = 2
+        CornerRadius    = 10
+        Padding         = '16'
+        Width           = $formWidth
+    }
+
+    $vbox = New-Object System.Windows.Controls.StackPanel
+
+    # ---- Title (drag handle) ----
+
+    $headerText = if ($Interrupted) {
+        'Session interrupted — debrief'
+    } else {
+        'Session complete — debrief'
+    }
+
+    $titleLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = $headerText
+        FontSize            = 15
+        FontWeight          = 'Bold'
+        Foreground          = $brushes.White
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,12'
+        Cursor              = [System.Windows.Input.Cursors]::SizeAll
+    }
+    $vbox.Children.Add($titleLabel) | Out-Null
+
+    # ---- Debrief field ----
+
+    $debriefLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text       = 'Debrief — what did you accomplish?'
+        FontSize   = 11
+        Foreground = $brushes.Hint
+        Margin     = '0,0,0,3'
+    }
+    $vbox.Children.Add($debriefLabel) | Out-Null
+
+    $debriefBox = New-Object System.Windows.Controls.TextBox -Property @{
+        AcceptsReturn               = $true
+        TextWrapping                = 'Wrap'
+        Height                      = 64
+        Background                  = $brushes.Button
+        Foreground                  = $brushes.White
+        BorderBrush                 = $brushes.Stroke
+        Padding                     = '4'
+        VerticalScrollBarVisibility = 'Auto'
+        Margin                      = '0,0,0,10'
+    }
+    $vbox.Children.Add($debriefBox) | Out-Null
+
+    # ---- Next field ----
+
+    $nextLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text       = 'Next — what''s the next step?'
+        FontSize   = 11
+        Foreground = $brushes.Hint
+        Margin     = '0,0,0,3'
+    }
+    $vbox.Children.Add($nextLabel) | Out-Null
+
+    $nextBox = New-Object System.Windows.Controls.TextBox -Property @{
+        AcceptsReturn               = $true
+        TextWrapping                = 'Wrap'
+        Height                      = 64
+        Background                  = $brushes.Button
+        Foreground                  = $brushes.White
+        BorderBrush                 = $brushes.Stroke
+        Padding                     = '4'
+        VerticalScrollBarVisibility = 'Auto'
+        Margin                      = '0,0,0,12'
+    }
+    $vbox.Children.Add($nextBox) | Out-Null
+
+    # ---- Post button row ----
+
+    $postPanel = New-Object System.Windows.Controls.StackPanel -Property @{
+        HorizontalAlignment = 'Center'
+    }
+    $btnPost = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Post Debrief'
+        Width      = 120
+        Height     = 28
+        Background = $brushes.Button
+        Foreground = $brushes.White
+    }
+    $postPanel.Children.Add($btnPost) | Out-Null
+    $vbox.Children.Add($postPanel) | Out-Null
+
+    # ---- Spinner + status (hidden until Post) ----
+
+    $statusPanel = New-Object System.Windows.Controls.StackPanel -Property @{
+        Orientation         = 'Horizontal'
+        HorizontalAlignment = 'Center'
+        Margin              = '0,10,0,0'
+        Visibility          = [System.Windows.Visibility]::Collapsed
+    }
+    $spinner = New-WpfSpinnerControl -Brushes $brushes -FontSize 18
+    $spinner.Text.Margin = New-Object System.Windows.Thickness(0, 0, 8, 0)
+    $statusPanel.Children.Add($spinner.Text) | Out-Null
+
+    $statusText = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text              = ''
+        FontSize          = 12
+        Foreground        = $brushes.White
+        VerticalAlignment = 'Center'
+        TextWrapping      = 'Wrap'
+        MaxWidth          = 280
+    }
+    $statusPanel.Children.Add($statusText) | Out-Null
+    $vbox.Children.Add($statusPanel) | Out-Null
+
+    # ---- Start-another choice (hidden until a successful post) ----
+
+    $askPanel = New-Object System.Windows.Controls.StackPanel -Property @{
+        Orientation         = 'Horizontal'
+        HorizontalAlignment = 'Center'
+        Margin              = '0,12,0,0'
+        Visibility          = [System.Windows.Visibility]::Collapsed
+    }
+    $btnYes = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Start another'
+        Width      = 100
+        Height     = 26
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 3
+    }
+    $btnNo = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Done'
+        Width      = 70
+        Height     = 26
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 3
+    }
+    $askPanel.Children.Add($btnYes) | Out-Null
+    $askPanel.Children.Add($btnNo)  | Out-Null
+    $vbox.Children.Add($askPanel) | Out-Null
+
+    # ---- Exit hint ----
+
+    $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text                = 'Right-click to cancel without posting'
+        FontSize            = 9
+        Foreground          = $brushes.Hint
+        HorizontalAlignment = 'Center'
+        Margin              = '0,12,0,0'
+    }
+    $vbox.Children.Add($exitHint) | Out-Null
+
+    $border.Child    = $vbox
+    $mainWin.Content = $border
+
+    # ---- Event handlers ----
+
+    $titleLabel.Add_MouseLeftButtonDown({ $mainWin.DragMove() })
+
+    $mainWin.Add_MouseRightButtonDown({
+        if ($Script:WpfDebriefOutcome -ne 'Posted') {
+            $Script:WpfDebriefOutcome = 'Cancelled'
+        }
+        $mainWin.Close()
+    })
+
+    $btnPost.Add_Click({
+        $debriefText = $debriefBox.Text
+        $nextText    = $nextBox.Text
+
+        $btnPost.IsEnabled      = $false
+        $statusText.Foreground  = $brushes.White
+        $statusText.Text        = 'Posting debrief...'
+        $statusPanel.Visibility = [System.Windows.Visibility]::Visible
+        $spinner.Timer.Start()
+
+        # Flush the dispatcher to Render priority so the "Posting..." overlay
+        # paints before the synchronous az call blocks this (UI) thread.
+        $mainWin.Dispatcher.Invoke(
+            [action]{},
+            [System.Windows.Threading.DispatcherPriority]::Render
+        )
+
+        $postResult = & $SubmitAction $debriefText $nextText
+
+        $spinner.Timer.Stop()
+        $spinner.Text.Visibility = [System.Windows.Visibility]::Collapsed
+
+        $exitCode = Get-TimerResultExitCode -Result $postResult
+
+        if ($exitCode -eq 0) {
+            $Script:WpfDebriefPostResult = $postResult
+            $Script:WpfDebriefOutcome    = 'Posted'
+
+            $statusText.Text      = 'Posted. Start another session?'
+            $postPanel.Visibility = [System.Windows.Visibility]::Collapsed
+            $askPanel.Visibility  = [System.Windows.Visibility]::Visible
+        } else {
+            $errText = if ($postResult -and $postResult.Error) {
+                $postResult.Error
+            } else {
+                "exit $exitCode"
+            }
+
+            $statusText.Foreground = $brushes.DarkRed
+            $statusText.Text       = "Post failed: $errText"
+            $btnPost.IsEnabled     = $true
+        }
+    })
+
+    $btnYes.Add_Click({
+        $Script:WpfDebriefStartAnother = $true
+        $mainWin.Close()
+    })
+
+    $btnNo.Add_Click({
+        $Script:WpfDebriefStartAnother = $false
+        $mainWin.Close()
+    })
+
+    # ---- Show ----
+
+    $debriefBox.Focus() | Out-Null
+    $mainWin.ShowDialog() | Out-Null
+
+    $cancelled = ($Script:WpfDebriefOutcome -ne 'Posted')
+
+    $result = [PSCustomObject]@{
+        Cancelled    = $cancelled
+        StartAnother = [bool]$Script:WpfDebriefStartAnother
+        PostResult   = $Script:WpfDebriefPostResult
+    }
+    return $result
+}
+
+
+function az-Start-TimerSession {
+    # Orchestrator. Pick an integration (or use -Integration to skip),
+    # fetch + pick an item, run the countdown (WPF overlay on Windows, snake
+    # animation elsewhere), then collect the debrief and post the composed
+    # comment via the chosen integration's AddComment. On Windows the countdown
+    # morphs into a themed WPF debrief form (Show-WpfTimerDebrief) that posts
+    # under a spinner and offers "Start another session?" only after a
+    # successful post; elsewhere the debrief is collected via terminal Read-Host
+    # with a console posting indicator, and only an interrupted session is asked
+    # whether to start another.
+    #
+    # UTF-8 encoding is applied so emoji glyphs render in terminals that
+    # default to a non-UTF-8 codepage; restored on exit (including Ctrl-C).
     [CmdletBinding()]
     param(
         [ValidateRange(1, [int]::MaxValue)] [int] $Minutes = $script:TimerDefaultMinutes,
@@ -429,63 +1065,90 @@ function Start-TimerSession {
             Write-Host "Starting $Minutes-minute session on item $($pickedItem.Id): $($pickedItem.Title)" -ForegroundColor Green
             Start-Sleep -Seconds 2
 
-            $seconds = $Minutes * 60
+            $seconds         = $Minutes * 60
             $countdownResult = Show-TimerCountdown -Seconds $seconds
 
-            Clear-Host
-            $finishIcon = $script:TimerIconFinish
-            Write-Host "$finishIcon SESSION COMPLETE! $finishIcon" -ForegroundColor Green
+            $onWindows = Test-WpfIsWindows
 
-            $memoIcon = $script:TimerIconMemo
-            $rocketIcon = $script:TimerIconRocket
-            $debrief = Read-Host "$memoIcon Enter your debrief notes"
-            $next    = Read-Host "$rocketIcon What's next"
+            if ($onWindows) {
 
-            $body = Format-TimerCommentBody `
-                -Interrupted    $countdownResult.Interrupted `
-                -ElapsedSeconds $countdownResult.ElapsedSeconds `
-                -TotalSeconds   $countdownResult.TotalSeconds `
-                -Debrief        $debrief `
-                -Next           $next
+                $submitAction = {
+                    param(
+                        [string] $DebriefText,
+                        [string] $NextText
+                    )
 
-            Write-Host ""
-            Write-Host "Posting debrief comment to item $($pickedItem.Id)..." -ForegroundColor Cyan
-            $commentResult = & $chosen.AddComment -Id $pickedItem.Id -Body $body
+                    $composed = Format-TimerCommentBody `
+                        -Interrupted    $countdownResult.Interrupted `
+                        -ElapsedSeconds $countdownResult.ElapsedSeconds `
+                        -TotalSeconds   $countdownResult.TotalSeconds `
+                        -Debrief        $DebriefText `
+                        -Next           $NextText
 
-            $exitCode = if ($commentResult -and $commentResult.PSObject.Properties['ExitCode']) {
-                $commentResult.ExitCode
-            } else {
-                0
-            }
+                    $posted = & $chosen.AddComment -Id $pickedItem.Id -Body $composed
+                    return $posted
+                }.GetNewClosure()
 
-            $checkIcon = $script:TimerIconCheck
-            $warnIcon  = $script:TimerIconWarn
+                $debriefResult = Show-WpfTimerDebrief -Interrupted $countdownResult.Interrupted -SubmitAction $submitAction
 
-            if ($exitCode -eq 0) {
-                Write-Host "$checkIcon Comment posted on item $($pickedItem.Id)." -ForegroundColor Green
-                if ($chosen.ViewHint) {
-                    $hint = & $chosen.ViewHint -Id $pickedItem.Id
-                    if ($hint) {
-                        Write-Host "   $hint" -ForegroundColor DarkGray
-                    }
+                if (-not $debriefResult.PostResult) {
+                    $waveIcon = $script:TimerIconWave
+                    Write-Host "No debrief posted - goodbye $waveIcon" -ForegroundColor DarkGray
+                    return
                 }
-            } else {
-                Write-Host "$warnIcon Comment post failed (exit=$exitCode)." -ForegroundColor Red
-                if ($commentResult -and $commentResult.Error) {
-                    Write-Host "   $($commentResult.Error)" -ForegroundColor Red
-                }
-            }
 
-            if ($countdownResult.Interrupted) {
-                $startAnother = Read-TimerYesNo -Prompt 'Start a new session?' -DefaultYes
-                if ($startAnother) {
+                Write-TimerPostVerdict -Result $debriefResult.PostResult -Item $pickedItem -Integration $chosen
+
+                if ($debriefResult.StartAnother) {
                     $shouldRestart = $true
-                    $Integration = $null
+                    $Integration   = $null
                 } else {
                     $waveIcon = $script:TimerIconWave
                     Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
                 }
+
+            } else {
+
+                Clear-Host
+                $finishIcon = $script:TimerIconFinish
+                Write-Host "$finishIcon SESSION COMPLETE! $finishIcon" -ForegroundColor Green
+                Write-Host ""
+
+                $iconMemo = $script:TimerIconMemo
+                $debrief  = Read-Host "$iconMemo Debrief — what did you accomplish?"
+                $next     = Read-Host "$iconMemo Next — what's the next step?"
+
+                $body = Format-TimerCommentBody `
+                    -Interrupted    $countdownResult.Interrupted `
+                    -ElapsedSeconds $countdownResult.ElapsedSeconds `
+                    -TotalSeconds   $countdownResult.TotalSeconds `
+                    -Debrief        $debrief `
+                    -Next           $next
+
+                Write-Host ""
+                $postScript = {
+                    $posted = & $chosen.AddComment -Id $pickedItem.Id -Body $body
+                    return $posted
+                }.GetNewClosure()
+
+                $commentResult = Invoke-WithSpinner `
+                    -Message "Posting debrief to item $($pickedItem.Id)" `
+                    -ScriptBlock $postScript
+
+                Write-TimerPostVerdict -Result $commentResult -Item $pickedItem -Integration $chosen
+
+                if ($countdownResult.Interrupted) {
+                    $startAnother = Read-TimerYesNo -Prompt 'Start a new session?' -DefaultYes
+                    if ($startAnother) {
+                        $shouldRestart = $true
+                        $Integration   = $null
+                    } else {
+                        $waveIcon = $script:TimerIconWave
+                        Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
+                    }
+                }
             }
+
         } while ($shouldRestart)
     }
     finally {
@@ -504,7 +1167,7 @@ function Start-TimerSession {
 # debrief through the Add-AzDevOpsDiscussionComment wrapper in azdevops_db.ps1.
 # ---------------------------------------------------------------------------
 
-Register-TimerIntegration `
+az-Register-TimerIntegration `
     -Name        'Azure DevOps - User Stories' `
     -Description 'Pick from cached AzDO assigned work items, sorted by State + Priority' `
     -FetchItems  {

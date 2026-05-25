@@ -135,11 +135,52 @@ function ConvertFrom-AzDevOpsAssignedItem {
 }
 
 
+# In-session parse memo for cache files, keyed by absolute path + the file's
+# last-write-time. Repeated reads of an unchanged file in one session skip the
+# Get-Content + ConvertFrom-Json + per-row conversion (the cost felt when, say,
+# creating several stories back-to-back re-parses hierarchy.json each time).
+# Keying on mtime means the detached background sync - which rewrites cache
+# files from a SEPARATE process - auto-invalidates the memo with no explicit
+# clear, and keying on the (per-project) path means switching projects can't
+# serve another project's rows. Failed parses are not memoized.
+$script:AzDevOpsParseMemo = @{}
+
+
+function Get-AzDevOpsMemoizedParse {
+    # Private. Returns the memoized parse of $Path while the file is unchanged
+    # since the last read (by LastWriteTimeUtc); otherwise runs $Parse, stores a
+    # non-null result keyed by path + mtime, and returns it. $Parse takes no args
+    # and must read $Path itself and return the finished object/array. Callers
+    # must confirm $Path exists before calling.
+    param(
+        [Parameter(Mandatory)] [string]      $Path,
+        [Parameter(Mandatory)] [scriptblock] $Parse
+    )
+
+    $mtime = (Get-Item -LiteralPath $Path).LastWriteTimeUtc
+
+    $entry = $script:AzDevOpsParseMemo[$Path]
+    if ($null -ne $entry -and $entry.Mtime -eq $mtime) {
+        $cached = $entry.Value
+        return $cached
+    }
+
+    $value = & $Parse
+
+    if ($null -ne $value) {
+        $script:AzDevOpsParseMemo[$Path] = @{ Mtime = $mtime; Value = $value }
+    }
+
+    return $value
+}
+
+
 function Read-AzDevOpsJsonCache {
     # Shared shape for every cache reader: missing-cache hint, ConvertFrom-Json
     # with try/catch, then map each row through a per-dataset converter. Each
     # caller supplies its own $Path, a short $Description for the hint line,
     # and a scriptblock that turns one parsed row into a typed PSCustomObject.
+    # The parse is memoized per path+mtime so repeat reads in a session are free.
     param(
         [Parameter(Mandatory)] [string]      $Path,
         [Parameter(Mandatory)] [string]      $Description,
@@ -148,31 +189,45 @@ function Read-AzDevOpsJsonCache {
 
     if (-not (Test-Path -LiteralPath $Path)) {
         Write-Host "No $Description cache at $Path." -ForegroundColor Yellow
-        Write-Host "  Run: az-Sync-AzDevOpsCache              # one-shot refresh" -ForegroundColor Yellow
-        Write-Host "  Run: az-Register-AzDevOpsSyncSchedule   # recurring refresh (~5h)" -ForegroundColor Yellow
+        Write-Host "  Run: az-Sync-AzDevOpsCache   # one-shot refresh (also runs silently on shell open when stale)" -ForegroundColor Yellow
         return $null
     }
 
-    try {
-        $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    }
-    catch {
-        Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
-        return $null
-    }
+    $items = Get-AzDevOpsMemoizedParse -Path $Path -Parse {
+        try {
+            $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        }
+        catch {
+            Write-Host "Could not parse ${Path}: $_" -ForegroundColor Red
+            return $null
+        }
 
-    # When the cached JSON is an empty array [], ConvertFrom-Json's
-    # array output unwraps through the pipeline to zero items and $raw
-    # lands as $null. Without this guard, $null | ForEach-Object would
-    # still invoke the converter once with $_ = $null and trip the
-    # converter's [Parameter(Mandatory)] guard with a confusing
-    # "Cannot bind argument to parameter 'Raw' because it is null"
-    # error - surface a clean empty cache instead.
-    if ($null -eq $raw) {
+        # When the cached JSON is an empty array [], ConvertFrom-Json's
+        # array output unwraps through the pipeline to zero items and $raw
+        # lands as $null. Without this guard, $null | ForEach-Object would
+        # still invoke the converter once with $_ = $null and trip the
+        # converter's [Parameter(Mandatory)] guard with a confusing
+        # "Cannot bind argument to parameter 'Raw' because it is null"
+        # error - surface a clean empty cache instead.
+        if ($null -eq $raw) {
+            return @()
+        }
+
+        $parsed = @($raw | ForEach-Object { & $Converter $_ })
+        return $parsed
+    }.GetNewClosure()
+
+    # The cache file exists (missing returned $null above), so a $null here
+    # means a present-but-empty cache: the parse closure's empty array
+    # collapses to $null crossing the & invocation boundary in
+    # Get-AzDevOpsMemoizedParse. Normalize to @() so callers can distinguish
+    # "no cache yet" ($null) from "cache synced but zero rows" (@()) - the
+    # latter drives the empty-state hints in the tree/find views and the
+    # parent picker.
+    if ($null -eq $items) {
         return @()
     }
 
-    $items = @($raw | ForEach-Object { & $Converter $_ })
     return $items
 }
 
@@ -306,13 +361,12 @@ function Find-AzDevOpsCachedWorkItem {
 }
 
 
-function Get-AzDevOpsWorkItemUrlPrefix {
-    # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
-    # az devops defaults are configured; returns '' when either is missing.
-    # Designed for callers that build URLs for many ids in a loop (e.g.
-    # Out-ConsoleGridView row projections in Get-AzDevOpsTreeRows) so the prefix
-    # is computed once instead of per row, and so per-row use does not pollute
-    # $LASTEXITCODE.
+function Get-AzDevOpsUrlBase {
+    # "$org/$projectEnc" from the configured az devops defaults, or '' when org
+    # or project is unset. Shared base for every project-scoped URL builder
+    # (work-item edit prefix, Boards hub) so the org-trim + project-encode lives
+    # in one place. Stays quiet (no $LASTEXITCODE / Write-Host) so per-row
+    # callers can branch on '' without side effects.
     $defaults = Get-AzDevOpsConfiguredDefaults
     if (-not $defaults.Org -or -not $defaults.Project) {
         return ''
@@ -320,7 +374,24 @@ function Get-AzDevOpsWorkItemUrlPrefix {
 
     $org        = $defaults.Org.TrimEnd('/')
     $projectEnc = [uri]::EscapeDataString($defaults.Project)
-    $prefix     = "$org/$projectEnc/_workitems/edit/"
+    $base       = "$org/$projectEnc"
+    return $base
+}
+
+
+function Get-AzDevOpsWorkItemUrlPrefix {
+    # Quiet URL-prefix builder. Returns "$org/$projectEnc/_workitems/edit/" when
+    # az devops defaults are configured; returns '' when either is missing.
+    # Designed for callers that build URLs for many ids in a loop (e.g.
+    # Out-ConsoleGridView row projections in Get-AzDevOpsTreeRows) so the prefix
+    # is computed once instead of per row, and so per-row use does not pollute
+    # $LASTEXITCODE.
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
+        return ''
+    }
+
+    $prefix = "$base/_workitems/edit/"
     return $prefix
 }
 
@@ -339,6 +410,20 @@ function Get-AzDevOpsWorkItemUrl {
     }
 
     $url = "$prefix$Id"
+    return $url
+}
+
+
+function Get-AzDevOpsBoardsUrl {
+    # Best-effort link to the project's Boards hub. Used by empty-state hints
+    # and the classification (Areas / Iterations) open-in-browser action, whose
+    # rows carry no work-item id. Returns '' when az devops defaults are unset.
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
+        return ''
+    }
+
+    $url = "$base/_boards/board"
     return $url
 }
 
@@ -557,9 +642,9 @@ function az-Open-AzDevOpsMention {
 # Hierarchy tree view
 #
 # Public functions:
-#   az-Show-AzDevOpsTree   - prints the project's Epic/Feature/requirement-tier
+#   az-Show-Tree   - prints the project's Epic/Feature/requirement-tier
 #                          tree from the cached hierarchy.json (no `az` calls)
-#   az-Show-AzDevOpsBoard  - cached items grouped by State (board-style view);
+#   az-Show-Board  - cached items grouped by State (board-style view);
 #                          relies on Out-ConsoleGridView's column group-by.
 #                          Defined further down in its own section.
 #
@@ -798,7 +883,172 @@ function Get-AzDevOpsTreeRows {
 }
 
 
-function az-Show-AzDevOpsTree {
+# ---------------------------------------------------------------------------
+# Post-selection actions
+#
+# Every interactive az-Show-* work-item view (Tree / Board / Features) pipes
+# its grid selection through Invoke-AzDevOpsRowAction. For each selected row
+# the user is prompted to open it in the browser or create the
+# hierarchically-appropriate child (Epic -> Feature -> requirement-tier ->
+# Task), with the selected row pre-filled as the new item's parent.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsChildTypeFor {
+    # Maps a selected parent row's work-item type to the child type its
+    # "create child" action produces, following the Epic -> Feature ->
+    # requirement-tier -> Task hierarchy. Returns $null for types with no
+    # defined child (Tasks, classification nodes, unknown types) so the caller
+    # offers open-only.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $childOfEpic    = 'Feature'
+    $childOfFeature = 'User Story'
+    $childOfStory   = 'Task'
+
+    if ($Type -eq 'Epic') {
+        return $childOfEpic
+    }
+
+    if ($Type -eq 'Feature') {
+        return $childOfFeature
+    }
+
+    if ($Type -in $script:AzDevOpsRequirementTypes) {
+        return $childOfStory
+    }
+
+    return $null
+}
+
+
+function New-AzDevOpsChildForRow {
+    # Dispatches the "create child" action to the matching az-New-* creator
+    # with the parent pre-filled so the creator skips its own parent picker.
+    param(
+        [Parameter(Mandatory)] [string] $ParentType,
+        [Parameter(Mandatory)] [int]    $ParentId
+    )
+
+    if ($ParentType -eq 'Epic') {
+        $newId = az-New-AzDevOpsFeature -ParentEpicId $ParentId
+        return $newId
+    }
+
+    if ($ParentType -eq 'Feature') {
+        $newId = az-New-AzDevOpsUserStory -FeatureId $ParentId
+        return $newId
+    }
+
+    if ($ParentType -in $script:AzDevOpsRequirementTypes) {
+        $newId = az-New-Task -ParentStoryId $ParentId
+        return $newId
+    }
+
+    Write-Host "No child work-item type defined for '$ParentType'." -ForegroundColor Yellow
+    return $null
+}
+
+
+function Resolve-AzDevOpsRowType {
+    # Pulls the work-item type off a selected row, falling back to -DefaultType
+    # for views whose rows omit a Type column (az-Show-Features rows are all
+    # Features, so the view passes -DefaultType 'Feature').
+    param(
+        [Parameter(Mandatory)] $Row,
+        [string] $DefaultType
+    )
+
+    if ($Row.PSObject.Properties.Match('Type').Count -gt 0 -and $Row.Type) {
+        return [string]$Row.Type
+    }
+
+    return $DefaultType
+}
+
+
+function Read-AzDevOpsRowActionChoice {
+    # Single-row post-selection prompt. Offers open-in-browser, create-child
+    # (only when $ChildType is set), or skip. Returns 'open' / 'create' / 'skip'.
+    param(
+        [Parameter(Mandatory)] [string] $Label,
+        [string] $ChildType
+    )
+
+    Write-Host ""
+    Write-Host "Selected: $Label" -ForegroundColor Cyan
+
+    $prompt = if ($ChildType) {
+        "  [O]pen in browser / [C]reate child $ChildType / [Enter]=skip"
+    } else {
+        "  [O]pen in browser / [Enter]=skip"
+    }
+
+    $resp = Read-Host $prompt
+
+    if ($resp -match '^(o|open)$') {
+        return 'open'
+    }
+
+    if ($ChildType -and $resp -match '^(c|create)$') {
+        return 'create'
+    }
+
+    return 'skip'
+}
+
+
+function Invoke-AzDevOpsRowAction {
+    # Post-selection dispatcher shared by the interactive az-Show-* work-item
+    # views. For each selected row, prompts the user to open it in the browser
+    # or create its hierarchical child. Rows without a usable work-item id are
+    # skipped with a hint. -DefaultType supplies the type for views whose rows
+    # omit a Type column.
+    param(
+        $Selected,
+        [string] $DefaultType
+    )
+
+    if ($null -eq $Selected) {
+        return
+    }
+
+    foreach ($row in @($Selected)) {
+        $hasId = $row.PSObject.Properties.Match('Id').Count -gt 0 -and [int]$row.Id -gt 0
+        if (-not $hasId) {
+            Write-Host "(selected row has no work-item id - nothing to open)" -ForegroundColor Yellow
+            continue
+        }
+
+        $id   = [int]$row.Id
+        $type = Resolve-AzDevOpsRowType -Row $row -DefaultType $DefaultType
+
+        $childType = if ($type) {
+            Get-AzDevOpsChildTypeFor -Type $type
+        } else {
+            $null
+        }
+
+        $titlePreview = Format-AzDevOpsTruncatedTitle -Title $row.Title
+        $typeLabel = if ($type) {
+            $type
+        } else {
+            'item'
+        }
+        $label = "$typeLabel $id - $titlePreview"
+
+        $choice = Read-AzDevOpsRowActionChoice -Label $label -ChildType $childType
+
+        if ($choice -eq 'open') {
+            Open-AzDevOpsWorkItemUrl -Id $id
+        }
+        elseif ($choice -eq 'create') {
+            New-AzDevOpsChildForRow -ParentType $type -ParentId $id | Out-Null
+        }
+    }
+}
+
+
+function az-Show-Tree {
     [CmdletBinding()]
     param()
 
@@ -830,7 +1080,8 @@ function az-Show-AzDevOpsTree {
 
     if (Test-AzDevOpsGridAvailable) {
         $rows = Get-AzDevOpsTreeRows -Items $items -ByParent $byParent
-        Show-AzDevOpsRows -Rows $rows -Title "Azure DevOps hierarchy - $(@($rows).Count) items"
+        $selected = Show-AzDevOpsRows -Rows $rows -Title "Azure DevOps hierarchy - $(@($rows).Count) items" -PassThru
+        Invoke-AzDevOpsRowAction -Selected $selected
         return
     }
 
@@ -862,19 +1113,19 @@ function az-Show-AzDevOpsTree {
 # Board view (group cached items by State)
 #
 # Public function:
-#   az-Show-AzDevOpsBoard  - column-grouped board-style view of the cached
+#   az-Show-Board  - column-grouped board-style view of the cached
 #                            hierarchy. Pipes through Show-AzDevOpsRows -PassThru
 #                            so Out-ConsoleGridView's built-in group-by-State
 #                            handles the kanban affordance interactively.
 #
 # Reuses the same $HOME/.bashcuts-az-devops-app/cache/hierarchy.json that
-# az-Show-AzDevOpsTree consumes; never calls `az` directly. Default -Type list
+# az-Show-Tree consumes; never calls `az` directly. Default -Type list
 # matches what the hierarchy WIQL pulls (Epic / Feature / requirement-tier).
 # Default -State filter excludes closed states via Select-AzDevOpsActiveItems;
 # pass -State Closed,Resolved to flip to the archive view.
 # ---------------------------------------------------------------------------
 
-function az-Show-AzDevOpsBoard {
+function az-Show-Board {
     [CmdletBinding()]
     param(
         [string[]] $Type = @('Epic', 'Feature', 'User Story'),
@@ -894,7 +1145,7 @@ function az-Show-AzDevOpsBoard {
     $title = "Board - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
-    return $selected
+    Invoke-AzDevOpsRowAction -Selected $selected
 }
 
 
@@ -902,7 +1153,7 @@ function az-Show-AzDevOpsBoard {
 # Multi-project features view
 #
 # Public function:
-#   az-Show-AzDevOpsFeatures - flat grid of Features across every registered
+#   az-Show-Features - flat grid of Features across every registered
 #                              project in $global:AzDevOpsProjectMap, tagged
 #                              with a Project column so the user can scan or
 #                              group-by-Project in Out-ConsoleGridView. Pass
@@ -915,7 +1166,7 @@ function az-Show-AzDevOpsBoard {
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsFeaturesProjectNames {
-    # Resolves which projects az-Show-AzDevOpsFeatures should enumerate.
+    # Resolves which projects az-Show-Features should enumerate.
     # -Project narrows to a single board; otherwise the full project map
     # wins; otherwise the active project's cache; otherwise $null to fall
     # through to the legacy unsegmented cache (single-project users).
@@ -923,11 +1174,6 @@ function Get-AzDevOpsFeaturesProjectNames {
 
     if ($Project) {
         return @($Project)
-    }
-
-    if (Test-AzDevOpsProjectMapDefined) {
-        $names = @($global:AzDevOpsProjectMap.Keys | Sort-Object)
-        return $names
     }
 
     $active = Get-AzDevOpsActiveProjectName
@@ -939,7 +1185,67 @@ function Get-AzDevOpsFeaturesProjectNames {
 }
 
 
-function az-Show-AzDevOpsFeatures {
+function Read-AzDevOpsFeaturesSource {
+    # Resolves the hierarchy items for one features-view project name. Named
+    # projects read their per-slug cache; the active project (and the legacy
+    # unsegmented layout, $Name = $null) fall back to Read-AzDevOpsHierarchyCache
+    # so users who sync into the legacy path still see Features instead of an
+    # empty grid. Returns $null when nothing is cached for the name.
+    param([string] $Name)
+
+    if (-not $Name) {
+        $legacy = Read-AzDevOpsHierarchyCache
+        return $legacy
+    }
+
+    $items = Read-AzDevOpsHierarchyCacheForProject -ProjectName $Name -Quiet
+    if ($null -ne $items) {
+        return $items
+    }
+
+    $active = Get-AzDevOpsActiveProjectName
+    if ($active -and $Name -eq $active) {
+        $legacy = Read-AzDevOpsHierarchyCache
+        return $legacy
+    }
+
+    return $null
+}
+
+
+function Write-AzDevOpsNoFeaturesHint {
+    # Empty-state message for az-Show-Features: names the projects + area path
+    # scanned and offers a Boards URL to verify in the browser, so an empty
+    # result is actionable rather than silent.
+    param([string[]] $Names)
+
+    $named = @($Names | Where-Object { $_ })
+    $projectLabel = if ($named.Count -gt 0) {
+        $named -join ', '
+    } else {
+        '(active project)'
+    }
+
+    $areaLabel = if ($env:AZ_AREA) {
+        $env:AZ_AREA
+    } else {
+        '(no area filter)'
+    }
+
+    Write-Host ""
+    Write-Host "No Features found." -ForegroundColor Yellow
+    Write-Host "  Projects checked : $projectLabel" -ForegroundColor Yellow
+    Write-Host "  Area path        : $areaLabel" -ForegroundColor Yellow
+    Write-Host "  Tip: run az-Sync-AzDevOpsCache to refresh the hierarchy cache." -ForegroundColor Yellow
+
+    $boardsUrl = Get-AzDevOpsBoardsUrl
+    if ($boardsUrl) {
+        Write-Host "  Check in browser : $boardsUrl" -ForegroundColor Yellow
+    }
+}
+
+
+function az-Show-Features {
     [CmdletBinding()]
     param(
         [string]   $Project,
@@ -955,11 +1261,7 @@ function az-Show-AzDevOpsFeatures {
     $missing = New-Object System.Collections.Generic.List[string]
 
     $rows = foreach ($name in $names) {
-        $items = if ($name) {
-            Read-AzDevOpsHierarchyCacheForProject -ProjectName $name -Quiet
-        } else {
-            Read-AzDevOpsHierarchyCache
-        }
+        $items = Read-AzDevOpsFeaturesSource -Name $name
 
         if ($null -eq $items) {
             if ($name) {
@@ -993,8 +1295,13 @@ function az-Show-AzDevOpsFeatures {
         Write-Host "  Run az-Use-AzDevOpsProject <name> then az-Sync-AzDevOpsCache to populate." -ForegroundColor Yellow
     }
 
+    if ($rows.Count -eq 0) {
+        Write-AzDevOpsNoFeaturesHint -Names $names
+        return
+    }
+
     $title = "Features - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
-    return $selected
+    Invoke-AzDevOpsRowAction -Selected $selected -DefaultType $featureType
 }
