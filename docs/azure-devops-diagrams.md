@@ -747,6 +747,9 @@ graph LR
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
     ConvNative[ConvertTo-AzDevOpsNativeArgList]:::priv
 
+    %% Cross-cutting console spinner (pow_common.ps1)
+    Spinner[Invoke-WithSpinner]:::priv
+
     %% Platform + on-open background-sync helpers
     Plat[Get-AzDevOpsPlatform]:::priv
     AutoChild[Get-AzDevOpsAutoSyncChildVar]:::priv
@@ -939,7 +942,7 @@ graph LR
     AzJson --> CmdHead
     AzJson --> EchoLn
     AzJson --> ConvNative
-    AzJson --> Az
+    AzJson --> Spinner --> Az
     InvokeDS --> Stderr1
     InvokeDS --> DStatus
     InvokeDS --> StderrW --> LogFn
