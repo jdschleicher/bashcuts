@@ -186,6 +186,8 @@ function Invoke-AzDevOpsAzJson {
     # Windows PowerShell 5.1 (already Legacy), where this is a harmless local.
     $PSNativeCommandArgumentPassing = 'Legacy'
 
+    $headline = Get-AzDevOpsCommandHeadline -ArgList $ArgList
+
     $stderrFile = [System.IO.Path]::GetTempFileName()
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
@@ -196,13 +198,12 @@ function Invoke-AzDevOpsAzJson {
         # Invoke-WithSpinner's own scope; $LASTEXITCODE is the global az sets,
         # so it's still readable after the spinner stops (no native command
         # runs between the call and the read).
-        $spinnerMessage = Get-AzDevOpsCommandHeadline -ArgList $ArgList
         $azCall = {
             $output = & az @invokeArgs --output json 2>$stderrFile
             return $output
         }.GetNewClosure()
 
-        $json = Invoke-WithSpinner -ScriptBlock $azCall -Message $spinnerMessage
+        $json = Invoke-WithSpinner -ScriptBlock $azCall -Message $headline
         $exit = $LASTEXITCODE
 
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
@@ -215,8 +216,7 @@ function Invoke-AzDevOpsAzJson {
     }
     $sw.Stop()
 
-    $elapsed  = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
-    $headline = Get-AzDevOpsCommandHeadline -ArgList $ArgList
+    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
 
     $summary      = "$headline ($elapsed, exit=$exit)"
     $summaryColor = if ($exit -eq 0) {

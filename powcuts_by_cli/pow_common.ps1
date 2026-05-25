@@ -271,26 +271,44 @@ function Start-CommonConsoleSpinner {
         Active = $true
     })
 
-    $runspace = [runspacefactory]::CreateRunspace()
-    $runspace.Open()
-    $runspace.SessionStateProxy.SetVariable('State', $state)
-    $runspace.SessionStateProxy.SetVariable('Frames', $frames)
-    $runspace.SessionStateProxy.SetVariable('Message', $Message)
-    $runspace.SessionStateProxy.SetVariable('IntervalMs', $intervalMs)
+    $runspace = $null
+    $worker   = $null
 
-    $worker = [powershell]::Create()
-    $worker.Runspace = $runspace
-    $worker.AddScript({
-        $index = 0
-        while ($State.Active) {
-            $frame = $Frames[$index % $Frames.Count]
-            [Console]::Write("`r$frame $Message...")
-            $index++
-            Start-Sleep -Milliseconds $IntervalMs
+    try {
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.Open()
+        $runspace.SessionStateProxy.SetVariable('State', $state)
+        $runspace.SessionStateProxy.SetVariable('Frames', $frames)
+        $runspace.SessionStateProxy.SetVariable('Message', $Message)
+        $runspace.SessionStateProxy.SetVariable('IntervalMs', $intervalMs)
+
+        $worker = [powershell]::Create()
+        $worker.Runspace = $runspace
+        $worker.AddScript({
+            $index = 0
+            while ($State.Active) {
+                $frame = $Frames[$index % $Frames.Count]
+                [Console]::Write("`r$frame $Message...")
+                $index++
+                Start-Sleep -Milliseconds $IntervalMs
+            }
+        }) | Out-Null
+
+        $handle = $worker.BeginInvoke()
+    } catch {
+        # A spinner that fails to start must never break the wrapped call. Tear
+        # down whatever was created and return $null so the caller runs the work
+        # without a spinner (Stop-CommonConsoleSpinner treats $null as a no-op).
+        if ($null -ne $worker) {
+            $worker.Dispose()
         }
-    }) | Out-Null
 
-    $handle = $worker.BeginInvoke()
+        if ($null -ne $runspace) {
+            $runspace.Dispose()
+        }
+
+        return $null
+    }
 
     $result = [PSCustomObject]@{
         State    = $state
@@ -306,13 +324,27 @@ function Start-CommonConsoleSpinner {
 function Stop-CommonConsoleSpinner {
     # Private helper - signals the spinner runspace to stop, waits for the
     # in-flight frame to finish drawing, disposes the runspace, then blanks the
-    # spinner line so no glyph survives into whatever prints next. Width is the
+    # spinner line so no glyph survives into whatever prints next. A $null
+    # spinner (Start- failed to launch one) is a no-op. The whole teardown is
+    # best-effort: it runs from Invoke-WithSpinner's finally, so a worker that
+    # threw on an invalid console handle must not let EndInvoke resurface that
+    # exception and mask the wrapped call's real result. Width is the
     # spinner-line length captured at start, padded so the longest frame is
     # fully overwritten.
-    param([Parameter(Mandatory)] $Spinner)
+    param($Spinner)
+
+    if ($null -eq $Spinner) {
+        return
+    }
 
     $Spinner.State.Active = $false
-    $Spinner.Worker.EndInvoke($Spinner.Handle)
+
+    try {
+        $Spinner.Worker.EndInvoke($Spinner.Handle)
+    } catch {
+        # Cosmetic draw failure - swallow so it never masks the az outcome.
+    }
+
     $Spinner.Worker.Dispose()
     $Spinner.Runspace.Close()
     $Spinner.Runspace.Dispose()
@@ -343,9 +375,10 @@ function Invoke-WithSpinner {
         return $result
     }
 
-    $spinner = Start-CommonConsoleSpinner -Message $Message
+    $spinner = $null
     try {
-        $result = & $ScriptBlock
+        $spinner = Start-CommonConsoleSpinner -Message $Message
+        $result  = & $ScriptBlock
     } finally {
         Stop-CommonConsoleSpinner -Spinner $spinner
     }
