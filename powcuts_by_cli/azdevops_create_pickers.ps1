@@ -188,6 +188,23 @@ function Read-AzDevOpsParentPick {
 
     $closedStates = Get-AzDevOpsClosedStates
 
+    $orphanLabel = "(no parent - orphan $ChildLabel)"
+
+    # Distinguish "cache is entirely empty" from "cache is populated but
+    # no matching ${ParentType}s" - the former almost always means the
+    # WIQL queries returned 0 rows (wrong AZ_AREA, custom process
+    # template, edited WIQL) and the user needs an actionable hint
+    # rather than a silent orphan path.
+    $hierarchyCount = @($Hierarchy).Count
+    if ($hierarchyCount -eq 0) {
+        Write-Host "hierarchy.json is empty (0 rows total) - the WIQL queries returned no work items." -ForegroundColor Yellow
+        Write-Host "  Check `$env:AZ_AREA = '$env:AZ_AREA'" -ForegroundColor Yellow
+        Write-Host "  Edit WIQLs:    az-Open-AzDevOpsHierarchyWiqls" -ForegroundColor Yellow
+        Write-Host "  Re-sync cache: az-Sync-AzDevOpsCache" -ForegroundColor Yellow
+        Write-Host "  $ChildLabel will be created as an orphan." -ForegroundColor Yellow
+        return 0
+    }
+
     # 'User Story' parents (Task creation) match every requirement-tier type so
     # Scrum / CMMI / Basic projects still surface their leaf items; Epic and
     # Feature stay exact-match.
@@ -200,8 +217,6 @@ function Read-AzDevOpsParentPick {
             Where-Object { $_.Type -eq $ParentType -and $_.State -notin $closedStates } |
             Sort-Object Id)
     }
-
-    $orphanLabel = "(no parent - orphan $ChildLabel)"
 
     if ($candidates.Count -eq 0) {
         Write-Host "(no active ${ParentType}s in hierarchy.json - $ChildLabel will be orphaned)" -ForegroundColor Yellow

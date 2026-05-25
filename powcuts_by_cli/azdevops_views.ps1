@@ -202,9 +202,31 @@ function Read-AzDevOpsJsonCache {
             return $null
         }
 
+        # When the cached JSON is an empty array [], ConvertFrom-Json's
+        # array output unwraps through the pipeline to zero items and $raw
+        # lands as $null. Without this guard, $null | ForEach-Object would
+        # still invoke the converter once with $_ = $null and trip the
+        # converter's [Parameter(Mandatory)] guard with a confusing
+        # "Cannot bind argument to parameter 'Raw' because it is null"
+        # error - surface a clean empty cache instead.
+        if ($null -eq $raw) {
+            return @()
+        }
+
         $parsed = @($raw | ForEach-Object { & $Converter $_ })
         return $parsed
     }.GetNewClosure()
+
+    # The cache file exists (missing returned $null above), so a $null here
+    # means a present-but-empty cache: the parse closure's empty array
+    # collapses to $null crossing the & invocation boundary in
+    # Get-AzDevOpsMemoizedParse. Normalize to @() so callers can distinguish
+    # "no cache yet" ($null) from "cache synced but zero rows" (@()) - the
+    # latter drives the empty-state hints in the tree/find views and the
+    # parent picker.
+    if ($null -eq $items) {
+        return @()
+    }
 
     return $items
 }
