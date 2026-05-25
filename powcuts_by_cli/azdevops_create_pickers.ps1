@@ -106,8 +106,9 @@ function Read-AzDevOpsAcceptanceCriteria {
 function Read-AzDevOpsUserStoryDescription {
     # Builds the User Story description from the canonical three-clause
     # template. Each clause is required - re-prompts until a non-empty value
-    # is entered - then joins them single-spaced into one prose sentence:
-    # "As a <persona> I want <outcome> so that <benefit>".
+    # is entered - then joins them with HTML line breaks so each clause
+    # renders on its own line in the AzDO Description field (which stores
+    # HTML): "As a <persona>" / "I want <outcome>" / "so that <benefit>".
     $persona = ''
     while (-not $persona) {
         $persona = (Read-Host 'As a ...').Trim()
@@ -123,7 +124,15 @@ function Read-AzDevOpsUserStoryDescription {
         $benefit = (Read-Host 'so that ...').Trim()
     }
 
-    $description = "As a $persona I want $outcome so that $benefit"
+    $clauseBreak = '<br/><br/>'
+
+    $clauses = @(
+        "As a $persona"
+        "I want $outcome"
+        "so that $benefit"
+    )
+
+    $description = $clauses -join $clauseBreak
 
     return $description
 }
