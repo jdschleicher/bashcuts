@@ -553,28 +553,25 @@ function Show-WpfTimerCountdown {
         })
 
         $btnPlus5.Add_Click({
-            if (-not $clockTick.IsEnabled) {
-                $Script:WpfTotalSeconds  += 300
-                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
-                & $updateUi
-            }
+            $Script:WpfTotalSeconds   += 300
+            $Script:WpfTimeRemaining  += 300
+            & $updateUi
         })
 
         $btnPlus10.Add_Click({
-            if (-not $clockTick.IsEnabled) {
-                $Script:WpfTotalSeconds  += 600
-                $Script:WpfTimeRemaining  = $Script:WpfTotalSeconds
-                & $updateUi
-            }
+            $Script:WpfTotalSeconds   += 600
+            $Script:WpfTimeRemaining  += 600
+            & $updateUi
         })
 
         $btnNewPomo.Add_Click({
-            $clockTick.Stop()
             $flashTick.Stop()
             $mainCircle.Fill         = $brushes.Bg
             $Script:WpfTotalSeconds  = [double]$defaultSeconds
             $Script:WpfTimeRemaining = $Script:WpfTotalSeconds
             & $updateUi
+
+            $clockTick.Start()
         })
 
         $btnCapture.Add_Click({
@@ -605,6 +602,7 @@ function Show-WpfTimerCountdown {
         # ---- Show ----
 
         & $updateUi
+        $clockTick.Start()
         $mainWin.ShowDialog() | Out-Null
 
         if ($Script:WpfOutcome -eq 'CaptureStory') {
