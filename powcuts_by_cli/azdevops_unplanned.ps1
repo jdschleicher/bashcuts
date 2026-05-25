@@ -550,7 +550,7 @@ function Invoke-UnplannedDebrief {
 function Show-WpfStopwatch {
     # WPF circular overlay stopwatch for Windows unplanned-work sessions.
     # Arc fills as time passes (amber colour distinguishes it from the Pomodoro
-    # blue). "Log Item" opens an input dialog; "Capture Story" hides the overlay,
+    # blue). "Log Item" opens an input dialog; "Create New Story" hides the overlay,
     # runs az-New-AzDevOpsUserStory in the terminal, then resumes. "Stop" /
     # right-click closes and returns the list of captured items.
     param(
@@ -631,7 +631,7 @@ function Show-WpfStopwatch {
         Margin     = 2
     }
     $btnCapture = New-Object System.Windows.Controls.Button -Property @{
-        Content    = 'Capture Story'
+        Content    = 'Create New Story'
         Width      = 88
         Height     = 22
         Background = $brushes.Button

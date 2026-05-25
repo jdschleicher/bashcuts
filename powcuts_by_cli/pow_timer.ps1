@@ -440,7 +440,7 @@ function Show-WpfTimerCountdown {
             Margin              = '0,0,0,5'
         }
         $btnCapture = New-Object System.Windows.Controls.Button -Property @{
-            Content    = 'Capture Story'
+            Content    = 'Create New Story'
             Width      = 92
             Height     = 22
             Background = $brushes.Button

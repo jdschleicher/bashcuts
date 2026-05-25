@@ -602,7 +602,7 @@ flowchart TD
 
     HaveStory --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
     Task --> PlatCheck{Test-WpfIsWindows?}
-    PlatCheck -- Windows --> WpfLoop["Show-WpfStopwatch<br/>(WPF circular overlay)<br/>Log Item / Capture Story / Stop"]
+    PlatCheck -- Windows --> WpfLoop["Show-WpfStopwatch<br/>(WPF circular overlay)<br/>Log Item / Create New Story / Stop"]
     PlatCheck -- macOS/Linux --> Loop[session loop — Read-UnplannedKeyPress poll]
 
     Loop -- Space --> LogItem["Read-Host item<br/>append {Time, Text}"]
