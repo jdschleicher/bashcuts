@@ -186,11 +186,26 @@ function Invoke-AzDevOpsAzJson {
     # Windows PowerShell 5.1 (already Legacy), where this is a harmless local.
     $PSNativeCommandArgumentPassing = 'Legacy'
 
+    $headline = Get-AzDevOpsCommandHeadline -ArgList $ArgList
+
     $stderrFile = [System.IO.Path]::GetTempFileName()
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        $json = & az @invokeArgs --output json 2>$stderrFile
+        # Wrap the native az call in the shared console spinner so every query
+        # routed through here shows a "working" indicator while it's in flight.
+        # GetNewClosure() captures $invokeArgs, $stderrFile, and the Legacy
+        # $PSNativeCommandArgumentPassing pin so they survive the hand-off into
+        # Invoke-WithSpinner's own scope; $LASTEXITCODE is the global az sets,
+        # so it's still readable after the spinner stops (no native command
+        # runs between the call and the read).
+        $azCall = {
+            $output = & az @invokeArgs --output json 2>$stderrFile
+            return $output
+        }.GetNewClosure()
+
+        $json = Invoke-WithSpinner -ScriptBlock $azCall -Message $headline
         $exit = $LASTEXITCODE
+
         $stderr = if (Test-Path -LiteralPath $stderrFile) {
             (Get-Content -LiteralPath $stderrFile -Raw)
         } else {
@@ -201,8 +216,7 @@ function Invoke-AzDevOpsAzJson {
     }
     $sw.Stop()
 
-    $elapsed  = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
-    $headline = Get-AzDevOpsCommandHeadline -ArgList $ArgList
+    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
 
     $summary      = "$headline ($elapsed, exit=$exit)"
     $summaryColor = if ($exit -eq 0) {

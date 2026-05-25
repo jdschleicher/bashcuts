@@ -188,7 +188,10 @@ Add any of these to your PowerShell `$profile` to enable additional features:
 $env:AZ_USER_EMAIL = 'user@example.com'   # enables accurate mentions WIQL
 $env:AZ_AREA       = 'My Project\My Team' # default area path for hierarchy queries
 $env:AZ_ITERATION  = 'My Project\Sprint 42' # default iteration for work item creation
+$env:BASHCUTS_NO_SPINNER = '1'            # opt out of the az-call loading spinner
 ```
+
+Every AzDevOps command routes its underlying `az` call through one wrapper, which now shows a small terminal spinner while the call is in flight and clears it cleanly when the call returns — so a multi-second `az-Sync-AzDevOpsCache` or `az-New-AzDevOpsUserStory` always signals that work is happening. The spinner suppresses itself when output is redirected or piped (CI, `> out.txt`, `| cmd`) so it never leaks into captured JSON; set `BASHCUTS_NO_SPINNER` to turn it off everywhere.
 
 ### First run
 

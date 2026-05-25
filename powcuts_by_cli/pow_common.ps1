@@ -226,27 +226,163 @@ function Set-WpfArcPoint {
 }
 
 
-$script:CommonSpinnerFrames = @('|', '/', '-', '\')
+$script:CommonSpinnerFrames     = @('|', '/', '-', '\')
+$script:CommonSpinnerIntervalMs = 120
+$script:CommonSpinnerClearPad   = 8
+
+
+function Test-CommonSpinnerEnabled {
+    # Private guard - the console spinner is only safe to draw on an
+    # interactive terminal whose stdout isn't redirected. When output is piped
+    # or captured to a file (CI, `pwsh script.ps1 > out.txt`, `... | cmd`) the
+    # raw [Console]::Write frames would land in the redirected stream, so the
+    # spinner is suppressed and the caller runs the work silently — the
+    # { Json, Error, ExitCode } envelope a wrapper returns is never affected.
+    # BASHCUTS_NO_SPINNER is an explicit opt-out for users who want it off
+    # regardless of context. Unapproved-verb-free name (Test-* is approved);
+    # treated as private to pow_common.ps1.
+    if (-not [string]::IsNullOrEmpty($env:BASHCUTS_NO_SPINNER)) {
+        return $false
+    }
+
+    if ([Console]::IsOutputRedirected) {
+        return $false
+    }
+
+    return $true
+}
+
+
+function Start-CommonConsoleSpinner {
+    # Private helper - opens a background runspace that redraws the spinner
+    # frame in place on a "`r<frame> <Message>..." line every
+    # CommonSpinnerIntervalMs. The wrapped work runs synchronously on the
+    # calling thread, so the animation has to live on its own thread to keep
+    # ticking while a slow az call blocks. Shared state travels through a
+    # synchronized hashtable so the main thread can flip .Active to false;
+    # pair this with Stop-CommonConsoleSpinner to join the runspace and clear
+    # the line.
+    param([string] $Message = 'Working')
+
+    $frames     = $script:CommonSpinnerFrames
+    $intervalMs = $script:CommonSpinnerIntervalMs
+
+    $state = [hashtable]::Synchronized(@{
+        Active = $true
+    })
+
+    $runspace = $null
+    $worker   = $null
+
+    try {
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.Open()
+        $runspace.SessionStateProxy.SetVariable('State', $state)
+        $runspace.SessionStateProxy.SetVariable('Frames', $frames)
+        $runspace.SessionStateProxy.SetVariable('Message', $Message)
+        $runspace.SessionStateProxy.SetVariable('IntervalMs', $intervalMs)
+
+        $worker = [powershell]::Create()
+        $worker.Runspace = $runspace
+        $worker.AddScript({
+            $index = 0
+            while ($State.Active) {
+                $frame = $Frames[$index % $Frames.Count]
+                [Console]::Write("`r$frame $Message...")
+                $index++
+                Start-Sleep -Milliseconds $IntervalMs
+            }
+        }) | Out-Null
+
+        $handle = $worker.BeginInvoke()
+    } catch {
+        # A spinner that fails to start must never break the wrapped call. Tear
+        # down whatever was created and return $null so the caller runs the work
+        # without a spinner (Stop-CommonConsoleSpinner treats $null as a no-op).
+        if ($null -ne $worker) {
+            $worker.Dispose()
+        }
+
+        if ($null -ne $runspace) {
+            $runspace.Dispose()
+        }
+
+        return $null
+    }
+
+    $result = [PSCustomObject]@{
+        State    = $state
+        Worker   = $worker
+        Handle   = $handle
+        Runspace = $runspace
+        Width    = ($Message.Length + $script:CommonSpinnerClearPad)
+    }
+    return $result
+}
+
+
+function Stop-CommonConsoleSpinner {
+    # Private helper - signals the spinner runspace to stop, waits for the
+    # in-flight frame to finish drawing, disposes the runspace, then blanks the
+    # spinner line so no glyph survives into whatever prints next. A $null
+    # spinner (Start- failed to launch one) is a no-op. The whole teardown is
+    # best-effort: it runs from Invoke-WithSpinner's finally, so a worker that
+    # threw on an invalid console handle must not let EndInvoke resurface that
+    # exception and mask the wrapped call's real result. Width is the
+    # spinner-line length captured at start, padded so the longest frame is
+    # fully overwritten.
+    param($Spinner)
+
+    if ($null -eq $Spinner) {
+        return
+    }
+
+    $Spinner.State.Active = $false
+
+    try {
+        $Spinner.Worker.EndInvoke($Spinner.Handle)
+    } catch {
+        # Cosmetic draw failure - swallow so it never masks the az outcome.
+    }
+
+    $Spinner.Worker.Dispose()
+    $Spinner.Runspace.Close()
+    $Spinner.Runspace.Dispose()
+
+    $blank = ' ' * $Spinner.Width
+    [Console]::Write("`r$blank`r")
+}
 
 
 function Invoke-WithSpinner {
-    # Runs $ScriptBlock while showing a console loading/posting indicator, then
-    # returns whatever the scriptblock returned. The work runs synchronously on
-    # the calling thread — a wrapped az call blocks until it returns — so this
-    # prints a single "working" line that stays on screen for the duration
-    # rather than a continuously spinning glyph (a true animation would need a
-    # second thread, and the wrapped call's own command echo would clash with
-    # it on the same console). It exists to give feedback that a slow call is
-    # in flight and to be the shared seam the repo-wide az spinner (#105) wraps.
+    # Runs $ScriptBlock while animating a single-line console spinner, then
+    # clears that line and returns whatever the scriptblock returned. The work
+    # runs synchronously on the calling thread — a wrapped az call blocks until
+    # it returns — so the animation is driven from a background runspace that
+    # redraws the frame in place; the main thread stops the runspace and blanks
+    # the line once the call completes, leaving no stray glyph behind. This is
+    # the shared seam the repo-wide az spinner wraps (Invoke-AzDevOpsAzJson).
+    # When stdout is redirected or BASHCUTS_NO_SPINNER is set the spinner is
+    # skipped and the work runs silently so captured/piped output is never
+    # corrupted.
     param(
         [Parameter(Mandatory)] [scriptblock] $ScriptBlock,
         [string] $Message = 'Working'
     )
 
-    $frame = $script:CommonSpinnerFrames[0]
-    Write-Host "$frame $Message..." -ForegroundColor Cyan
+    if (-not (Test-CommonSpinnerEnabled)) {
+        $result = & $ScriptBlock
+        return $result
+    }
 
-    $result = & $ScriptBlock
+    $spinner = $null
+    try {
+        $spinner = Start-CommonConsoleSpinner -Message $Message
+        $result  = & $ScriptBlock
+    } finally {
+        Stop-CommonConsoleSpinner -Spinner $spinner
+    }
+
     return $result
 }
 
