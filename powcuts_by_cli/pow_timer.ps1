@@ -23,7 +23,7 @@
 #                               composed debrief comment on the chosen item
 #   ViewHint    [scriptblock] - param([int]$Id); returns a one-line string
 #                               printed after a successful comment post
-#                               (e.g. "View discussion: az-Open-AzDevOpsAssigned 1234")
+#                               (e.g. "View discussion: az-Open-WorkItemById 1234")
 #
 # Azure DevOps integration is registered at the bottom of this file; reads
 # $HOME/.bashcuts-cache/azure-devops/assigned.json (populated by
@@ -1204,6 +1204,6 @@ az-Register-TimerIntegration `
     } `
     -ViewHint    {
         param([Parameter(Mandatory)] [int] $Id)
-        $hint = "View discussion: az-Open-AzDevOpsAssigned $Id"
+        $hint = "View discussion: az-Open-WorkItemById $Id"
         return $hint
     }

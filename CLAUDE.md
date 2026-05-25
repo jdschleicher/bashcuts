@@ -177,7 +177,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_create_pickers.ps1     # Field prompts + create-flow pickers
 │   ├── azdevops_create.ps1             # az-New-AzDevOps{UserStory,Feature,FeatureStories}
 │   ├── azdevops_schema.ps1             # Field-schema cache (per-org)
-│   ├── azdevops_openers.ps1            # az-Open-AzDevOps* file/folder openers
+│   ├── azdevops_openers.ps1            # az-Open-* file/folder openers
 │   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher
 │   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
 │   ├── pester.ps1                      # Pester test helpers

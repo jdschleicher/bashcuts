@@ -11,7 +11,7 @@
 #   az-Test-AzDevOpsAuth           - silent yes/no auth assertion intended for
 #                                    callers in later AzDevOps commands;
 #                                    returns $true / $false
-#   az-Open-AzDevOpsHierarchyWiqls - open each ~/.bashcuts-az-devops-app/config/
+#   az-Open-HierarchyWiqls - open each ~/.bashcuts-az-devops-app/config/
 #                                    queries/{epics,features,user-stories}.wiql
 #                                    in the default editor (seeds the defaults
 #                                    on first run)
@@ -400,7 +400,7 @@ function az-Confirm-AzDevOpsQueryFiles {
 }
 
 
-function az-Open-AzDevOpsHierarchyWiqls {
+function az-Open-HierarchyWiqls {
     # Opens all user-machine WIQL files (epics, features, user-stories,
     # assigned, mentions) in the OS default editor. Defensively seeds the
     # defaults via Initialize-AzDevOpsQueryFiles so a fresh machine that

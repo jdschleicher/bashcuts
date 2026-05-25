@@ -87,9 +87,9 @@ function Read-AzDevOpsGridPick {
 #
 # Public functions:
 #   az-Get-AzDevOpsAssigned   - table of work items assigned to me
-#   az-Open-AzDevOpsAssigned  - open a single assigned item in the browser
+#   az-Open-Assigned  - open a single assigned item in the browser
 #   az-Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
-#   az-Open-AzDevOpsMention   - open a single mentioned item in the browser
+#   az-Open-Mention   - open a single mentioned item in the browser
 #
 # All four read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
@@ -221,10 +221,11 @@ function Read-AzDevOpsJsonCache {
 #   - Title truncation projection - Format-AzDevOpsTruncatedTitle
 #   - id lookup w/ standard miss-hint + LASTEXITCODE=1
 #                                  - Find-AzDevOpsCachedWorkItem
-#   - env-var guard + URL build + Start-Process
-#                                  - Open-AzDevOpsWorkItemUrl
 #   - newest-first sort with $null dates pushed to the bottom
 #                                  - Sort-AzDevOpsByDateDesc
+#
+# az-Open-WorkItemById (public: open any item by raw ID, no cache check) is the
+# shared open primitive the Open-Assigned/Open-Mention pairs delegate to.
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsClosedStates {
@@ -406,10 +407,11 @@ function Get-AzDevOpsBoardsUrl {
 }
 
 
-function Open-AzDevOpsWorkItemUrl {
-    # env-var guard + URL build + Start-Process. Sets $LASTEXITCODE = 1 and
-    # returns when env-vars are missing; otherwise launches the OS browser.
-    param([Parameter(Mandatory)] [int] $Id)
+function az-Open-WorkItemById {
+    # Open any work item in the browser by raw ID - no assigned/mentions cache
+    # membership check. Sets $LASTEXITCODE = 1 and returns when the az devops
+    # defaults are missing; otherwise launches the OS browser.
+    param([Parameter(Mandatory, Position = 0)] [int] $Id)
 
     $url = Get-AzDevOpsWorkItemUrl -Id $Id
     if ($null -eq $url) {
@@ -455,7 +457,7 @@ function az-Get-AzDevOpsAssigned {
 }
 
 
-function az-Open-AzDevOpsAssigned {
+function az-Open-Assigned {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)] [int] $Id
@@ -472,7 +474,7 @@ function az-Open-AzDevOpsAssigned {
         -IncludeUrlFallback
     if (-not $match) { return }
 
-    Open-AzDevOpsWorkItemUrl -Id $Id
+    az-Open-WorkItemById -Id $Id
 }
 
 
@@ -591,7 +593,7 @@ function az-Get-AzDevOpsMentions {
 }
 
 
-function az-Open-AzDevOpsMention {
+function az-Open-Mention {
     # Plain /_workitems/edit/<id> URL only - Azure DevOps' #comment-NNNN
     # anchor is an ephemeral comment id that isn't stable across syncs, so
     # there's no reliable way to deep-link into the discussion thread; the
@@ -612,7 +614,7 @@ function az-Open-AzDevOpsMention {
         -IncludeUrlFallback
     if (-not $match) { return }
 
-    Open-AzDevOpsWorkItemUrl -Id $Id
+    az-Open-WorkItemById -Id $Id
 }
 
 
@@ -1017,7 +1019,7 @@ function Invoke-AzDevOpsRowAction {
         $choice = Read-AzDevOpsRowActionChoice -Label $label -ChildType $childType
 
         if ($choice -eq 'open') {
-            Open-AzDevOpsWorkItemUrl -Id $id
+            az-Open-WorkItemById -Id $id
         }
         elseif ($choice -eq 'create') {
             New-AzDevOpsChildForRow -ParentType $type -ParentId $id | Out-Null

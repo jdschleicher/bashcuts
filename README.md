@@ -162,7 +162,7 @@ For windows machines, the snippets are stored in an expected directory, so we ca
 
 > **Lost in the surface?** Run `az-help` (defined in `powcuts_by_cli/azdevops_help.ps1`) for an interactive `Out-ConsoleGridView` walkthrough that groups every `az-AzDevOps*` function by workflow phase (Onboarding → DailyRead → Create → MultiProject) and shows the order of operations + source / diagram / issue links for each function. `az-h<Tab>` lands directly on it.
 
-PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`) provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache`, which also refreshes itself silently on shell open when the cache is stale), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-AzDevOpsAssigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-AzDevOpsMention`), an Epic→Feature→User Story tree view (`az-Show-Tree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), a board-style group-by-State view of the same cached items (`az-Show-Board`), area- and iteration-path tree views (`az-Show-Areas`, `az-Show-Iterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), an interactive new-Feature creator one tier up (parent-Epic picker, area / iteration / priority / AC) with a hand-off prompt to spawn child stories (`az-New-AzDevOpsFeature`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), an interactive Task creator one tier down with a parent-User-Story picker (`az-New-Task`, also the child action when you select a Story in `az-Show-Tree` / `az-Show-Board`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
+PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`) provide guided setup and work-item navigation against an Azure DevOps organization. Today this includes a guided `az-Connect-AzDevOps` first-run helper, a cached background sync (`az-Sync-AzDevOpsCache`, which also refreshes itself silently on shell open when the cache is stale), a list/open pair for items assigned to you (`az-Get-AzDevOpsAssigned`, `az-Open-Assigned`), the matching pair for items where you've been @-mentioned in discussion (`az-Get-AzDevOpsMentions`, `az-Open-Mention`), an open-any-item-by-id shortcut (`az-Open-WorkItemById`), an Epic→Feature→User Story tree view (`az-Show-Tree`, rendering the project's requirement-tier rows — `User Story` on Agile, `Product Backlog Item` on Scrum, `Requirement` on CMMI, `Issue` on Basic), a board-style group-by-State view of the same cached items (`az-Show-Board`), area- and iteration-path tree views (`az-Show-Areas`, `az-Show-Iterations`), an interactive Epic→Feature→Story drill-down picker (`az-Find-AzDevOpsWorkItem`), an interactive new-user-story creator with parent-feature, iteration, and area-path pickers (`az-New-AzDevOpsUserStory`), an interactive new-Feature creator one tier up (parent-Epic picker, area / iteration / priority / AC) with a hand-off prompt to spawn child stories (`az-New-AzDevOpsFeature`), a batch child-story creator that decomposes a Feature into 3-7 stories with a single area / iteration captured once and priority / story points carried forward across the loop (`az-New-AzDevOpsFeatureStories`), an interactive Task creator one tier down with a parent-User-Story picker (`az-New-Task`, also the child action when you select a Story in `az-Show-Tree` / `az-Show-Board`), and a per-org field-schema config (`az-Initialize-AzDevOpsSchema`, `az-Get-AzDevOpsSchema`, `az-Edit-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) that future schema-aware updates to the work-item commands consume.
 
 ### Prerequisites
 
@@ -216,7 +216,7 @@ Each sync fires one `az boards query` per file (epics, then features, then user 
 The fast way to open all three for editing is the dedicated shortcut:
 
 ```powershell
-az-Open-AzDevOpsHierarchyWiqls
+az-Open-HierarchyWiqls
 ```
 
 It seeds any missing defaults (so it works on a fresh machine even before `az-Connect-AzDevOps`) and then opens each path in your OS default editor.
@@ -225,41 +225,41 @@ If you delete a file, the next sync writes that default back. The placeholder `{
 
 ### Opening cache / config / schema files
 
-Every folder and file under `~/.bashcuts-az-devops-app/` has a dedicated `az-Open-AzDevOps*` shortcut. Tab-tab on `az-Open-AzDevOps` to see the full list. Each opener launches the path in your OS default handler (`Start-Process`); if the target doesn't exist yet it prints a one-line yellow hint pointing at the function that produces it (e.g. `az-Sync-AzDevOpsCache`) and returns without spawning anything.
+Every folder and file under `~/.bashcuts-az-devops-app/` has a dedicated opener — most under the `az-Open-*` prefix (tab-tab on `az-Open-` to see the full list), with the config-queries and schema directories under the `o-az-devops-*` open prefix. Each opener launches the path in your OS default handler (`Start-Process`); if the target doesn't exist yet it prints a one-line yellow hint pointing at the function that produces it (e.g. `az-Sync-AzDevOpsCache`) and returns without spawning anything.
 
 Folders:
 
 ```powershell
-az-Open-AzDevOpsAppRoot       # ~/.bashcuts-az-devops-app/
-az-Open-AzDevOpsCacheDir      # cache/  (or cache/<project-slug>/ when az-Use-AzDevOpsProject is active)
-az-Open-AzDevOpsConfigDir     # config/queries/
-az-Open-AzDevOpsSchemaDir     # schema/
+az-Open-AppRoot                 # ~/.bashcuts-az-devops-app/
+az-Open-CacheDir                # cache/  (or cache/<project-slug>/ when az-Use-AzDevOpsProject is active)
+o-az-devops-queries-config-dir  # config/queries/
+o-az-devops-schema-dir          # schema/
 ```
 
 Cache files (all resolved through the active project slice):
 
 ```powershell
-az-Open-AzDevOpsAssignedCache    # assigned.json
-az-Open-AzDevOpsMentionsCache    # mentions.json
-az-Open-AzDevOpsHierarchyCache   # hierarchy.json
-az-Open-AzDevOpsIterationsCache  # iterations.json
-az-Open-AzDevOpsAreasCache       # areas.json
-az-Open-AzDevOpsLastSync         # last-sync.json
-az-Open-AzDevOpsSyncLog          # sync.log
+az-Open-AssignedCache    # assigned.json
+az-Open-MentionsCache    # mentions.json
+az-Open-HierarchyCache   # hierarchy.json
+az-Open-IterationsCache  # iterations.json
+az-Open-AreasCache       # areas.json
+az-Open-LastSync         # last-sync.json
+az-Open-SyncLog          # sync.log
 ```
 
-Config WIQL files (per file; `az-Open-AzDevOpsHierarchyWiqls` above remains the "open all three" convenience):
+Config WIQL files (per file; `az-Open-HierarchyWiqls` above remains the "open all three" convenience):
 
 ```powershell
-az-Open-AzDevOpsEpicsWiql        # config/queries/epics.wiql
-az-Open-AzDevOpsFeaturesWiql     # config/queries/features.wiql
-az-Open-AzDevOpsUserStoriesWiql  # config/queries/user-stories.wiql
+az-Open-EpicsWiql        # config/queries/epics.wiql
+az-Open-FeaturesWiql     # config/queries/features.wiql
+az-Open-UserStoriesWiql  # config/queries/user-stories.wiql
 ```
 
 Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
 
 ```powershell
-az-Open-AzDevOpsSchema
+az-Open-Schema
 ```
 
 ### Day-to-day work-item shortcuts
@@ -272,7 +272,8 @@ az-Get-AzDevOpsAssigned -State Active         # filter to a single state
 az-Get-AzDevOpsAssigned -State Active,New     # filter to multiple states
 az-Get-AzDevOpsAssigned | Format-Table -AutoSize
 
-az-Open-AzDevOpsAssigned 12345                # open one of your assigned items in the browser
+az-Open-Assigned 12345                        # open one of your assigned items in the browser
+az-Open-WorkItemById 12345                    # open ANY work item by id in the browser (no cache lookup; works even if it isn't assigned to / mentioning you)
 
 az-Get-AzDevOpsMentions                                  # work items where you've been @-mentioned (excludes items you're already assigned to)
 az-Get-AzDevOpsMentions -State Active                    # filter to a single state
@@ -280,7 +281,7 @@ az-Get-AzDevOpsMentions -Since (Get-Date).AddDays(-7)    # only mentions whose l
 az-Get-AzDevOpsMentions -IncludeAssigned                 # also surface mentioned items already assigned to you
 az-Get-AzDevOpsMentions | Format-Table -AutoSize
 
-az-Open-AzDevOpsMention 12345                 # open one of your mentioned items in the browser
+az-Open-Mention 12345                         # open one of your mentioned items in the browser
 
 az-Show-Tree                          # Epic -> Feature -> User Story tree; select a row to open it or create a child work item
 az-Show-Board                         # board view: cached items grouped by State (click the State header in the grid to group)
@@ -315,7 +316,7 @@ If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsM
 
 After you select a row in `az-Show-Tree`, `az-Show-Board`, or `az-Show-Features`, you're prompted to either open the item in your browser or create the hierarchically-appropriate child work item — a Feature under an Epic, a User Story under a Feature, or a Task under a User Story (via `az-New-Task`) — with the selected row pre-filled as the new item's parent. Selecting a node in `az-Show-Areas` / `az-Show-Iterations` offers to open the project's Boards hub. (The post-selection prompt is PowerShell-only; the bash `az-show-features` shortcut prints a static query table.)
 
-Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-AzDevOpsAssigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
+Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-Assigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
 
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 

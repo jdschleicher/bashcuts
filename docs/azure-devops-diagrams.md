@@ -6,7 +6,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
 - [3. `az-Test-AzDevOpsAuth` — silent diagnostic chain](#3-az-test-azdevopsauth--silent-diagnostic-chain)
 - [4. `az-Sync-AzDevOpsCache` — dataset fan-out](#4-az-sync-azdevopscache--dataset-fan-out)
-- [5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)](#5-cache-consumers-az-get-az-open-azdevopsassignedmentions)
+- [5. Cache consumers (`az-Get-AzDevOpsAssigned/Mentions` and `az-Open-Assigned/Mention`)](#5-cache-consumers-az-get-azdevopsassignedmentions-and-az-open-assignedmention)
 - [6. `az-Show-Tree` — Epic → Feature → requirement-tier render](#6-az-show-tree--epic--feature--requirement-tier-render)
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
@@ -35,9 +35,9 @@ flowchart LR
         Status["az-Get-AzDevOpsCacheStatus"]
         BgSync["Start-AzDevOpsBackgroundSync<br/>(on-open, internal)"]
         GetA["az-Get-AzDevOpsAssigned"]
-        OpenA["az-Open-AzDevOpsAssigned"]
+        OpenA["az-Open-Assigned"]
         GetM["az-Get-AzDevOpsMentions"]
-        OpenM["az-Open-AzDevOpsMention"]
+        OpenM["az-Open-Mention"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
         ShowAreas["az-Show-Areas"]
@@ -56,11 +56,11 @@ flowchart LR
         Help["az-help"]
     end
 
-    subgraph PathOpeners["Path inspectors (az-Open-AzDevOps*)"]
+    subgraph PathOpeners["Path inspectors (az-Open-*)"]
         OpensFolders["Folder openers:<br/>AppRoot, CacheDir, ConfigDir, SchemaDir"]
         OpensCache["Cache file openers:<br/>AssignedCache, MentionsCache, HierarchyCache,<br/>IterationsCache, AreasCache, LastSync, SyncLog"]
         OpensWiql["WIQL openers:<br/>EpicsWiql, FeaturesWiql, UserStoriesWiql"]
-        OpensSchema["az-Open-AzDevOpsSchema"]
+        OpensSchema["az-Open-Schema"]
     end
 
     subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
@@ -285,7 +285,7 @@ Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`,
 
 ---
 
-## 5. Cache consumers (`az-Get-/az-Open-AzDevOps{Assigned,Mentions}`)
+## 5. Cache consumers (`az-Get-AzDevOpsAssigned/Mentions` and `az-Open-Assigned/Mention`)
 
 The two parallel pairs share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads.
 
@@ -329,14 +329,14 @@ Open-by-id flow re-uses the same cache + a different last-mile helper:
 
 ```mermaid
 flowchart LR
-    A([az-Open-AzDevOpsAssigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
+    A([az-Open-Assigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
     RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
     Find -- miss --> Hint([print 'run az-Get-AzDevOpsAssigned' + LASTEXITCODE=1])
-    Find -- hit --> Open["Open-AzDevOpsWorkItemUrl<br/>(env-var guard + URL build)"]
+    Find -- hit --> Open["az-Open-WorkItemById<br/>(env-var guard + URL build)"]
     Open --> SP["Start-Process<br/>$env:AZ_DEVOPS_ORG/$env:AZ_PROJECT/_workitems/edit/12345"]
 ```
 
-`az-Open-AzDevOpsMention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
+`az-Open-Mention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
 
 ---
 
@@ -358,7 +358,7 @@ flowchart TD
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
     Show --> Action["Invoke-AzDevOpsRowAction<br/>(per selected row)"]
     Action --> Choice{Read-AzDevOpsRowActionChoice}
-    Choice -- open --> OpenSel["Open-AzDevOpsWorkItemUrl"]
+    Choice -- open --> OpenSel["az-Open-WorkItemById"]
     Choice -- create --> Child["New-AzDevOpsChildForRow<br/>(Get-AzDevOpsChildTypeFor →<br/>az-New-AzDevOpsFeature / UserStory / az-New-Task)"]
     Choice -- skip --> NoOp([skip])
     Grid -- no --> ForEpic{foreach epic}
@@ -649,9 +649,9 @@ graph LR
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
-    OpenA(["az-Open-AzDevOpsAssigned"]):::pub
+    OpenA(["az-Open-Assigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
-    OpenM(["az-Open-AzDevOpsMention"]):::pub
+    OpenM(["az-Open-Mention"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
@@ -665,7 +665,7 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
-    OpenHWiql(["az-Open-AzDevOpsHierarchyWiqls"]):::pub
+    OpenHWiql(["az-Open-HierarchyWiqls"]):::pub
     ShowFeats(["az-Show-Features"]):::pub
 
     %% Multi-project switcher (azdevops_projects.ps1)
@@ -773,7 +773,7 @@ graph LR
     Trunc[Format-AzDevOpsTruncatedTitle]:::priv
     TitleCol[Get-AzDevOpsTitleColumn]:::priv
     Find[Find-AzDevOpsCachedWorkItem]:::priv
-    OpenUrl[Open-AzDevOpsWorkItemUrl]:::priv
+    OpenUrl[az-Open-WorkItemById]:::pub
     WiUrl[Get-AzDevOpsWorkItemUrl]:::priv
     WiPfx[Get-AzDevOpsWorkItemUrlPrefix]:::priv
     MentDN[Get-AzDevOpsMentionedByDisplayName]:::priv
@@ -1237,21 +1237,21 @@ graph LR
     %% thin wrapper that resolves a path via one of the Get-AzDevOps*Paths
     %% helpers and delegates to Open-AzDevOpsPathIfExists, which Test-Paths the
     %% target and calls Start-Process when it exists.
-    OpenAppRoot(["az-Open-AzDevOpsAppRoot"]):::pub
-    OpenCacheDir(["az-Open-AzDevOpsCacheDir"]):::pub
-    OpenConfigDir(["az-Open-AzDevOpsConfigDir"]):::pub
-    OpenSchemaDir(["az-Open-AzDevOpsSchemaDir"]):::pub
-    OpenAsg(["az-Open-AzDevOpsAssignedCache"]):::pub
-    OpenMen(["az-Open-AzDevOpsMentionsCache"]):::pub
-    OpenHier(["az-Open-AzDevOpsHierarchyCache"]):::pub
-    OpenIter(["az-Open-AzDevOpsIterationsCache"]):::pub
-    OpenAreas(["az-Open-AzDevOpsAreasCache"]):::pub
-    OpenLast(["az-Open-AzDevOpsLastSync"]):::pub
-    OpenLog(["az-Open-AzDevOpsSyncLog"]):::pub
-    OpenEpics(["az-Open-AzDevOpsEpicsWiql"]):::pub
-    OpenFeats(["az-Open-AzDevOpsFeaturesWiql"]):::pub
-    OpenStories(["az-Open-AzDevOpsUserStoriesWiql"]):::pub
-    OpenSchema(["az-Open-AzDevOpsSchema"]):::pub
+    OpenAppRoot(["az-Open-AppRoot"]):::pub
+    OpenCacheDir(["az-Open-CacheDir"]):::pub
+    OpenConfigDir(["o-az-devops-queries-config-dir"]):::pub
+    OpenSchemaDir(["o-az-devops-schema-dir"]):::pub
+    OpenAsg(["az-Open-AssignedCache"]):::pub
+    OpenMen(["az-Open-MentionsCache"]):::pub
+    OpenHier(["az-Open-HierarchyCache"]):::pub
+    OpenIter(["az-Open-IterationsCache"]):::pub
+    OpenAreas(["az-Open-AreasCache"]):::pub
+    OpenLast(["az-Open-LastSync"]):::pub
+    OpenLog(["az-Open-SyncLog"]):::pub
+    OpenEpics(["az-Open-EpicsWiql"]):::pub
+    OpenFeats(["az-Open-FeaturesWiql"]):::pub
+    OpenStories(["az-Open-UserStoriesWiql"]):::pub
+    OpenSchema(["az-Open-Schema"]):::pub
 
     %% Path-inspector helper + path-discovery helpers used by the openers above
     OpenPath[Open-AzDevOpsPathIfExists]:::priv
