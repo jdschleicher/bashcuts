@@ -119,6 +119,70 @@ function Read-TimerYesNo {
 }
 
 
+function Read-TimerNextAction {
+    # Console counterpart to the WPF debrief's restart buttons. Offers the same
+    # three-way choice and returns the shared action token: 'SameItem' reuses
+    # the work item just debriefed, 'NewItem' returns to the picker, 'Done'
+    # (also the blank/unrecognized default) ends the loop.
+    param(
+        [Parameter(Mandatory)] [string] $ItemLabel
+    )
+
+    Write-Host ""
+    Write-Host "Start another session?" -ForegroundColor Cyan
+    Write-Host "  [s] Same item — $ItemLabel"
+    Write-Host "  [p] Pick another item"
+    Write-Host "  [d] Done"
+
+    $raw = Read-Host "Choose [s/p/D]"
+    if (-not $raw) {
+        return 'Done'
+    }
+
+    $normalized = $raw.Trim().ToLowerInvariant()
+    switch ($normalized) {
+        's' {
+            return 'SameItem'
+        }
+
+        'same' {
+            return 'SameItem'
+        }
+
+        'p' {
+            return 'NewItem'
+        }
+
+        'pick' {
+            return 'NewItem'
+        }
+
+        default {
+            return 'Done'
+        }
+    }
+}
+
+
+function Resolve-TimerNextAction {
+    # Maps a debrief next-action token ('Done' / 'SameItem' / 'NewItem') to the
+    # restart-loop flags shared by the WPF and console paths, so both decide
+    # "restart? reuse the item?" through one branch instead of duplicating it.
+    param(
+        [Parameter(Mandatory)] [string] $Action
+    )
+
+    $shouldRestart = ($Action -eq 'SameItem' -or $Action -eq 'NewItem')
+    $reuseItem     = ($Action -eq 'SameItem')
+
+    $result = [PSCustomObject]@{
+        ShouldRestart = $shouldRestart
+        ReuseItem     = $reuseItem
+    }
+    return $result
+}
+
+
 function Read-TimerNumberedPick {
     # Fallback picker for terminals without Out-ConsoleGridView. Blank input
     # cancels (returns $null); out-of-range / non-numeric input also cancels
@@ -752,8 +816,10 @@ function Show-WpfTimerDebrief {
     # (which composes + posts the comment and returns the { Json, Error,
     # ExitCode } envelope). The "Start another session?" choice is revealed ONLY
     # after a successful post (ExitCode 0); a failed post keeps the form open
-    # with the error so the user can retry. Returns
-    # { Cancelled; StartAnother; PostResult } for the orchestrator.
+    # with the error so the user can retry. The "Start another?" choice offers
+    # "Same item" (reuse the work item just debriefed), "Pick another" (return
+    # to the picker), and "Done". Returns { Cancelled; NextAction; PostResult }
+    # for the orchestrator, where NextAction is 'Done' / 'SameItem' / 'NewItem'.
     #
     # The az post is synchronous on the dispatcher thread, so the spinner can't
     # truly animate during the call. The form forces a Render-priority dispatch
@@ -768,9 +834,9 @@ function Show-WpfTimerDebrief {
 
     $formWidth = 360
 
-    $Script:WpfDebriefOutcome      = 'Cancelled'
-    $Script:WpfDebriefStartAnother = $false
-    $Script:WpfDebriefPostResult   = $null
+    $Script:WpfDebriefOutcome    = 'Cancelled'
+    $Script:WpfDebriefNextAction = 'Done'
+    $Script:WpfDebriefPostResult = $null
 
     $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
 
@@ -908,15 +974,23 @@ function Show-WpfTimerDebrief {
         Margin              = '0,12,0,0'
         Visibility          = [System.Windows.Visibility]::Collapsed
     }
-    $btnYes = New-Object System.Windows.Controls.Button -Property @{
-        Content    = 'Start another'
+    $btnSameItem = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Same item'
+        Width      = 90
+        Height     = 26
+        Background = $brushes.Button
+        Foreground = $brushes.White
+        Margin     = 3
+    }
+    $btnNewItem = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Pick another'
         Width      = 100
         Height     = 26
         Background = $brushes.Button
         Foreground = $brushes.White
         Margin     = 3
     }
-    $btnNo = New-Object System.Windows.Controls.Button -Property @{
+    $btnDone = New-Object System.Windows.Controls.Button -Property @{
         Content    = 'Done'
         Width      = 70
         Height     = 26
@@ -924,8 +998,9 @@ function Show-WpfTimerDebrief {
         Foreground = $brushes.White
         Margin     = 3
     }
-    $askPanel.Children.Add($btnYes) | Out-Null
-    $askPanel.Children.Add($btnNo)  | Out-Null
+    $askPanel.Children.Add($btnSameItem) | Out-Null
+    $askPanel.Children.Add($btnNewItem)  | Out-Null
+    $askPanel.Children.Add($btnDone)     | Out-Null
     $vbox.Children.Add($askPanel) | Out-Null
 
     # ---- Exit hint ----
@@ -997,13 +1072,18 @@ function Show-WpfTimerDebrief {
         }
     })
 
-    $btnYes.Add_Click({
-        $Script:WpfDebriefStartAnother = $true
+    $btnSameItem.Add_Click({
+        $Script:WpfDebriefNextAction = 'SameItem'
         $mainWin.Close()
     })
 
-    $btnNo.Add_Click({
-        $Script:WpfDebriefStartAnother = $false
+    $btnNewItem.Add_Click({
+        $Script:WpfDebriefNextAction = 'NewItem'
+        $mainWin.Close()
+    })
+
+    $btnDone.Add_Click({
+        $Script:WpfDebriefNextAction = 'Done'
         $mainWin.Close()
     })
 
@@ -1015,9 +1095,9 @@ function Show-WpfTimerDebrief {
     $cancelled = ($Script:WpfDebriefOutcome -ne 'Posted')
 
     $result = [PSCustomObject]@{
-        Cancelled    = $cancelled
-        StartAnother = [bool]$Script:WpfDebriefStartAnother
-        PostResult   = $Script:WpfDebriefPostResult
+        Cancelled  = $cancelled
+        NextAction = $Script:WpfDebriefNextAction
+        PostResult = $Script:WpfDebriefPostResult
     }
     return $result
 }
@@ -1029,10 +1109,12 @@ function az-Start-TimerSession {
     # animation elsewhere), then collect the debrief and post the composed
     # comment via the chosen integration's AddComment. On Windows the countdown
     # morphs into a themed WPF debrief form (Show-WpfTimerDebrief) that posts
-    # under a spinner and offers "Start another session?" only after a
-    # successful post; elsewhere the debrief is collected via terminal Read-Host
-    # with a console posting indicator, and only an interrupted session is asked
-    # whether to start another.
+    # under a spinner and, after a successful post, offers "Same item" (reuse
+    # the work item just debriefed), "Pick another", and "Done"; elsewhere the
+    # debrief is collected via terminal Read-Host with a console posting
+    # indicator and the same three-way choice via Read-TimerNextAction. A
+    # "Same item" choice loops back straight to the countdown, skipping both
+    # the integration and item pickers.
     #
     # UTF-8 encoding is applied so emoji glyphs render in terminals that
     # default to a non-UTF-8 codepage; restored on exit (including Ctrl-C).
@@ -1053,27 +1135,32 @@ function az-Start-TimerSession {
 
     try {
         $shouldRestart = $false
+        $reuseItem     = $false
         do {
             $shouldRestart = $false
 
-            $chosen = Get-TimerIntegrationPick -Name $Integration
-            if (-not $chosen) {
-                Write-Host "No integration selected — exiting." -ForegroundColor DarkGray
-                return
+            if (-not $reuseItem) {
+                $chosen = Get-TimerIntegrationPick -Name $Integration
+                if (-not $chosen) {
+                    Write-Host "No integration selected — exiting." -ForegroundColor DarkGray
+                    return
+                }
+
+                Write-Host "Fetching items from '$($chosen.Name)'..." -ForegroundColor Cyan
+                $items = & $chosen.FetchItems
+                if (-not $items -or @($items).Count -eq 0) {
+                    Write-Host "No items returned from '$($chosen.Name)'." -ForegroundColor Yellow
+                    return
+                }
+
+                $pickedItem = Get-TimerItemPick -Items $items -IntegrationName $chosen.Name
+                if (-not $pickedItem) {
+                    Write-Host "No item selected — exiting." -ForegroundColor DarkGray
+                    return
+                }
             }
 
-            Write-Host "Fetching items from '$($chosen.Name)'..." -ForegroundColor Cyan
-            $items = & $chosen.FetchItems
-            if (-not $items -or @($items).Count -eq 0) {
-                Write-Host "No items returned from '$($chosen.Name)'." -ForegroundColor Yellow
-                return
-            }
-
-            $pickedItem = Get-TimerItemPick -Items $items -IntegrationName $chosen.Name
-            if (-not $pickedItem) {
-                Write-Host "No item selected — exiting." -ForegroundColor DarkGray
-                return
-            }
+            $reuseItem = $false
 
             Write-Host ""
             Write-Host "Starting $Minutes-minute session on item $($pickedItem.Id): $($pickedItem.Title)" -ForegroundColor Green
@@ -1113,13 +1200,7 @@ function az-Start-TimerSession {
 
                 Write-TimerPostVerdict -Result $debriefResult.PostResult -Item $pickedItem -Integration $chosen
 
-                if ($debriefResult.StartAnother) {
-                    $shouldRestart = $true
-                    $Integration   = $null
-                } else {
-                    $waveIcon = $script:TimerIconWave
-                    Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
-                }
+                $nextAction = $debriefResult.NextAction
 
             } else {
 
@@ -1151,16 +1232,19 @@ function az-Start-TimerSession {
 
                 Write-TimerPostVerdict -Result $commentResult -Item $pickedItem -Integration $chosen
 
-                if ($countdownResult.Interrupted) {
-                    $startAnother = Read-TimerYesNo -Prompt 'Start a new session?' -DefaultYes
-                    if ($startAnother) {
-                        $shouldRestart = $true
-                        $Integration   = $null
-                    } else {
-                        $waveIcon = $script:TimerIconWave
-                        Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
-                    }
-                }
+                $itemLabel  = "$($pickedItem.Id): $($pickedItem.Title)"
+                $nextAction = Read-TimerNextAction -ItemLabel $itemLabel
+            }
+
+            $resolved      = Resolve-TimerNextAction -Action $nextAction
+            $shouldRestart = $resolved.ShouldRestart
+            $reuseItem     = $resolved.ReuseItem
+
+            if ($shouldRestart -and -not $reuseItem) {
+                $Integration = $null
+            } elseif (-not $shouldRestart) {
+                $waveIcon = $script:TimerIconWave
+                Write-Host "Goodbye $waveIcon" -ForegroundColor DarkGray
             }
 
         } while ($shouldRestart)
