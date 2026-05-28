@@ -11,8 +11,9 @@
 #                                a console posting indicator. Press Esc during the
 #                                countdown to end early and still post a debrief.
 #   Register-TimerIntegration  - add an integration (Name, Description,
-#                                FetchItems, AddComment, optional ViewHint).
-#                                Registering with an existing Name replaces it.
+#                                FetchItems, AddComment, optional ViewHint,
+#                                optional CloseItem). Registering with an
+#                                existing Name replaces it.
 #
 # Integration contract (each entry of $script:TimerIntegrations):
 #   Name        [string]      - display name shown in the picker
@@ -24,6 +25,14 @@
 #   ViewHint    [scriptblock] - param([int]$Id); returns a one-line string
 #                               printed after a successful comment post
 #                               (e.g. "View discussion: az-Open-WorkItemById 1234")
+#   CloseItem   [scriptblock] - optional; param([int]$Id); transitions the work
+#                               item to its done state. Azure DevOps maps this
+#                               to System.State=$script:TimerCloseState (default
+#                               'Resolved'). When provided, the debrief surfaces
+#                               a "Work complete — resolve this story" checkbox
+#                               (WPF) / "Resolve this item now? [y/N]" prompt
+#                               (terminal) that fires only after a successful
+#                               AddComment.
 #
 # Azure DevOps integration is registered at the bottom of this file; reads
 # $HOME/.bashcuts-cache/azure-devops/assigned.json (populated by
@@ -47,6 +56,8 @@ $script:TimerPollIntervalMs = 100
 $script:TimerPollsPerSecond = 10
 
 $script:TimerIntegrations = @()
+
+$script:TimerCloseState = 'Resolved'
 
 $script:WpfColorBackground = '#2D2D30'
 $script:WpfColorStroke     = '#444444'
@@ -263,7 +274,8 @@ function az-Register-TimerIntegration {
         [Parameter(Mandatory)] [string]      $Description,
         [Parameter(Mandatory)] [scriptblock] $FetchItems,
         [Parameter(Mandatory)] [scriptblock] $AddComment,
-        [scriptblock] $ViewHint
+        [scriptblock] $ViewHint,
+        [scriptblock] $CloseItem
     )
 
     $entry = [PSCustomObject]@{
@@ -272,6 +284,7 @@ function az-Register-TimerIntegration {
         FetchItems  = $FetchItems
         AddComment  = $AddComment
         ViewHint    = $ViewHint
+        CloseItem   = $CloseItem
     }
 
     $existing = @($script:TimerIntegrations | Where-Object { $_.Name -eq $Name })
@@ -809,6 +822,36 @@ function Write-TimerPostVerdict {
 }
 
 
+function Write-TimerResolveVerdict {
+    # Prints the resolve-item verdict shared by both the WPF and terminal
+    # debrief paths after a successful comment post: a green check naming the
+    # target state on success, a red warning + error text on failure. $Result
+    # is the integration's CloseItem envelope ({ Json, Error, ExitCode }); a
+    # missing ExitCode is treated as success (0).
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)] $Item,
+        [Parameter(Mandatory)] [string] $CloseState
+    )
+
+    $exitCode = Get-TimerResultExitCode -Result $Result
+
+    $checkIcon = $script:TimerIconCheck
+    $warnIcon  = $script:TimerIconWarn
+
+    if ($exitCode -eq 0) {
+        Write-Host "$checkIcon Item $($Item.Id) resolved (State=$CloseState)." -ForegroundColor Green
+
+    } else {
+
+        Write-Host "$warnIcon Resolve failed (exit=$exitCode). Comment was posted; state unchanged." -ForegroundColor Red
+        if ($Result -and $Result.Error) {
+            Write-Host "   $($Result.Error)" -ForegroundColor Red
+        }
+    }
+}
+
+
 function Show-WpfTimerDebrief {
     # Windows-only themed debrief form the countdown overlay morphs into. Two
     # multiline fields (Debrief + Next) share the timer's dark/blue theme. On
@@ -818,8 +861,12 @@ function Show-WpfTimerDebrief {
     # after a successful post (ExitCode 0); a failed post keeps the form open
     # with the error so the user can retry. The "Start another?" choice offers
     # "Same item" (reuse the work item just debriefed), "Pick another" (return
-    # to the picker), and "Done". Returns { Cancelled; NextAction; PostResult }
-    # for the orchestrator, where NextAction is 'Done' / 'SameItem' / 'NewItem'.
+    # to the picker), and "Done". When -CloseAction is supplied, a "Work
+    # complete — resolve this story" checkbox renders above the Post button;
+    # when ticked, a successful comment post is followed by an invocation of
+    # CloseAction and its outcome is reflected in the status line. Returns
+    # { Cancelled; NextAction; PostResult; CloseRequested; CloseResult } for the
+    # orchestrator, where NextAction is 'Done' / 'SameItem' / 'NewItem'.
     #
     # The az post is synchronous on the dispatcher thread, so the spinner can't
     # truly animate during the call. The form forces a Render-priority dispatch
@@ -827,16 +874,22 @@ function Show-WpfTimerDebrief {
     # the call — feedback without spinning up a worker runspace.
     param(
         [Parameter(Mandatory)] [bool]        $Interrupted,
-        [Parameter(Mandatory)] [scriptblock] $SubmitAction
+        [Parameter(Mandatory)] [scriptblock] $SubmitAction,
+        [scriptblock] $CloseAction
     )
 
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
 
     $formWidth = 360
 
-    $Script:WpfDebriefOutcome    = 'Cancelled'
-    $Script:WpfDebriefNextAction = 'Done'
-    $Script:WpfDebriefPostResult = $null
+    $Script:WpfDebriefOutcome        = 'Cancelled'
+    $Script:WpfDebriefNextAction     = 'Done'
+    $Script:WpfDebriefPostResult     = $null
+    $Script:WpfDebriefCloseRequested = $false
+    $Script:WpfDebriefCloseResult    = $null
+
+    $closeEnabled  = ($null -ne $CloseAction)
+    $checkboxLabel = "Work complete — resolve this story (sets State=$script:TimerCloseState)"
 
     $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
 
@@ -927,6 +980,24 @@ function Show-WpfTimerDebrief {
         Margin                      = '0,0,0,12'
     }
     $vbox.Children.Add($nextBox) | Out-Null
+
+    # ---- Resolve checkbox (only when integration supplies a CloseAction) ----
+
+    $chkResolve = New-Object System.Windows.Controls.CheckBox -Property @{
+        Content    = $checkboxLabel
+        Foreground = $brushes.White
+        Background = $brushes.Bg
+        FontSize   = 11
+        Margin     = '0,0,0,10'
+        IsChecked  = $false
+        Visibility = [System.Windows.Visibility]::Collapsed
+    }
+
+    if ($closeEnabled) {
+        $chkResolve.Visibility = [System.Windows.Visibility]::Visible
+    }
+
+    $vbox.Children.Add($chkResolve) | Out-Null
 
     # ---- Post button row ----
 
@@ -1056,8 +1127,40 @@ function Show-WpfTimerDebrief {
             $Script:WpfDebriefPostResult = $postResult
             $Script:WpfDebriefOutcome    = 'Posted'
 
-            $statusText.Text      = 'Posted. Start another session?'
+            $wantsResolve = ($closeEnabled -and $chkResolve.IsChecked -eq $true)
+
+            if ($wantsResolve) {
+                $Script:WpfDebriefCloseRequested = $true
+
+                $statusText.Text = 'Resolving item...'
+                $spinner.Text.Visibility = [System.Windows.Visibility]::Visible
+                $spinner.Timer.Start()
+
+                $mainWin.Dispatcher.Invoke(
+                    [action]{},
+                    [System.Windows.Threading.DispatcherPriority]::Render
+                )
+
+                $closeResult = & $CloseAction
+
+                $spinner.Timer.Stop()
+                $spinner.Text.Visibility = [System.Windows.Visibility]::Collapsed
+
+                $Script:WpfDebriefCloseResult = $closeResult
+
+                $closeExit = Get-TimerResultExitCode -Result $closeResult
+                if ($closeExit -eq 0) {
+                    $statusText.Text = "Posted + Resolved (State=$script:TimerCloseState). Start another session?"
+                } else {
+                    $statusText.Foreground = $brushes.DarkRed
+                    $statusText.Text       = "Posted; resolve failed. Start another session?"
+                }
+            } else {
+                $statusText.Text = 'Posted. Start another session?'
+            }
+
             $postPanel.Visibility = [System.Windows.Visibility]::Collapsed
+            $chkResolve.Visibility = [System.Windows.Visibility]::Collapsed
             $askPanel.Visibility  = [System.Windows.Visibility]::Visible
         } else {
             $errText = if ($postResult -and $postResult.Error) {
@@ -1095,9 +1198,11 @@ function Show-WpfTimerDebrief {
     $cancelled = ($Script:WpfDebriefOutcome -ne 'Posted')
 
     $result = [PSCustomObject]@{
-        Cancelled  = $cancelled
-        NextAction = $Script:WpfDebriefNextAction
-        PostResult = $Script:WpfDebriefPostResult
+        Cancelled      = $cancelled
+        NextAction     = $Script:WpfDebriefNextAction
+        PostResult     = $Script:WpfDebriefPostResult
+        CloseRequested = $Script:WpfDebriefCloseRequested
+        CloseResult    = $Script:WpfDebriefCloseResult
     }
     return $result
 }
@@ -1114,7 +1219,10 @@ function az-Start-TimerSession {
     # debrief is collected via terminal Read-Host with a console posting
     # indicator and the same three-way choice via Read-TimerNextAction. A
     # "Same item" choice loops back straight to the countdown, skipping both
-    # the integration and item pickers.
+    # the integration and item pickers. When the chosen integration supplies
+    # a CloseItem, the WPF form shows a resolve checkbox and the terminal path
+    # prompts "Resolve this item now?" after a successful comment post; either
+    # path fires the state transition only when explicitly requested.
     #
     # UTF-8 encoding is applied so emoji glyphs render in terminals that
     # default to a non-UTF-8 codepage; restored on exit (including Ctrl-C).
@@ -1190,7 +1298,18 @@ function az-Start-TimerSession {
                     return $posted
                 }.GetNewClosure()
 
-                $debriefResult = Show-WpfTimerDebrief -Interrupted $countdownResult.Interrupted -SubmitAction $submitAction
+                $closeAction = $null
+                if ($null -ne $chosen.CloseItem) {
+                    $closeAction = {
+                        $closed = & $chosen.CloseItem -Id $pickedItem.Id
+                        return $closed
+                    }.GetNewClosure()
+                }
+
+                $debriefResult = Show-WpfTimerDebrief `
+                    -Interrupted  $countdownResult.Interrupted `
+                    -SubmitAction $submitAction `
+                    -CloseAction  $closeAction
 
                 if (-not $debriefResult.PostResult) {
                     $waveIcon = $script:TimerIconWave
@@ -1199,6 +1318,13 @@ function az-Start-TimerSession {
                 }
 
                 Write-TimerPostVerdict -Result $debriefResult.PostResult -Item $pickedItem -Integration $chosen
+
+                if ($debriefResult.CloseRequested) {
+                    Write-TimerResolveVerdict `
+                        -Result     $debriefResult.CloseResult `
+                        -Item       $pickedItem `
+                        -CloseState $script:TimerCloseState
+                }
 
                 $nextAction = $debriefResult.NextAction
 
@@ -1231,6 +1357,26 @@ function az-Start-TimerSession {
                     -ScriptBlock $postScript
 
                 Write-TimerPostVerdict -Result $commentResult -Item $pickedItem -Integration $chosen
+
+                $postExitCode = Get-TimerResultExitCode -Result $commentResult
+                if ($postExitCode -eq 0 -and $null -ne $chosen.CloseItem) {
+                    $wantsResolve = Read-TimerYesNo -Prompt "Resolve this item now? (sets State=$script:TimerCloseState)"
+                    if ($wantsResolve) {
+                        $closeScript = {
+                            $closed = & $chosen.CloseItem -Id $pickedItem.Id
+                            return $closed
+                        }.GetNewClosure()
+
+                        $closeResult = Invoke-WithSpinner `
+                            -Message "Resolving item $($pickedItem.Id)" `
+                            -ScriptBlock $closeScript
+
+                        Write-TimerResolveVerdict `
+                            -Result     $closeResult `
+                            -Item       $pickedItem `
+                            -CloseState $script:TimerCloseState
+                    }
+                }
 
                 $itemLabel  = "$($pickedItem.Id): $($pickedItem.Title)"
                 $nextAction = Read-TimerNextAction -ItemLabel $itemLabel
@@ -1304,4 +1450,9 @@ az-Register-TimerIntegration `
         param([Parameter(Mandatory)] [int] $Id)
         $hint = "View discussion: az-Open-WorkItemById $Id"
         return $hint
+    } `
+    -CloseItem   {
+        param([Parameter(Mandatory)] [int] $Id)
+        $result = Set-AzDevOpsWorkItemField -Id $Id -Fields @("System.State=$script:TimerCloseState")
+        return $result
     }

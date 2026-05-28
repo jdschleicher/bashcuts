@@ -477,6 +477,18 @@ On **Windows** the countdown morphs into a themed debrief form that shares the t
 
 On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
+### Closing the story when a session finishes the task
+
+When the chosen integration supplies a `CloseItem` capability, the debrief surface adds a one-click way to transition the work item to its done state right after the comment lands — so a session that actually finished the task doesn't leave the item lingering in **Active**. On **Windows** the debrief form renders a **Work complete — resolve this story** checkbox above **Post Debrief**; ticking it makes the post sequence run the comment, then the state transition, and reports both outcomes before the **Start another session?** choice appears. On **macOS/Linux** the same trigger is a `Resolve this item now? [y/N]` prompt that follows a successful comment post (default **No** — your work item is never resolved without an explicit yes).
+
+The built-in **Azure DevOps** integration maps `CloseItem` to `System.State=Resolved` (Agile process: New → Active → Resolved → Closed). Override with a single line in your `$profile` if your process template uses a different done-state:
+
+```powershell
+$script:TimerCloseState = 'Done'   # Scrum / Basic process
+```
+
+A failed state transition (e.g. an invalid workflow move) is reported distinctly — the comment still lands; the resolve verdict tells you the state update didn't, so you can fix it in the AzDO UI without losing the debrief.
+
 ### Interrupting a session
 
 Press **Esc** during the countdown (or use **Mark Complete Early** on the Windows overlay) to end the session early and still go through the debrief. The posted comment header reflects the outcome:
@@ -506,6 +518,13 @@ Register-TimerIntegration `
     -ViewHint    {
         param([Parameter(Mandatory)] [int] $Id)
         "View: my-tracker open $Id"
+    } `
+    -CloseItem   {
+        # Optional. When present, the debrief shows a resolve checkbox
+        # (Windows) / `Resolve this item now? [y/N]` prompt (terminal) that
+        # fires after a successful comment post.
+        param([Parameter(Mandatory)] [int] $Id)
+        Set-MyTrackerItemDone -Id $Id
     }
 ```
 
