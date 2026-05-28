@@ -50,6 +50,7 @@ flowchart LR
         FindProj["az-Find-AzDevOpsProject"]
         NewStory["az-New-AzDevOpsUserStory"]
         NewFeat["az-New-AzDevOpsFeature"]
+        NewEpic["az-New-AzDevOpsEpic"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
         NewTask["az-New-Task"]
         ShowFeats["az-Show-Features"]
@@ -416,7 +417,12 @@ flowchart TD
     ReadAC --> Feat
     Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
     Feat -- yes --> Iter{Iteration param?}
-    PickFeat --> Iter
+    PickFeat --> FeatOrphan{picker returned 0 / orphan?}
+    FeatOrphan -- no --> Iter
+    FeatOrphan -- yes --> ResolveF["Resolve-AzDevOpsOrphanParent<br/>'Create a new parent Feature now? [y/N]'"]
+    ResolveF -- no / Enter --> Iter
+    ResolveF -- yes --> SpawnF["az-New-AzDevOpsFeature<br/>-NoChildStoriesPrompt -NoOpen<br/>→ new Feature id (fall back to orphan on fail)"]
+    SpawnF --> Iter
     Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
@@ -468,7 +474,12 @@ flowchart TD
     ReadAC --> Epic
     Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
     Epic -- yes --> Iter{Iteration param?}
-    PickEpic --> Iter
+    PickEpic --> EpicOrphan{picker returned 0 / orphan?}
+    EpicOrphan -- no --> Iter
+    EpicOrphan -- yes --> ResolveE["Resolve-AzDevOpsOrphanParent<br/>'Create a new parent Epic now? [y/N]'"]
+    ResolveE -- no / Enter --> Iter
+    ResolveE -- yes --> SpawnE["az-New-AzDevOpsEpic -NoOpen<br/>→ new Epic id (fall back to orphan on fail)"]
+    SpawnE --> Iter
     Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
@@ -498,6 +509,8 @@ flowchart TD
 ```
 
 DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrappers over a shared `Read-AzDevOpsParentPick -ParentType 'Epic'|'Feature'` helper (per CLAUDE.md "extract repeated branches"). The single-shot story creator's parent picker did not regress — it still exists as `Read-AzDevOpsFeaturePick`.
+
+Orphan → create-parent: when the interactive picker returns `0` (orphan), both `az-New-AzDevOpsUserStory` and `az-New-AzDevOpsFeature` route through the shared `Resolve-AzDevOpsOrphanParent` helper, which offers `Create a new parent <type> now? [y/N]` (default-No via `Read-AzDevOpsYesNo -DefaultNo`). On yes it spawns the full interactive parent creator — a Feature for the Story, an `az-New-AzDevOpsEpic` for the Feature — and links the child to the returned id; the chain terminates at the parentless Epic. A creator that fails or returns no id falls back to the orphan path with a yellow note. The picker (and therefore the prompt) is reached only when no parent id was passed; an explicit `-FeatureId 0` / `-ParentEpicId 0` forces an orphan with no prompt. `az-New-AzDevOpsEpic` is the top-tier creator: same walk-through as the Feature flow above, minus the parent picker and the child-story hand-off.
 
 ---
 
@@ -662,6 +675,7 @@ graph LR
     FindIter(["az-Find-AzDevOpsIteration"]):::pub
     NewS(["az-New-AzDevOpsUserStory"]):::pub
     NewF(["az-New-AzDevOpsFeature"]):::pub
+    NewEpic(["az-New-AzDevOpsEpic"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
@@ -844,6 +858,7 @@ graph LR
     CGate[Test-AzDevOpsCreateGate]:::priv
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
     CrLink[Invoke-AzDevOpsCreateAndLink]:::priv
+    ResolveOrphan[Resolve-AzDevOpsOrphanParent]:::priv
 
     %% Multi-project resolver layer (azdevops_projects.ps1)
     MapDef[Test-AzDevOpsProjectMapDefined]:::priv
@@ -1103,6 +1118,21 @@ graph LR
     NewF --> CrLink
     NewF --> YN
     NewF -.hand-off on yes.-> NewSB
+
+    %% az-New-AzDevOpsEpic — top-tier creator (no parent picker, no child-story hand-off)
+    NewEpic --> CGate
+    NewEpic --> ReadH
+    NewEpic --> Pri
+    NewEpic --> AC
+    NewEpic --> ResIA
+    NewEpic --> CrLink
+
+    %% Orphan → create-parent (shared by the Story and Feature creators)
+    NewS -.picker returned 0.-> ResolveOrphan
+    NewF -.picker returned 0.-> ResolveOrphan
+    ResolveOrphan --> YN
+    ResolveOrphan -.spawn parent on yes.-> NewF
+    ResolveOrphan -.spawn parent on yes.-> NewEpic
 
     NewTask --> CGate
     NewTask --> ReadH
