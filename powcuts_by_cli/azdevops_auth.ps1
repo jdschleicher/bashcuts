@@ -211,10 +211,24 @@ function New-AzDevOpsStepResult {
 
 
 function Read-AzDevOpsYesNo {
-    # Default-yes Y/n prompt used by Confirm-* steps that offer a remediation
-    # action. Returns $true when the user accepts (empty input or anything
-    # other than n/no), $false on explicit refusal.
-    param([Parameter(Mandatory)] [string] $Prompt)
+    # Y/n prompt used by Confirm-* steps that offer a remediation action.
+    # Default-yes: returns $true on empty input or anything other than n/no,
+    # $false on explicit refusal.
+    #
+    # -DefaultNo flips the default for prompts where declining is the safe
+    # choice (e.g. the orphan path's "Create a new parent Feature now?"): the
+    # hint becomes [y/N], empty input (Enter) means "no", and only an explicit
+    # y/yes returns $true.
+    param(
+        [Parameter(Mandatory)] [string] $Prompt,
+        [switch] $DefaultNo
+    )
+
+    if ($DefaultNo) {
+        $resp = Read-Host "    $Prompt [y/N]"
+        return ($resp -match '^(y|yes)$')
+    }
+
     $resp = Read-Host "    $Prompt [Y/n]"
     return -not ($resp -match '^(n|no)$')
 }
