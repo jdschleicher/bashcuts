@@ -852,6 +852,26 @@ function Write-TimerResolveVerdict {
 }
 
 
+function New-TimerCloseScript {
+    # Builds the closure that invokes the chosen integration's CloseItem against
+    # the picked item's Id. Both orchestrator branches (WPF debrief CloseAction +
+    # terminal Invoke-WithSpinner) need the same { & $chosen.CloseItem -Id
+    # $pickedItem.Id; return $closed }.GetNewClosure() shape, so they share this
+    # helper instead of inlining it twice.
+    param(
+        [Parameter(Mandatory)] $Integration,
+        [Parameter(Mandatory)] $Item
+    )
+
+    $closeScript = {
+        $closed = & $Integration.CloseItem -Id $Item.Id
+        return $closed
+    }.GetNewClosure()
+
+    return $closeScript
+}
+
+
 function Show-WpfTimerDebrief {
     # Windows-only themed debrief form the countdown overlay morphs into. Two
     # multiline fields (Debrief + Next) share the timer's dark/blue theme. On
@@ -1127,7 +1147,7 @@ function Show-WpfTimerDebrief {
             $Script:WpfDebriefPostResult = $postResult
             $Script:WpfDebriefOutcome    = 'Posted'
 
-            $wantsResolve = ($closeEnabled -and $chkResolve.IsChecked -eq $true)
+            $wantsResolve = ($closeEnabled -and ($chkResolve.IsChecked -eq $true))
 
             if ($wantsResolve) {
                 $Script:WpfDebriefCloseRequested = $true
@@ -1300,10 +1320,7 @@ function az-Start-TimerSession {
 
                 $closeAction = $null
                 if ($null -ne $chosen.CloseItem) {
-                    $closeAction = {
-                        $closed = & $chosen.CloseItem -Id $pickedItem.Id
-                        return $closed
-                    }.GetNewClosure()
+                    $closeAction = New-TimerCloseScript -Integration $chosen -Item $pickedItem
                 }
 
                 $debriefResult = Show-WpfTimerDebrief `
@@ -1362,10 +1379,7 @@ function az-Start-TimerSession {
                 if ($postExitCode -eq 0 -and $null -ne $chosen.CloseItem) {
                     $wantsResolve = Read-TimerYesNo -Prompt "Resolve this item now? (sets State=$script:TimerCloseState)"
                     if ($wantsResolve) {
-                        $closeScript = {
-                            $closed = & $chosen.CloseItem -Id $pickedItem.Id
-                            return $closed
-                        }.GetNewClosure()
+                        $closeScript = New-TimerCloseScript -Integration $chosen -Item $pickedItem
 
                         $closeResult = Invoke-WithSpinner `
                             -Message "Resolving item $($pickedItem.Id)" `
