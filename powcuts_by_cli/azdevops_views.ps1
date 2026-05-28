@@ -251,7 +251,7 @@ function Read-AzDevOpsJsonCache {
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsClosedStates {
-    return @('Closed', 'Removed')
+    return @('Closed', 'Removed', 'Resolved', 'Done', 'Completed')
 }
 
 
