@@ -352,6 +352,47 @@ function Invoke-AzDevOpsCreateAndLink {
 }
 
 
+function Resolve-AzDevOpsOrphanParent {
+    # Shared orphan -> create-parent branch for az-New-AzDevOpsUserStory and
+    # az-New-AzDevOpsFeature. Call this only when the interactive parent picker
+    # returned 0 (orphan). It offers to create the missing parent inline; on
+    # yes it runs the supplied -CreateParent creator and returns the new parent
+    # id, on no/Enter it returns 0 so the child stays an orphan exactly as
+    # before. A creator that fails or returns no id also falls back to 0 with a
+    # clear yellow note - the caller then takes its normal orphan path, with no
+    # link attempt against a bogus id.
+    #
+    # -CreateParent is a scriptblock (not a function name) so the full
+    # interactive creator runs verbatim - the spawned Feature runs its own Epic
+    # picker, the spawned Epic runs its own prompts. The recursion terminates
+    # naturally at az-New-AzDevOpsEpic, which has no parent.
+    param(
+        [Parameter(Mandatory)] [string]      $ParentLabel,
+        [Parameter(Mandatory)] [scriptblock] $CreateParent
+    )
+
+    Write-Host ""
+    if (-not (Read-AzDevOpsYesNo -Prompt "Create a new parent $ParentLabel now?" -DefaultNo)) {
+        return 0
+    }
+
+    $created = & $CreateParent
+    $candidate = $created | Select-Object -Last 1
+
+    $parentId = 0
+    if ($null -ne $candidate) {
+        [int]::TryParse("$candidate", [ref]$parentId) | Out-Null
+    }
+
+    if ($parentId -le 0) {
+        Write-Host "No parent $ParentLabel was created - continuing with an orphan." -ForegroundColor Yellow
+        return 0
+    }
+
+    return $parentId
+}
+
+
 function az-New-AzDevOpsUserStory {
     [CmdletBinding()]
     param(
@@ -401,6 +442,12 @@ function az-New-AzDevOpsUserStory {
 
     if ($FeatureId -lt 0) {
         $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy -ChildType 'USER_STORY'
+
+        if ($FeatureId -eq 0) {
+            $FeatureId = Resolve-AzDevOpsOrphanParent -ParentLabel 'Feature' -CreateParent {
+                az-New-AzDevOpsFeature -NoChildStoriesPrompt -NoOpen
+            }
+        }
     }
 
     $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
@@ -587,6 +634,12 @@ function az-New-AzDevOpsFeature {
 
     if ($ParentEpicId -lt 0) {
         $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy -ChildType 'FEATURE'
+
+        if ($ParentEpicId -eq 0) {
+            $ParentEpicId = Resolve-AzDevOpsOrphanParent -ParentLabel 'Epic' -CreateParent {
+                az-New-AzDevOpsEpic -NoOpen
+            }
+        }
     }
 
     $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'FEATURE'
@@ -634,6 +687,91 @@ function az-New-AzDevOpsFeature {
         }
     }
 
+    return $newId
+}
+
+
+function az-New-AzDevOpsEpic {
+    # Interactive Epic creator - the top tier of the Epic -> Feature -> Story
+    # hierarchy, so there's no parent picker (Epics are root items). Mirrors
+    # az-New-AzDevOpsFeature's UX otherwise: title / description / priority /
+    # acceptance criteria / iteration / area / tags / required fields. Story
+    # points and the child-stories hand-off are intentionally skipped - those
+    # belong to the lower tiers.
+    #
+    # Used both stand-alone and as the chained parent target when
+    # az-New-AzDevOpsFeature's orphan path offers to create a new Epic inline.
+    # Returns the new Epic's [int] id.
+    [CmdletBinding()]
+    param(
+        [string] $Title,
+        [string] $Description,
+        [int]    $Priority = -1,
+        [string] $AcceptanceCriteria,
+        [string] $Iteration,
+        [string] $Area,
+        [switch] $NoOpen
+    )
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsEpic')) {
+        return
+    }
+
+    if (-not $Title) {
+        $Title = Read-Host 'What is the title of the Epic?'
+    }
+    if (-not $Title) {
+        Write-Host "Title is required - aborting." -ForegroundColor Red
+        return
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('Description')) {
+        $Description = Read-Host 'What is the description?'
+    }
+
+    if ($Priority -lt 1 -or $Priority -gt 4) {
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'EPIC'
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
+        $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'EPIC'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'EPIC'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC'
+
+    $createArgs = @{
+        Type               = 'Epic'
+        Title              = $Title
+        Description        = $Description
+        Priority           = $Priority
+        AcceptanceCriteria = $AcceptanceCriteria
+        Iteration          = $Iteration
+        Area               = $Area
+        Tags               = $tags
+        ExtraFields        = $extraFields
+    }
+
+    $outcome = Invoke-AzDevOpsCreateAndLink `
+        -ChildLabel    'Epic' `
+        -ParentLabel   'Epic' `
+        -OrphanLabel   'Epic (top-level - no parent)' `
+        -CreateArgs    $createArgs `
+        -ParentId      0 `
+        -OpenInBrowser:(-not $NoOpen)
+
+    if (-not $outcome.Ok) {
+        return
+    }
+
+    $newId = $outcome.Id
     return $newId
 }
 
