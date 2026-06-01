@@ -203,7 +203,7 @@ az-Connect-AzDevOps
 
 This walks through seven checks (Azure CLI present, `azure-devops` extension installed, env vars set, `az login` session active, `az devops` defaults configured, user-machine WIQL query files seeded, smoke `az boards query` succeeds) and prints a clear `READY` or `NOT READY` verdict at the end. It will offer to install the extension and run `az login` for you if either is missing.
 
-After `az-Connect-AzDevOps` reports `READY` once, later commands in the AzDevOps batch use the silent `az-Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache.
+After `az-Connect-AzDevOps` reports `READY` once, the read/sync commands (`az-Sync-AzDevOpsCache`, the schema commands) use the silent `az-Test-AzDevOpsAuth` check at startup to confirm the environment is still good before they hit the cache. The result is cached in-session for a few minutes so the check isn't repeated on every command. The `az-New-AzDevOps*` creators skip that live check entirely — they only confirm the `az` CLI is on PATH and let the `az boards work-item create` call itself surface any auth problem, so creating a work item makes no extra `az` round-trip beyond the create and parent-link.
 
 ### Customizing WIQL queries
 

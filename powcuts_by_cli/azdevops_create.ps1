@@ -134,9 +134,15 @@ function Test-AzDevOpsCreateGate {
     # Auth + AZ_USER_EMAIL gate shared by every az-New-AzDevOps* creator.
     # Prints the abort message and returns $false on miss so callers can
     # short-circuit with a single `if (-not (Test-AzDevOpsCreateGate ...))`.
+    #
+    # Passes -SkipLiveProbe so the gate never fires the live `az boards query`
+    # @Me smoke test: for a create command the `az boards work-item create`
+    # call that follows is the authoritative auth check, so an upfront probe is
+    # a redundant az round-trip. A valid auth memo still short-circuits; a stale
+    # memo only re-confirms the az CLI is on PATH.
     param([Parameter(Mandatory)] [string] $CommandName)
 
-    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName $CommandName)) {
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName $CommandName -SkipLiveProbe)) {
         return $false
     }
 
