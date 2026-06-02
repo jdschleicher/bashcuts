@@ -226,6 +226,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @()
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Show-Orphans'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 9
+        Purpose       = 'Lists parentless Features and stories under the active area so stray items can be re-parented; select a row to open it or create a child'
+        Args          = '[-Area <path>] [-State <states>]'
+        Example       = 'az-Show-Orphans'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(125)
+    },
+
     # --- Create ------------------------------------------------------------
 
     [PSCustomObject]@{

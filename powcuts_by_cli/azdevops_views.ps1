@@ -2,7 +2,7 @@
 # Azure DevOps — Cached-data views
 # ============================================================================
 # Read-only commands that surface the cached work-item JSON: assigned/mentions
-# (pickable Out-ConsoleGridView grids via az-Get-*), tree/board/features
+# (pickable Out-ConsoleGridView grids via az-Get-*), tree/board/features/orphans
 # (human-readable views via az-Show-*). All grid + cache-consumer scaffolding
 # (Show-AzDevOpsRows, Read-AzDevOpsJsonCache, formatters, URL builders) lives
 # here and is shared across the views.
@@ -1306,4 +1306,85 @@ function az-Show-Features {
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected -DefaultType $featureType
+}
+
+
+# ---------------------------------------------------------------------------
+# Orphans view (cached items with no parent)
+#
+# Public function:
+#   az-Show-Orphans - lists Features and requirement-tier items (User Story /
+#                     PBI / Requirement / Issue) in the hierarchy cache that
+#                     have no parent, scoped to the active project area. Epics
+#                     are excluded - a parentless Epic is a legitimate root,
+#                     not an orphan. Select a row to open it or create a child,
+#                     same post-selection action as the other az-Show-* views.
+#
+# Reads the same hierarchy.json az-Show-Tree / az-Show-Board consume; never
+# calls `az`. -Area narrows to a sub-path of the cached area (sub-path match
+# via Test-AzDevOpsAreaPathMatch) and defaults to $env:AZ_AREA. -State
+# overrides the default active-only filter (pass -State Closed,Resolved to
+# audit the archive).
+#
+# Tasks are intentionally absent: the hierarchy WIQL pulls only Epic / Feature
+# / requirement-tier rows, so parentless Tasks are out of scope until a Tasks
+# tier is added to the sync.
+# ---------------------------------------------------------------------------
+
+function az-Show-Orphans {
+    [CmdletBinding()]
+    param(
+        [string]   $Area,
+        [string[]] $State
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+
+    $orphanTypes = @('Feature') + $script:AzDevOpsRequirementTypes
+
+    $parentless = @($items | Where-Object {
+        $null -eq $_.Parent -and $_.Type -in $orphanTypes
+    })
+
+    $active = @(Select-AzDevOpsActiveItems -Items $parentless -State $State)
+
+    $areaFilter = if ($PSBoundParameters.ContainsKey('Area')) {
+        $Area
+    }
+    else {
+        $env:AZ_AREA
+    }
+
+    $scoped = if ($areaFilter) {
+        @($active | Where-Object {
+            Test-AzDevOpsAreaPathMatch -CandidatePath $_.AreaPath -AllowedPaths @($areaFilter)
+        })
+    }
+    else {
+        $active
+    }
+
+    $areaLabel = if ($areaFilter) {
+        $areaFilter
+    }
+    else {
+        '(all areas)'
+    }
+
+    if ($scoped.Count -eq 0) {
+        Write-Host "(no orphaned items under $areaLabel)" -ForegroundColor Yellow
+        return
+    }
+
+    $rows = @($scoped |
+        Sort-Object Type, Id |
+        Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), AreaPath, Iteration)
+
+    $title = "Orphans - $($rows.Count) items ($areaLabel)"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
 }
