@@ -216,7 +216,7 @@ Helpers used by every step:
 
 ## 3. `az-Test-AzDevOpsAuth` — silent diagnostic chain
 
-Used by callers (`az-Sync-AzDevOpsCache`, `az-New-AzDevOpsUserStory`) at the top of every command to bail early if the environment regressed. No I/O — pure boolean.
+Used by the read/sync callers (`az-Sync-AzDevOpsCache`, `az-Initialize-AzDevOpsSchema`, `az-Test-AzDevOpsSchema`) at the top of every command to bail early if the environment regressed via `Assert-AzDevOpsAuthOrAbort`. No I/O — pure boolean. The `az-New-AzDevOps*` creators deliberately opt out (`Test-AzDevOpsCreateGate` → `Assert-AzDevOpsAuthOrAbort -SkipLiveProbe`): they skip this live smoke query because their own `az boards work-item create` call is the authoritative auth check, so an upfront probe would be a redundant `az` round-trip.
 
 ```mermaid
 flowchart TD
@@ -388,7 +388,7 @@ Interactive walk-through with all-optional parameters: every prompt is skipped i
 
 ```mermaid
 flowchart TD
-    Start([az-New-AzDevOpsUserStory]) --> Auth{az-Test-AzDevOpsAuth}
+    Start([az-New-AzDevOpsUserStory]) --> Auth{Test-AzDevOpsCreateGate<br/>auth memo or az-CLI-present<br/>no live smoke query}
     Auth -- false --> Abort1([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
     Email -- no --> Abort2([abort])
@@ -438,6 +438,8 @@ flowchart TD
     SP2 --> Done([return $newId])
 ```
 
+Auth gate: the create commands route through `Test-AzDevOpsCreateGate`, which calls `Assert-AzDevOpsAuthOrAbort -SkipLiveProbe`. Unlike `az-Sync-AzDevOpsCache` / the schema commands, the creators do **not** fire the live `az boards query` @Me smoke test up front — the `az boards work-item create` call that follows is itself the authoritative auth check, so a separate probe would be a redundant `az` round-trip. A valid in-session auth memo still short-circuits the gate; a stale memo only re-confirms the `az` CLI is on PATH (a local `Get-Command` lookup, no `az` process), and a genuinely-unauthed session surfaces the failure through the create's own `STEP FAILED` path.
+
 Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (user upgraded but hasn't synced), `Read-AzDevOpsKindPick` calls `Invoke-AzDevOpsClassificationLive` and prints a one-line "(run az-Sync-AzDevOpsCache to make this instant)" hint.
 
 ---
@@ -448,7 +450,7 @@ Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from 
 
 ```mermaid
 flowchart TD
-    Start([az-New-AzDevOpsFeature]) --> Auth{az-Test-AzDevOpsAuth}
+    Start([az-New-AzDevOpsFeature]) --> Auth{Test-AzDevOpsCreateGate<br/>auth memo or az-CLI-present<br/>no live smoke query}
     Auth -- false --> Abort1([abort])
     Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
     Email -- no --> Abort2([abort])
@@ -507,7 +509,7 @@ Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iterat
 
 ```mermaid
 flowchart TD
-    Start([az-New-AzDevOpsFeatureStories -ParentId N]) --> Auth{az-Test-AzDevOpsAuth}
+    Start([az-New-AzDevOpsFeatureStories -ParentId N]) --> Auth{Test-AzDevOpsCreateGate<br/>auth memo or az-CLI-present<br/>no live smoke query}
     Auth -- false --> Abort1([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Email{$env:AZ_USER_EMAIL set?}
     Email -- no --> Abort2([abort])

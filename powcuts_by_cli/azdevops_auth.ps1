@@ -123,13 +123,15 @@ function Invoke-AzDevOpsSmokeQuery {
 
 
 # In-session auth memo. Assert-AzDevOpsAuthOrAbort is the prologue for every
-# az-New-AzDevOps* / az-Sync / schema command, and az-Test-AzDevOpsAuth proves
-# auth with a live `az boards query` @Me smoke test - a network round-trip on
-# the start of EVERY command. Once auth is proven we record the time and
-# short-circuit the re-check for AzDevOpsAuthMemoTtlMinutes. Success only:
-# failures are never memoized, so fixing auth and retrying re-checks instantly.
-# Bounded by a TTL (not session-forever) so a token that expires mid-session is
-# re-verified within the window rather than masked until a new shell.
+# az-Sync / schema command, where az-Test-AzDevOpsAuth proves auth with a live
+# `az boards query` @Me smoke test - a network round-trip on the start of those
+# commands. The az-New-AzDevOps* creators call the gate with -SkipLiveProbe, so
+# they never fire that smoke query (the create call that follows is their own
+# auth check). Once auth is proven we record the time and short-circuit the
+# re-check for AzDevOpsAuthMemoTtlMinutes. Success only: failures are never
+# memoized, so fixing auth and retrying re-checks instantly. Bounded by a TTL
+# (not session-forever) so a token that expires mid-session is re-verified
+# within the window rather than masked until a new shell.
 $script:AzDevOpsAuthOkAt = $null
 $script:AzDevOpsAuthMemoTtlMinutes = 10
 
@@ -178,9 +180,30 @@ function Assert-AzDevOpsAuthOrAbort {
     # auth is good. On failure, prints the standard "<command> aborted -
     # az-Test-AzDevOpsAuth returned false. Run az-Connect-AzDevOps." line and
     # returns $false so callers `if (-not (Assert-...)) { return }`.
-    param([Parameter(Mandatory)] [string] $CommandName)
+    #
+    # -SkipLiveProbe suppresses the live `az boards query` @Me smoke test for
+    # write commands (the az-New-AzDevOps* creators) where the create call that
+    # immediately follows is itself the authoritative auth check - a separate
+    # upfront probe is a redundant network round-trip there. With the switch a
+    # valid auth memo still short-circuits to $true; when the memo is stale the
+    # gate only confirms the az CLI is on PATH (a local Get-Command lookup, no
+    # az process) and trusts the create to surface any auth error via its own
+    # STEP FAILED path. Read/sync commands omit the switch and keep failing fast.
+    param(
+        [Parameter(Mandatory)] [string] $CommandName,
+        [switch] $SkipLiveProbe
+    )
 
     if (Test-AzDevOpsAuthMemoValid) {
+        return $true
+    }
+
+    if ($SkipLiveProbe) {
+        if (-not (Test-AzDevOpsCliPresent)) {
+            Write-Host "$CommandName aborted - az CLI not found on PATH. Run az-Connect-AzDevOps." -ForegroundColor Red
+            return $false
+        }
+
         return $true
     }
 
