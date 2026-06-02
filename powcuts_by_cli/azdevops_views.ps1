@@ -1353,8 +1353,7 @@ function az-Show-Orphans {
 
     $areaFilter = if ($PSBoundParameters.ContainsKey('Area')) {
         $Area
-    }
-    else {
+    } else {
         $env:AZ_AREA
     }
 
@@ -1362,15 +1361,13 @@ function az-Show-Orphans {
         @($active | Where-Object {
             Test-AzDevOpsAreaPathMatch -CandidatePath $_.AreaPath -AllowedPaths @($areaFilter)
         })
-    }
-    else {
+    } else {
         $active
     }
 
     $areaLabel = if ($areaFilter) {
         $areaFilter
-    }
-    else {
+    } else {
         '(all areas)'
     }
 
