@@ -40,6 +40,7 @@ flowchart LR
         OpenM["az-Open-Mention"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
+        Orphans["az-Show-Orphans"]
         ShowAreas["az-Show-Areas"]
         ShowIters["az-Show-Iterations"]
         GetAreas["az-Get-AzDevOpsAreas"]
@@ -113,6 +114,7 @@ flowchart LR
     OpenM --> MentionsJson
     Tree --> HierJson
     Board --> HierJson
+    Orphans --> HierJson
     Find --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
@@ -656,6 +658,7 @@ graph LR
     OpenM(["az-Open-Mention"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
+    Orphans(["az-Show-Orphans"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
     ShowIters(["az-Show-Iterations"]):::pub
     GetAreas(["az-Get-AzDevOpsAreas"]):::pub
@@ -1007,10 +1010,18 @@ graph LR
     Board --> TitleCol
     Board --> ShowRows
 
-    %% Post-selection row actions (shared by Tree / Board / Features)
+    Orphans --> ReadH
+    Orphans --> Stale
+    Orphans --> SelAct
+    Orphans --> AreaMatch
+    Orphans --> TitleCol
+    Orphans --> ShowRows
+
+    %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
     Board --> RowAction
     ShowFeats --> RowAction
+    Orphans --> RowAction
     RowAction --> RowType
     RowAction --> ChildType
     RowAction --> RowChoice
