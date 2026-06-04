@@ -292,6 +292,101 @@ function Resolve-AzDevOpsIterationArea {
 }
 
 
+function Add-AzDevOpsHierarchyCacheItem {
+    # Append a freshly-created work item to the local hierarchy.json cache so
+    # follow-on commands in the same session (Test-AzDevOpsParentIsFeature, the
+    # Epic / Feature / Story parent pickers, az-Show-Tree) can see it without
+    # waiting for the next az-Sync-AzDevOpsCache. The row is written in the same
+    # raw `az boards query` shape the sync emits - a top-level `id` plus a
+    # `fields` object - so ConvertFrom-AzDevOpsHierarchyItem reads it back
+    # unchanged.
+    #
+    # Best-effort by design: a missing / empty / unparseable cache, or any write
+    # failure, is swallowed (logged when the sync logger is loaded) so it never
+    # aborts the create that just succeeded. The next full sync overwrites
+    # hierarchy.json wholesale, so a transient skip here self-heals. Re-adding an
+    # id that is already present is a no-op.
+    #
+    # State defaults to 'New' (the stock initial state across Agile / Scrum /
+    # CMMI); Basic projects open as 'To Do' but no cache consumer nests on state,
+    # so the next sync reconciles it harmlessly. ParentId of 0 writes a null
+    # System.Parent - the parentless shape the sync emits for top-level Epics.
+    param(
+        [Parameter(Mandatory)] [int]    $Id,
+        [Parameter(Mandatory)] [string] $Type,
+        [Parameter(Mandatory)] [string] $Title,
+        [string] $State = 'New',
+        [string] $Iteration,
+        [string] $AreaPath,
+        [int]    $ParentId = 0
+    )
+
+    try {
+        $paths = Get-AzDevOpsCachePaths
+        $path  = $paths.Hierarchy
+
+        $existing = @()
+        if (Test-Path -LiteralPath $path) {
+            $raw = Get-Content -LiteralPath $path -Raw
+            if ($raw -and $raw.Trim()) {
+                $parsed = $raw | ConvertFrom-Json
+                if ($null -ne $parsed) {
+                    $existing = @($parsed)
+                }
+            }
+        }
+
+        foreach ($row in $existing) {
+            if ([int]$row.id -eq $Id) {
+                return
+            }
+        }
+
+        $parentValue = if ($ParentId -gt 0) {
+            $ParentId
+        } else {
+            $null
+        }
+
+        $fields = [ordered]@{
+            'System.Id'            = $Id
+            'System.WorkItemType'  = $Type
+            'System.State'         = $State
+            'System.Title'         = $Title
+            'System.IterationPath' = $Iteration
+            'System.AreaPath'      = $AreaPath
+            'System.Parent'        = $parentValue
+        }
+
+        $newRow = [PSCustomObject]@{
+            id     = $Id
+            fields = [PSCustomObject]$fields
+        }
+
+        $updated = @($existing) + $newRow
+
+        # Match the hierarchy dataset's on-disk depth. Its descriptor in
+        # Get-AzDevOpsSyncDatasets sets no JsonDepth, so the sync writes it at
+        # Invoke-AzDevOpsAzDataset's default of 10; an appended row therefore
+        # serializes identically to a synced one. The flat id+fields shape needs
+        # far less, but aligning the value keeps the two writers from drifting.
+        $hierarchyJsonDepth = 10
+        $json = ConvertTo-Json -InputObject @($updated) -Depth $hierarchyJsonDepth -AsArray
+
+        if (Get-Command New-AzDevOpsDirectoryIfMissing -ErrorAction SilentlyContinue) {
+            New-AzDevOpsDirectoryIfMissing -Path $paths.Dir
+        }
+
+        Write-AzDevOpsCacheFile -Path $path -Content $json
+    }
+    catch {
+        if (Get-Command Write-AzDevOpsSyncLog -ErrorAction SilentlyContinue) {
+            Write-AzDevOpsSyncLog "hierarchy cache append skipped for $Id : $($_.Exception.Message)"
+        }
+    }
+}
+
+
 function Invoke-AzDevOpsCreateAndLink {
     # Wraps the create -> parent-link -> echo URL tail shared by every
     # az-New-AzDevOps* creator: az-New-AzDevOpsUserStory, az-New-AzDevOpsFeature,
@@ -304,6 +399,14 @@ function Invoke-AzDevOpsCreateAndLink {
     # User Story...", "Linking story 5001 to parent Feature 1240..."), so the
     # existing UX is preserved verbatim - the helper only consolidates the
     # control flow.
+    #
+    # On success the new item is appended to hierarchy.json via
+    # Add-AzDevOpsHierarchyCacheItem so a chained child create (e.g. the Feature
+    # -> "Add child stories now?" hand-off, or a standalone
+    # az-New-AzDevOpsUserStory -FeatureId <newId>) finds the parent in the cache
+    # instead of failing the hierarchy lookup. The recorded System.Parent
+    # reflects the actual server link: the parent id only when the link
+    # succeeded, null otherwise.
     param(
         [Parameter(Mandatory)] [string]    $ChildLabel,
         [Parameter(Mandatory)] [string]    $ParentLabel,
@@ -331,6 +434,7 @@ function Invoke-AzDevOpsCreateAndLink {
     $newUrl = $createResult.Url
     Write-Host "OK Created $ChildLabel $newId" -ForegroundColor Green
 
+    $linkedParentId = 0
     if ($ParentId -gt 0) {
         Write-Host "Linking $OrphanLabel $newId to parent $ParentLabel $ParentId..." -ForegroundColor Cyan
         $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $ParentId
@@ -340,11 +444,26 @@ function Invoke-AzDevOpsCreateAndLink {
         }
         else {
             Write-Host "OK Linked $newId -> $ParentLabel $ParentId" -ForegroundColor Green
+            $linkedParentId = $ParentId
         }
     }
     else {
         Write-Host "(no parent linked - orphan $OrphanLabel)" -ForegroundColor Yellow
     }
+
+    $createdType = if ($CreateArgs.ContainsKey('Type')) {
+        [string]$CreateArgs.Type
+    } else {
+        'User Story'
+    }
+
+    Add-AzDevOpsHierarchyCacheItem `
+        -Id        $newId `
+        -Type      $createdType `
+        -Title     ([string]$CreateArgs.Title) `
+        -Iteration ([string]$CreateArgs.Iteration) `
+        -AreaPath  ([string]$CreateArgs.Area) `
+        -ParentId  $linkedParentId
 
     if ($newUrl) {
         Write-Host "URL: $newUrl" -ForegroundColor Cyan

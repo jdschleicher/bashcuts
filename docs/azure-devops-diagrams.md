@@ -847,6 +847,7 @@ graph LR
     CGate[Test-AzDevOpsCreateGate]:::priv
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
     CrLink[Invoke-AzDevOpsCreateAndLink]:::priv
+    AddHier[Add-AzDevOpsHierarchyCacheItem]:::priv
 
     %% Multi-project resolver layer (azdevops_projects.ps1)
     MapDef[Test-AzDevOpsProjectMapDefined]:::priv
@@ -1138,6 +1139,7 @@ graph LR
     ResIA --> PKind
     CrLink --> InvCreate --> NewWI --> AzJson
     CrLink --> InvLink --> AddRel --> AzJson
+    CrLink --> AddHier --> WriteFile
 
     %% Unplanned work sessions
     StartUW --> CGate
