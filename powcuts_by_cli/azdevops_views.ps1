@@ -999,12 +999,69 @@ function Read-AzDevOpsRowActionChoice {
 }
 
 
+function Get-AzDevOpsRowId {
+    # Returns the positive work-item id off a selected row, or $null when the
+    # row carries no usable id (synthetic action rows, classification nodes).
+    # Shared by the open-all batch path and the per-row loop so the id guard
+    # lives in one place.
+    param([Parameter(Mandatory)] $Row)
+
+    $hasId = $Row.PSObject.Properties.Match('Id').Count -gt 0 -and [int]$Row.Id -gt 0
+    if (-not $hasId) {
+        return $null
+    }
+
+    $id = [int]$Row.Id
+    return $id
+}
+
+
+function Read-AzDevOpsOpenAllChoice {
+    # Batch prompt shown when more than one row is selected: offers to open
+    # every selected work item in the browser in one go. Returns $true to open
+    # all, $false to fall through to the per-row open/create-child prompt.
+    # Enter defaults to "open all" - the common intent when several rows are
+    # ticked is to fan them out into browser tabs.
+    param([Parameter(Mandatory)] [int] $Count)
+
+    Write-Host ""
+    Write-Host "$Count items selected." -ForegroundColor Cyan
+
+    $resp = Read-Host "  Open all $Count in browser? [Y]es / [n]=prompt each"
+
+    if ($resp -match '^(n|no)$') {
+        return $false
+    }
+
+    return $true
+}
+
+
+function Open-AzDevOpsSelectedRows {
+    # Opens every selected row that carries a usable work-item id in the
+    # browser; rows without an id are skipped with a hint. Backs the "open all"
+    # batch path of Invoke-AzDevOpsRowAction.
+    param([Parameter(Mandatory)] $Rows)
+
+    foreach ($row in @($Rows)) {
+        $id = Get-AzDevOpsRowId -Row $row
+        if ($null -eq $id) {
+            Write-Host "(selected row has no work-item id - nothing to open)" -ForegroundColor Yellow
+            continue
+        }
+
+        az-Open-WorkItemById -Id $id
+    }
+}
+
+
 function Invoke-AzDevOpsRowAction {
     # Post-selection dispatcher shared by the interactive az-Show-* work-item
-    # views. For each selected row, prompts the user to open it in the browser
-    # or create its hierarchical child. Rows without a usable work-item id are
-    # skipped with a hint. -DefaultType supplies the type for views whose rows
-    # omit a Type column.
+    # views. When more than one row is selected, first offers a single "open
+    # all" shortcut; otherwise (or when declined) prompts per row to open it in
+    # the browser or create its hierarchical child. Rows without a usable
+    # work-item id are skipped with a hint. -DefaultType supplies the type for
+    # views whose rows omit a Type column.
     param(
         $Selected,
         [string] $DefaultType
@@ -1014,14 +1071,23 @@ function Invoke-AzDevOpsRowAction {
         return
     }
 
-    foreach ($row in @($Selected)) {
-        $hasId = $row.PSObject.Properties.Match('Id').Count -gt 0 -and [int]$row.Id -gt 0
-        if (-not $hasId) {
+    $rows = @($Selected)
+
+    if ($rows.Count -gt 1) {
+        $openAll = Read-AzDevOpsOpenAllChoice -Count $rows.Count
+        if ($openAll) {
+            Open-AzDevOpsSelectedRows -Rows $rows
+            return
+        }
+    }
+
+    foreach ($row in $rows) {
+        $id = Get-AzDevOpsRowId -Row $row
+        if ($null -eq $id) {
             Write-Host "(selected row has no work-item id - nothing to open)" -ForegroundColor Yellow
             continue
         }
 
-        $id   = [int]$row.Id
         $type = Resolve-AzDevOpsRowType -Row $row -DefaultType $DefaultType
 
         $childType = if ($type) {
@@ -1148,6 +1214,50 @@ function az-Show-Board {
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+# ---------------------------------------------------------------------------
+# Epics view (top-tier hierarchy roots)
+#
+# Public function:
+#   az-Show-Epics - flat grid of Epics from the active project's hierarchy
+#                   cache. Select a row to open it in the browser or create a
+#                   child Feature (Epic -> Feature is the wired child mapping);
+#                   tick several rows to open them all at once via the shared
+#                   Invoke-AzDevOpsRowAction "open all" prompt.
+#
+# Reads the same hierarchy.json az-Show-Board / az-Show-Tree consume; never
+# calls `az` directly. Single-project like Board/Tree (not multi-project like
+# az-Show-Features). Default -State filter excludes closed states via
+# Select-AzDevOpsActiveItems; pass -State Closed,Resolved for the archive view.
+# ---------------------------------------------------------------------------
+
+function az-Show-Epics {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+
+    $epics  = @($items | Where-Object { $_.Type -eq 'Epic' })
+    $active = Select-AzDevOpsActiveItems -Items $epics -State $State
+
+    $rows = @($active | Sort-Object State, Id | Select-Object State, Id, (Get-AzDevOpsTitleColumn), Iteration)
+
+    if ($rows.Count -eq 0) {
+        Write-Host "(no epics in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
+    $title = "Epics - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected -DefaultType 'Epic'
 }
 
 
