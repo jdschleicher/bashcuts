@@ -1210,6 +1210,11 @@ function az-Show-Board {
 
     $rows = @($byState | Sort-Object State, Type, Id | Select-Object State, Id, Type, (Get-AzDevOpsTitleColumn), Iteration)
 
+    if ($rows.Count -eq 0) {
+        Write-Host "(no items in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
     $title = "Board - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -1244,7 +1249,7 @@ function az-Show-Epics {
 
     Write-AzDevOpsStaleBanner
 
-    $epics  = @($items | Where-Object { $_.Type -eq 'Epic' })
+    $epics = @($items | Where-Object { $_.Type -eq 'Epic' })
     $active = Select-AzDevOpsActiveItems -Items $epics -State $State
 
     $rows = @($active | Sort-Object State, Id | Select-Object State, Id, (Get-AzDevOpsTitleColumn), Iteration)
