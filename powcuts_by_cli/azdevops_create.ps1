@@ -586,10 +586,11 @@ function az-New-Task {
 function az-New-AzDevOpsFeature {
     # Interactive Feature creator. Mirrors az-New-AzDevOpsUserStory's UX one
     # tier up the tree: pick a parent Epic from the cached hierarchy, fill
-    # title / description / priority / area / iteration / acceptance criteria,
-    # create the Feature, link it to the Epic. Story points are intentionally
-    # skipped - Features don't carry story points in the default Agile / Scrum
-    # templates.
+    # title / description (Summary + Business Value) / priority / area /
+    # iteration, create the Feature, link it to the Epic. Story points and
+    # acceptance criteria are intentionally skipped - Features don't carry
+    # story points in the default Agile / Scrum templates, and AC belongs on
+    # User Stories.
     #
     # Ends with an "Add child stories now?" hand-off via Read-AzDevOpsYesNo;
     # on yes calls az-New-AzDevOpsFeatureStories -ParentId $newFeatureId with
@@ -601,7 +602,6 @@ function az-New-AzDevOpsFeature {
         [string] $Title,
         [string] $Description,
         [int]    $Priority = -1,
-        [string] $AcceptanceCriteria,
         [int]    $ParentEpicId = -1,
         [string] $Iteration,
         [string] $Area,
@@ -627,15 +627,11 @@ function az-New-AzDevOpsFeature {
     }
 
     if (-not $PSBoundParameters.ContainsKey('Description')) {
-        $Description = Read-Host 'What is the description?'
+        $Description = Read-AzDevOpsFeatureDescription
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
         $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'FEATURE'
-    }
-
-    if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
-        $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
     }
 
     if ($ParentEpicId -lt 0) {
@@ -659,15 +655,14 @@ function az-New-AzDevOpsFeature {
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
 
     $createArgs = @{
-        Type               = 'Feature'
-        Title              = $Title
-        Description        = $Description
-        Priority           = $Priority
-        AcceptanceCriteria = $AcceptanceCriteria
-        Iteration          = $Iteration
-        Area               = $Area
-        Tags               = $tags
-        ExtraFields        = $extraFields
+        Type        = 'Feature'
+        Title       = $Title
+        Description = $Description
+        Priority    = $Priority
+        Iteration   = $Iteration
+        Area        = $Area
+        Tags        = $tags
+        ExtraFields = $extraFields
     }
 
     $outcome = Invoke-AzDevOpsCreateAndLink `
@@ -701,9 +696,9 @@ function az-New-AzDevOpsEpic {
     # Interactive Epic creator - the top tier of the Epic -> Feature -> Story
     # hierarchy, so there's no parent picker (Epics are root items). Mirrors
     # az-New-AzDevOpsFeature's UX otherwise: title / description / priority /
-    # acceptance criteria / iteration / area / tags / required fields. Story
-    # points and the child-stories hand-off are intentionally skipped - those
-    # belong to the lower tiers.
+    # iteration / area / tags / required fields. Story points, acceptance
+    # criteria, and the child-stories hand-off are intentionally skipped -
+    # those belong to the lower tiers.
     #
     # Used both stand-alone and as the chained parent target when
     # az-New-AzDevOpsFeature's orphan path offers to create a new Epic inline.
@@ -713,7 +708,6 @@ function az-New-AzDevOpsEpic {
         [string] $Title,
         [string] $Description,
         [int]    $Priority = -1,
-        [string] $AcceptanceCriteria,
         [string] $Iteration,
         [string] $Area,
         [switch] $NoOpen
@@ -739,10 +733,6 @@ function az-New-AzDevOpsEpic {
         $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'EPIC'
     }
 
-    if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
-        $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
-    }
-
     $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'EPIC'
     if (-not $resolved.Ok) {
         return
@@ -754,15 +744,14 @@ function az-New-AzDevOpsEpic {
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC'
 
     $createArgs = @{
-        Type               = 'Epic'
-        Title              = $Title
-        Description        = $Description
-        Priority           = $Priority
-        AcceptanceCriteria = $AcceptanceCriteria
-        Iteration          = $Iteration
-        Area               = $Area
-        Tags               = $tags
-        ExtraFields        = $extraFields
+        Type        = 'Epic'
+        Title       = $Title
+        Description = $Description
+        Priority    = $Priority
+        Iteration   = $Iteration
+        Area        = $Area
+        Tags        = $tags
+        ExtraFields = $extraFields
     }
 
     $outcome = Invoke-AzDevOpsCreateAndLink `

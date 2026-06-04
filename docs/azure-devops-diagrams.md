@@ -448,7 +448,7 @@ Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (us
 
 ## 8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off
 
-Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from the cached hierarchy, fills `title / description / priority / area / iteration / AC`, creates the Feature, links to the Epic, then asks "Add child stories now?" — on yes hands off to `az-New-AzDevOpsFeatureStories -ParentId $newFeatureId` with the captured `area / iteration` pre-seeded. Story points are intentionally skipped (Features don't carry story points in default Agile / Scrum templates).
+Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from the cached hierarchy, fills `title / description (Summary + Business Value) / priority / area / iteration`, creates the Feature, links to the Epic, then asks "Add child stories now?" — on yes hands off to `az-New-AzDevOpsFeatureStories -ParentId $newFeatureId` with the captured `area / iteration` pre-seeded. Story points are intentionally skipped (Features don't carry story points in default Agile / Scrum templates).
 
 ```mermaid
 flowchart TD
@@ -461,15 +461,12 @@ flowchart TD
     Title -- no --> ReadTitle["Read-Host 'title'"]
     Title -- yes --> Desc{Description param?}
     ReadTitle --> Desc
-    Desc -- no --> ReadDesc["Read-Host 'description'"]
+    Desc -- no --> ReadDesc["Read-AzDevOpsFeatureDescription<br/>(Summary + Business Value prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
     Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
-    Prio -- yes --> AC{AC param?}
-    ReadPrio --> AC
-    AC -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
-    AC -- yes --> Epic{ParentEpicId >= 0?}
-    ReadAC --> Epic
+    Prio -- yes --> Epic{ParentEpicId >= 0?}
+    ReadPrio --> Epic
     Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
     Epic -- yes --> Iter{Iteration param?}
     PickEpic --> Iter
@@ -829,6 +826,7 @@ graph LR
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
     USDesc[Read-AzDevOpsUserStoryDescription]:::priv
+    FeatDesc[Read-AzDevOpsFeatureDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
     PParent[Read-AzDevOpsParentPick]:::priv
@@ -1110,7 +1108,7 @@ graph LR
     NewF --> CGate
     NewF --> ReadH
     NewF --> Pri
-    NewF --> AC
+    NewF --> FeatDesc
     NewF --> PEpic
     NewF --> ResIA
     NewF --> CrLink

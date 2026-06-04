@@ -373,20 +373,19 @@ When you reach the parent-Feature picker interactively and pick `0` / cancel (or
 
 ### Creating a new Feature
 
-`az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority / acceptance criteria, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. Story points are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates.
+`az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. The description is built from two guided prompts — **Summary** and **Business Value** — each rendered as a bold heading in the work-item Description field. Story points and acceptance criteria are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates, and acceptance criteria belong on the child User Stories.
 
 After it creates the Feature and links the chosen Epic, it asks `Add child stories now? [Y/n]`; on yes it hands off to `az-New-AzDevOpsFeatureStories -ParentId <newFeatureId>` with the same area / iteration pre-seeded so you can decompose the Feature into its child stories in the same flow. Pass `-NoChildStoriesPrompt` to skip the hand-off (useful in scripts).
 
 ```powershell
 az-New-AzDevOpsFeature                                  # full interactive walk-through
 az-New-AzDevOpsFeature `
-    -Title              "Customer impact dashboard" `
-    -Description        "Surface customer-impact rollups on the team home page." `
-    -Priority           2 `
-    -AcceptanceCriteria "- Rollup widget renders for all team members`n- Updates within 60s of new deploy" `
-    -ParentEpicId       1180 `
-    -Iteration          "My Project\Sprint 42" `
-    -Area               "My Project\My Team" `
+    -Title        "Customer impact dashboard" `
+    -Description  "Surface customer-impact rollups on the team home page." `
+    -Priority     2 `
+    -ParentEpicId 1180 `
+    -Iteration    "My Project\Sprint 42" `
+    -Area         "My Project\My Team" `
     -NoOpen `
     -NoChildStoriesPrompt
 ```
@@ -397,17 +396,16 @@ Just like the user-story creator, picking `0` / cancel at the interactive parent
 
 ### Creating a new Epic
 
-`az-New-AzDevOpsEpic` is the top tier of the Epic → Feature → Story hierarchy, so it has **no parent picker** — Epics are root items. It mirrors `az-New-AzDevOpsFeature`'s walk-through otherwise (title / description / priority / acceptance criteria / iteration / area / tags / required fields), then creates the Epic and opens it in your browser. It returns the new Epic's `[int]` id, which is what makes it usable as the inline "create a parent Epic" target from `az-New-AzDevOpsFeature`'s orphan path. Story points and the child-stories hand-off are intentionally skipped — those belong to the lower tiers.
+`az-New-AzDevOpsEpic` is the top tier of the Epic → Feature → Story hierarchy, so it has **no parent picker** — Epics are root items. It mirrors `az-New-AzDevOpsFeature`'s walk-through otherwise (title / description / priority / iteration / area / tags / required fields), then creates the Epic and opens it in your browser. It returns the new Epic's `[int]` id, which is what makes it usable as the inline "create a parent Epic" target from `az-New-AzDevOpsFeature`'s orphan path. Story points and the child-stories hand-off are intentionally skipped — those belong to the lower tiers.
 
 ```powershell
 az-New-AzDevOpsEpic                                # full interactive walk-through
 az-New-AzDevOpsEpic `
-    -Title              "Customer-impact analytics" `
-    -Description        "All customer-impact reporting work for FY26." `
-    -Priority           2 `
-    -AcceptanceCriteria "- Exec dashboard ships`n- Per-team rollups available" `
-    -Iteration          "My Project\Sprint 42" `
-    -Area               "My Project\My Team" `
+    -Title       "Customer-impact analytics" `
+    -Description "All customer-impact reporting work for FY26." `
+    -Priority    2 `
+    -Iteration   "My Project\Sprint 42" `
+    -Area        "My Project\My Team" `
     -NoOpen
 ```
 

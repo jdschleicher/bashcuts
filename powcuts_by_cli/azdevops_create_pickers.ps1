@@ -138,6 +138,39 @@ function Read-AzDevOpsUserStoryDescription {
 }
 
 
+function Read-AzDevOpsFeatureDescription {
+    # Builds the Feature description from two required clauses - Summary and
+    # Business Value - each under a bold HTML heading so they render as bold
+    # headings in the AzDO Description field (which stores HTML). Mirrors
+    # Read-AzDevOpsUserStoryDescription: each clause is required (re-prompts
+    # until non-empty) and the two are joined with '<br/><br/>' so they render
+    # on separate lines: "<b>Summary</b> <text>" / "<b>Business Value</b> <text>".
+    $summaryHeading       = '<b>Summary</b>'
+    $businessValueHeading = '<b>Business Value</b>'
+
+    $summary = ''
+    while (-not $summary) {
+        $summary = (Read-Host 'Summary').Trim()
+    }
+
+    $businessValue = ''
+    while (-not $businessValue) {
+        $businessValue = (Read-Host 'Business Value').Trim()
+    }
+
+    $clauseBreak = '<br/><br/>'
+
+    $clauses = @(
+        "$summaryHeading $summary"
+        "$businessValueHeading $businessValue"
+    )
+
+    $description = $clauses -join $clauseBreak
+
+    return $description
+}
+
+
 function Test-AzDevOpsAreaPathMatch {
     # Returns $true when $CandidatePath equals any element of $AllowedPaths
     # exactly OR is a sub-path of one (matches at backslash boundary). Path
