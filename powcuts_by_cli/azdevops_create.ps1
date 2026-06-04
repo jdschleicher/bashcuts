@@ -364,7 +364,13 @@ function Add-AzDevOpsHierarchyCacheItem {
         }
 
         $updated = @($existing) + $newRow
-        $json = ConvertTo-Json -InputObject @($updated) -Depth 10 -AsArray
+
+        # Match the hierarchy dataset's on-disk depth (Get-AzDevOpsSyncDatasets
+        # sets JsonDepth = 20) so an appended row serializes identically to a
+        # synced one - the flat id+fields shape needs far less, but aligning the
+        # value keeps the two writers from drifting.
+        $hierarchyJsonDepth = 20
+        $json = ConvertTo-Json -InputObject @($updated) -Depth $hierarchyJsonDepth -AsArray
 
         if (Get-Command New-AzDevOpsDirectoryIfMissing -ErrorAction SilentlyContinue) {
             New-AzDevOpsDirectoryIfMissing -Path $paths.Dir
