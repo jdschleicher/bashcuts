@@ -40,6 +40,7 @@ flowchart LR
         OpenM["az-Open-Mention"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
+        Epics["az-Show-Epics"]
         Orphans["az-Show-Orphans"]
         ShowAreas["az-Show-Areas"]
         ShowIters["az-Show-Iterations"]
@@ -114,6 +115,7 @@ flowchart LR
     OpenM --> MentionsJson
     Tree --> HierJson
     Board --> HierJson
+    Epics --> HierJson
     Orphans --> HierJson
     Find --> HierJson
     ShowFeats --> HierJson
@@ -358,9 +360,11 @@ flowchart TD
     Grid -- yes --> Pfx["Get-AzDevOpsWorkItemUrlPrefix<br/>(once, not per row)"]
     Pfx --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path/Url)"]
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
-    Show --> Action["Invoke-AzDevOpsRowAction<br/>(per selected row)"]
-    Action --> Choice{Read-AzDevOpsRowActionChoice}
-    Choice -- open --> OpenSel["az-Open-WorkItemById"]
+    Show --> Action["Invoke-AzDevOpsRowAction"]
+    Action --> Multi{">1 row selected?"}
+    Multi -- yes --> OpenAll["Read-AzDevOpsOpenAllChoice<br/>→ Open-AzDevOpsSelectedRows<br/>→ az-Open-WorkItemById (each)"]
+    Multi -- "no / declined" --> Choice{Read-AzDevOpsRowActionChoice<br/>(per selected row)}
+    Choice -- open --> OpenSel["Get-AzDevOpsRowId →<br/>az-Open-WorkItemById"]
     Choice -- create --> Child["New-AzDevOpsChildForRow<br/>(Get-AzDevOpsChildTypeFor →<br/>az-New-AzDevOpsFeature / UserStory / az-New-Task)"]
     Choice -- skip --> NoOp([skip])
     Grid -- no --> ForEpic{foreach epic}
@@ -380,7 +384,7 @@ flowchart TD
 
 Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, `$iconFeature`, `$iconStory`) — never raw `[char]0x...` literals at the call site.
 
-The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board` and `az-Show-Features` too; `az-Show-Features` passes `-DefaultType 'Feature'` since its rows omit a Type column. For each selected work-item row it offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
+The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, and `az-Show-Orphans` too; `az-Show-Features` passes `-DefaultType 'Feature'` and `az-Show-Epics` passes `-DefaultType 'Epic'` since their rows omit a Type column. When more than one row is selected it first offers a single "open all in browser" shortcut (`Read-AzDevOpsOpenAllChoice` → `Open-AzDevOpsSelectedRows`); otherwise (or when declined) it falls through to the per-row prompt offering open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). The id guard for both paths is centralized in `Get-AzDevOpsRowId`. `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
 
 ---
 
@@ -658,6 +662,7 @@ graph LR
     OpenM(["az-Open-Mention"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
+    Epics(["az-Show-Epics"]):::pub
     Orphans(["az-Show-Orphans"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
     ShowIters(["az-Show-Iterations"]):::pub
@@ -806,6 +811,9 @@ graph LR
     ChildType[Get-AzDevOpsChildTypeFor]:::priv
     ChildForRow[New-AzDevOpsChildForRow]:::priv
     RowType[Resolve-AzDevOpsRowType]:::priv
+    RowId[Get-AzDevOpsRowId]:::priv
+    OpenAllChoice[Read-AzDevOpsOpenAllChoice]:::priv
+    OpenSelRows[Open-AzDevOpsSelectedRows]:::priv
     ClsAction[Invoke-AzDevOpsClassificationAction]:::priv
 
     %% URL builders (shared base)
@@ -1010,6 +1018,12 @@ graph LR
     Board --> TitleCol
     Board --> ShowRows
 
+    Epics --> ReadH
+    Epics --> Stale
+    Epics --> SelAct
+    Epics --> TitleCol
+    Epics --> ShowRows
+
     Orphans --> ReadH
     Orphans --> Stale
     Orphans --> SelAct
@@ -1020,8 +1034,14 @@ graph LR
     %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
     Board --> RowAction
+    Epics --> RowAction
     ShowFeats --> RowAction
     Orphans --> RowAction
+    RowAction --> RowId
+    RowAction --> OpenAllChoice
+    RowAction --> OpenSelRows
+    OpenSelRows --> RowId
+    OpenSelRows --> OpenUrl
     RowAction --> RowType
     RowAction --> ChildType
     RowAction --> RowChoice
