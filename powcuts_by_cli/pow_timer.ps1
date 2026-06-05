@@ -1147,6 +1147,11 @@ function Show-WpfTimerDebrief {
             $Script:WpfDebriefPostResult = $postResult
             $Script:WpfDebriefOutcome    = 'Posted'
 
+            # Notes are now committed to the item — lock them so they can't be
+            # edited, but keep them readable and selectable (IsReadOnly, not IsEnabled).
+            $debriefBox.IsReadOnly = $true
+            $nextBox.IsReadOnly    = $true
+
             $wantsResolve = ($closeEnabled -and ($chkResolve.IsChecked -eq $true))
 
             if ($wantsResolve) {
