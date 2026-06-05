@@ -283,7 +283,7 @@ Add any of these to your PowerShell `$profile` to enable additional features:
 $env:AZ_USER_EMAIL = 'user@example.com'   # enables accurate mentions WIQL
 $env:AZ_AREA       = 'My Project\My Team' # default area path for hierarchy queries
 $env:AZ_ITERATION  = 'My Project\Sprint 42' # default iteration for work item creation
-$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com' # teammates taggable in unplanned-work debriefs
+$env:AZ_TEAM       = 'alice@example.com;bob@example.com' # extra teammates taggable in debriefs (supplements your project team)
 $env:BASHCUTS_NO_SPINNER = '1'            # opt out of the az-call loading spinner
 ```
 
@@ -602,6 +602,10 @@ On **Windows** the countdown morphs into a themed debrief form that shares the t
 
 On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
+### Opening the work item in your browser
+
+When the chosen integration supplies an `OpenItem` capability, both timer surfaces add a one-click jump to the item in your browser — no need to copy the ID into a separate command. On **Windows** an **Open work item** button appears on the countdown overlay (open it mid-session without stopping the clock) and on the debrief form (open it while you write your notes — the form stays put). On **macOS/Linux** the **Start another session?** menu gains an `[o] Open work item in browser` choice that opens the item and re-prompts, so opening never consumes your restart decision. The built-in **Azure DevOps** integration maps `OpenItem` to `az-Open-WorkItemById`; integrations without an `OpenItem` simply don't show the button or option.
+
 ### Closing the story when a session finishes the task
 
 When the chosen integration supplies a `CloseItem` capability, the debrief surface adds a one-click way to transition the work item to its done state right after the comment lands — so a session that actually finished the task doesn't leave the item lingering in **Active**. On **Windows** the debrief form renders a **Work complete — resolve this story** checkbox above **Post Debrief**; ticking it makes the post sequence run the comment, then the state transition, and reports both outcomes before the **Start another session?** choice appears. On **macOS/Linux** the same trigger is a `Resolve this item now? [y/N]` prompt that follows a successful comment post (default **No** — your work item is never resolved without an explicit yes).
@@ -622,6 +626,8 @@ Press **Esc** during the countdown (or use **Mark Complete Early** on the Window
 - Interrupted: `Session interrupted at 04:30 of 25:00`
 
 On both platforms the **Start another session?** choice appears after every successful post (completed or interrupted). On macOS/Linux it's a terminal prompt — `[s] Same item / [p] Pick another item / [d] Done` (blank or `d` ends the session) — mirroring the Windows buttons: **Same item** loops straight back to the countdown on the work item you just debriefed, **Pick another** returns to the picker so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
+
+When the chosen integration is Azure DevOps and you've cached a roster with `az-Sync-AzDevOpsTeam`, the debrief first asks **"Tag teammate(s) on this debrief?"** so you can notify colleagues on the posted comment — see [Tagging teammates](#tagging-teammates) below. Custom integrations can opt into the same picker by registering with `-SupportsMentions`.
 
 ### Registering your own integration
 
@@ -644,13 +650,22 @@ Register-TimerIntegration `
         param([Parameter(Mandatory)] [int] $Id)
         "View: my-tracker open $Id"
     } `
+    -OpenItem    {
+        # Optional. When present, the countdown overlay and debrief form show an
+        # "Open work item" button (Windows) and the terminal next-action menu
+        # offers `[o] Open work item in browser`.
+        param([Parameter(Mandatory)] [int] $Id)
+        Open-MyTrackerItem -Id $Id
+    } `
     -CloseItem   {
         # Optional. When present, the debrief shows a resolve checkbox
         # (Windows) / `Resolve this item now? [y/N]` prompt (terminal) that
         # fires after a successful comment post.
         param([Parameter(Mandatory)] [int] $Id)
         Set-MyTrackerItemDone -Id $Id
-    }
+    } `
+    -SupportsMentions   # optional; offer the az-Sync-AzDevOpsTeam tag picker and
+                        # append AzDO @-mention anchors to the posted comment
 ```
 
 <br>
@@ -696,12 +711,21 @@ Reads the day's local ledger (kept under the AzDO cache dir so total time can be
 
 ### Tagging teammates
 
-Set `$env:AZ_DEBRIEF_TEAM` to a `;`-separated list of teammate emails (names work too) to make people taggable from the debrief flow. Commas also work as separators, so avoid them inside a value (use emails, which never contain a comma):
+Every debrief that posts a comment — the Pomodoro timer (`Start-TimerSession`), the per-firefight `Start-UnplannedWork` stop, and the `New-UnplannedWorkDebrief` roll-up — can tag teammates with real, notifying Azure DevOps `@`-mentions. The taggable roster is shared across all three and is built by `az-Sync-AzDevOpsTeam`:
 
 ```powershell
-$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com'
-az-Sync-UnplannedTeam   # resolve the roster to Azure DevOps identities and cache it
+az-Sync-AzDevOpsTeam          # pick a project team, cache its members for tagging
+az-Sync-AzDevOpsTeam -Team 'My Team'   # skip the picker and pull a named team
 ```
 
-`az-Sync-UnplannedTeam` resolves each entry to an Azure DevOps identity (display name + email + identity id) via the identities API and caches it under the AzDO cache dir next to the per-day ledger — re-run it whenever you change the env var. Both debriefs (the per-firefight `Start-UnplannedWork` stop and the `New-UnplannedWorkDebrief` roll-up) then ask **"Tag teammate(s) on this debrief?"**. Answer yes and you get a type-to-filter picker showing each teammate's **name and email** so you can confirm the right person; the ones you pick are added to the posted comment as real Azure DevOps `@`-mentions, so they're notified. Tagging is always optional — pick nobody (or skip the prompt) and the debrief posts exactly as before.
+`az-Sync-AzDevOpsTeam` pulls a project **team's members** in one call (`az devops team list-member`) — each member already comes with name, email, and identity id, so no per-person lookups are needed. If the project has more than one team you'll be asked which to use (or pass `-Team`). The resolved roster is cached under the AzDO cache dir; re-run the command after switching project/team or changing the supplement below.
+
+To make people **outside** the picked team taggable, set `$env:AZ_TEAM` to a `;`-separated list of emails (names work too); `az-Sync-AzDevOpsTeam` resolves each via the identities API and merges them into the cached roster. Commas also work as separators, so avoid them inside a value (use emails, which never contain a comma):
+
+```powershell
+$env:AZ_TEAM = 'contractor@example.com;lead@othergroup.com'
+az-Sync-AzDevOpsTeam
+```
+
+Once a roster is cached, each debrief asks **"Tag teammate(s) on this debrief? [y/N]"**. Answer yes and you get a type-to-filter picker showing each teammate's **name and email** so you can confirm the right person; the ones you pick are added to the posted comment as real `@`-mentions, so they're notified. Tagging is always optional — the prompt defaults to no, and picking nobody (or skipping it) posts the debrief exactly as before. If you've never run `az-Sync-AzDevOpsTeam`, the prompt is skipped entirely.
 
