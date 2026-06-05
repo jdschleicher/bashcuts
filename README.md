@@ -2,6 +2,7 @@
 
 * [Choose which Prerequisite CLI's and Other Tools to Install](#tools-used)
 * [System Setup for bash and PowerShell Profiles](#system-setup)
+* [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup)
 * [How to use bashcuts](#how-to)
 * [Azure DevOps work-item shortcuts](#azure-devops)
 * [Timer sessions](#timer-sessions)
@@ -76,21 +77,7 @@ fi
 
 Once PowerShell Core has been installed on your machine you can open up a new PowerShell terminal in VS Code or a standalone PowerShell Terminal.
 
-With the terminal open enter "$profile" into the terminal to see where the terminal's expecting a profile file to exist. This file may not exist so we may need to create it. 
-
-To create the file enter the below powershell command to create an empty file at the expected profile path:
-
-```
-New-Item -ItemType File -Path $profile
-```
-
-To edit the profile select, enter the below command:
-
-```
-start $profile
-```
-
-This will open up the PowerShell profile and may prompt for which application to open the file in. Choose VSCode and select the checkbox to use VSCode for all ps1 files. This gives us syntax highlighting and other features that can be leveraged within the VS Code IDE.
+> **New to PowerShell profiles or the Azure CLI?** See [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup) below for a from-zero walkthrough of finding, creating, and editing your `$profile` (with screenshots) plus installing and configuring `az`. The snippet below assumes you already have a profile file open for editing.
 
 With the PowerShell Profile open add the following code snippet AND **IMPORTANT** replace the path directories to point to where the bashcuts directory was cloned to.
 
@@ -111,15 +98,135 @@ if ("$path_to_bashcuts_parent_directory\$bashcuts_git_directory" -ne $NULL) {
 
 ```
 
-For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update.
+For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update. See [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup) for the difference between the standalone-pwsh profile and the VS Code-host profile.
 
-Here's a screen shot of the commands to the empty profile being opened in VS Code:
+***
+
+<br>
+
+# <a name="machine-setup"></a>Machine Setup: PowerShell Profile & Azure CLI
+
+This section is a from-zero walkthrough for a fresh machine: get your PowerShell `$profile` under control, then install and configure the Azure CLI (`az`) so the `az-*` shortcuts work. Everything below is one-time-per-machine setup.
+
+<br>
+
+## Managing your PowerShell profile
+
+Your `$profile` is the script PowerShell runs every time a terminal starts — it's where bashcuts gets wired in (see [System Setup](#system-setup) above) and where you set the `$env:AZ_*` variables the Azure DevOps shortcuts read.
+
+### Find the active profile
+
+```powershell
+$profile                      # path PowerShell loads for the current host
+$PROFILE.CurrentUserAllHosts  # shared across every PowerShell host on this machine
+```
+
+**Heads up — VS Code uses a different profile.** A standalone `pwsh` terminal and the VS Code PowerShell-extension terminal each load their **own** `$profile` path. Run `$profile` in each terminal to see the two distinct paths; if a shortcut works in one but not the other, you've likely only wired up one of them. `$PROFILE.CurrentUserAllHosts` is the path that applies to both, if you'd rather maintain a single file.
+
+### Create it if it doesn't exist
+
+```powershell
+New-Item -ItemType File -Path $profile -Force
+```
+
+`-Force` creates any missing parent directories so this works on a clean machine.
+
+### Edit it
+
+```powershell
+code $profile    # open in VS Code (recommended — syntax highlighting for .ps1)
+start $profile   # or open in your OS default editor
+```
+
+If `start $profile` prompts for which application to open the file in, choose VS Code and tick the checkbox to use VS Code for all `.ps1` files.
+
+Here's a screen shot of the empty profile being opened in VS Code:
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/c76f2eb0-6091-496a-bfe5-d1dafe557b27)
 
-Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal:
+Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal — note each has its own profile:
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/f52313f0-a877-4971-828a-954fead5c25d)
+
+### Reload after editing
+
+You don't have to close and reopen the terminal — dot-source the profile to re-run it in the current session:
+
+```powershell
+. $profile
+```
+
+<br>
+
+## Configuring the Azure CLI (`az`)
+
+The Azure DevOps shortcuts (`az-Connect-AzDevOps`, `az-Sync-AzDevOpsCache`, the work-item views and creators) all shell out to the Azure CLI. Get `az` installed and configured once and they all light up. (`az-Connect-AzDevOps` automates several of these steps interactively on first run — this is the manual reference.)
+
+### 1. Install the Azure CLI
+
+Follow Microsoft's per-OS installer: https://aka.ms/installazurecli
+
+### 2. Verify the install
+
+```powershell
+az version
+```
+
+You should see a JSON blob with `azure-cli` and your installed version. If `az` isn't found, reopen your terminal so the updated `PATH` takes effect.
+
+### 3. Sign in
+
+```powershell
+az login
+```
+
+This opens a browser to authenticate. On a headless box, or when the browser flow won't complete, use device-code auth:
+
+```powershell
+az login --use-device-code
+```
+
+If your organization spans multiple Entra ID tenants, target the right one explicitly:
+
+```powershell
+az login --tenant <tenant-id-or-domain>
+```
+
+### 4. Keep it current
+
+```powershell
+az upgrade
+```
+
+The `azure-devops` extension and the `az boards` surface move quickly; an out-of-date CLI is a common cause of confusing errors.
+
+### 5. Pick the right subscription
+
+```powershell
+az account show                          # which subscription am I on?
+az account list --output table           # all subscriptions available to me
+az account set --subscription "<name-or-id>"
+```
+
+### 6. Add the `azure-devops` extension
+
+Required for every `az boards` / `az devops` call the shortcuts make:
+
+```powershell
+az extension add --name azure-devops
+```
+
+(`az-Connect-AzDevOps` will offer to install this for you on first run.)
+
+### 7. Set your org and project defaults
+
+Org and project are stored in your Azure CLI profile — not in PowerShell env vars — so you only do this once per machine (or after switching orgs):
+
+```powershell
+az devops configure --defaults organization='https://dev.azure.com/myorg' project='My Project'
+```
+
+With those seven steps done, head to [Azure DevOps work-item shortcuts](#azure-devops) to set the optional `$env:AZ_*` profile variables and run `az-Connect-AzDevOps` to confirm everything is wired up.
 
 ***
 
@@ -166,19 +273,7 @@ PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_
 
 ### Prerequisites
 
-- Azure CLI: https://aka.ms/installazurecli
-- `azure-devops` CLI extension: `az extension add --name azure-devops` (`az-Connect-AzDevOps` will offer to install this for you on first run)
-- An active `az login` session (`az-Connect-AzDevOps` will offer to start one for you on first run)
-
-### Configure org and project defaults
-
-Org and project are stored in your Microsoft profile via the Azure CLI — not in PowerShell env vars. Run once per machine (or after switching orgs):
-
-```powershell
-az devops configure --defaults organization='https://dev.azure.com/myorg' project='My Project'
-```
-
-(`az-Connect-AzDevOps` will guide you through this interactively on first run.)
+The Azure CLI (`az`), the `azure-devops` extension, an active `az login` session, and your org/project defaults (`az devops configure --defaults`) all need to be in place. See **[Machine Setup: PowerShell Profile & Azure CLI](#machine-setup)** for the full from-zero walkthrough — or just run `az-Connect-AzDevOps`, which checks each prerequisite and offers to install the extension / start an `az login` for you on first run.
 
 ### Optional profile environment variables
 
@@ -188,6 +283,7 @@ Add any of these to your PowerShell `$profile` to enable additional features:
 $env:AZ_USER_EMAIL = 'user@example.com'   # enables accurate mentions WIQL
 $env:AZ_AREA       = 'My Project\My Team' # default area path for hierarchy queries
 $env:AZ_ITERATION  = 'My Project\Sprint 42' # default iteration for work item creation
+$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com' # teammates taggable in unplanned-work debriefs
 $env:BASHCUTS_NO_SPINNER = '1'            # opt out of the az-call loading spinner
 ```
 
@@ -292,6 +388,10 @@ az-Show-Board -State Active,New       # filter to one or more states (default ex
 az-Show-Board -State Closed,Resolved  # flip to the archive view
 az-Show-Board -Type Bug,Task          # custom-template work-item types (default: Epic, Feature, User Story)
 
+az-Show-Epics                         # Epics from the active project's hierarchy cache; select a row to open it or create a child Feature
+az-Show-Epics -State Closed,Resolved  # flip to the archive view
+                                      # tick several rows -> prompted to open them all in the browser at once
+
 az-Show-Features                      # cross-project Features view: every project in $global:AzDevOpsProjectMap, tagged with a Project column
 az-Show-Features -Project ProjectABC  # narrow to one registered project's Features (no need to az-Use-AzDevOpsProject first)
 az-Show-Features -State Closed        # flip to the archive view across all projects
@@ -315,15 +415,15 @@ az-Find-AzDevOpsProject                       # pick from $global:AzDevOpsProjec
 az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-Use-AzDevOpsProject on the pick)
 ```
 
-If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Orphans`, `az-Show-Areas`, `az-Show-Iterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
+If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, `az-Show-Orphans`, `az-Show-Areas`, `az-Show-Iterations`, and `az-Find-AzDevOpsWorkItem` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
 **Automatic on-open refresh.** You don't have to schedule anything. Every time a PowerShell session loads bashcuts, it checks the cache age and — if it's stale (older than 6 hours, or never synced) — spawns a detached, hidden `pwsh` that runs `az-Sync-AzDevOpsCache` in the background. Your prompt returns instantly and no sync chatter prints into the terminal; the next command you run reads the freshly-updated cache (the background sync's progress goes to `~/.bashcuts-az-devops-app/cache/sync.log`). The background process does the network auth check itself and exits quietly if you're not connected, so a not-connected shell is a silent no-op. To disable this entirely, set `$env:AZ_DEVOPS_NO_AUTOSYNC = '1'` in your `$profile` (run `az-Sync-AzDevOpsCache` by hand when you want a refresh). A short-lived lock under the cache directory keeps several terminals opened in quick succession from each kicking off a sync.
 
 `az-Show-Tree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
 
-After you select a row in `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, or `az-Show-Orphans`, you're prompted to either open the item in your browser or create the hierarchically-appropriate child work item — a Feature under an Epic, a User Story under a Feature, or a Task under a User Story (via `az-New-Task`) — with the selected row pre-filled as the new item's parent. Selecting a node in `az-Show-Areas` / `az-Show-Iterations` offers to open the project's Boards hub. (The post-selection prompt is PowerShell-only; the bash `az-show-features` shortcut prints a static query table.)
+After you select a row in `az-Show-Tree`, `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, or `az-Show-Orphans`, you're prompted to either open the item in your browser or create the hierarchically-appropriate child work item — a Feature under an Epic, a User Story under a Feature, or a Task under a User Story (via `az-New-Task`) — with the selected row pre-filled as the new item's parent. When you tick **more than one** row, you're first offered a single "Open all N in browser?" shortcut (Enter opens them all); decline it to fall through to the per-row open/create-child prompt. Selecting a node in `az-Show-Areas` / `az-Show-Iterations` offers to open the project's Boards hub. (The post-selection prompt is PowerShell-only; the bash `az-show-features` shortcut prints a static query table.)
 
-Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Features`, `az-Show-Orphans`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-Assigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
+Every list and picker (`az-Get-AzDevOpsAssigned`, `az-Get-AzDevOpsMentions`, `az-Get-AzDevOpsSchema`, `az-Get-AzDevOpsCacheStatus`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, `az-Show-Orphans`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, plus the parent-Feature / iteration / area pickers in `az-New-AzDevOpsUserStory`) renders through `Out-ConsoleGridView` — a sortable, filterable, click-to-select TUI grid that runs in your terminal on Windows, macOS, and Linux. Use the arrow keys to navigate, `Space` to select rows, `Enter` to confirm, `Esc` to cancel. Selected rows from the listing functions are emitted to the pipeline, so e.g. `az-Get-AzDevOpsAssigned | ForEach-Object { az-Open-Assigned $_.Id }` opens every row you ticked. The grid ships in a separate module — install once with `Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser`. If the module isn't installed, every command falls back to the existing `Format-Table` / numbered-menu output — except `az-Find-AzDevOpsWorkItem`, which is grid-only by design and prints the install hint above instead of running.
 
 `az-Sync-AzDevOpsCache` populates two more cache files alongside the existing `assigned.json` / `mentions.json` / `hierarchy.json`: `iterations.json` and `areas.json`. The new-user-story command below uses these for instant iteration / area-path pickers; if you've upgraded but haven't re-synced yet, the picker fetches them live with a one-line "(run az-Sync-AzDevOpsCache to make this instant)" notice.
 
@@ -334,7 +434,7 @@ Tab-tab on `az-Get-`, `az-Show-`, or `az-Find-` to discover commands. The matrix
 | Noun                  | `az-Get-`             | `az-Show-`         | `az-Find-`  |
 |-----------------------|-----------------------|--------------------|-------------|
 | Project               | `Projects`            | `Project`          | `Project`   |
-| Work Item (hierarchy) | —                     | `Tree`, `Board`    | `WorkItem`  |
+| Work Item (hierarchy) | —                     | `Tree`, `Board`, `Epics` | `WorkItem`  |
 | Work Item (assigned)  | `Assigned` (pickable) | —                  | —           |
 | Work Item (mentions)  | `Mentions` (pickable) | —                  | —           |
 | Area                  | `Areas`               | `Areas`            | `Area`      |
@@ -373,20 +473,19 @@ When you reach the parent-Feature picker interactively and pick `0` / cancel (or
 
 ### Creating a new Feature
 
-`az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority / acceptance criteria, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. Story points are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates.
+`az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. The description is built from two guided prompts — **Summary** and **Business Value** — each rendered as a bold heading in the work-item Description field. Story points and acceptance criteria are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates, and acceptance criteria belong on the child User Stories.
 
 After it creates the Feature and links the chosen Epic, it asks `Add child stories now? [Y/n]`; on yes it hands off to `az-New-AzDevOpsFeatureStories -ParentId <newFeatureId>` with the same area / iteration pre-seeded so you can decompose the Feature into its child stories in the same flow. Pass `-NoChildStoriesPrompt` to skip the hand-off (useful in scripts).
 
 ```powershell
 az-New-AzDevOpsFeature                                  # full interactive walk-through
 az-New-AzDevOpsFeature `
-    -Title              "Customer impact dashboard" `
-    -Description        "Surface customer-impact rollups on the team home page." `
-    -Priority           2 `
-    -AcceptanceCriteria "- Rollup widget renders for all team members`n- Updates within 60s of new deploy" `
-    -ParentEpicId       1180 `
-    -Iteration          "My Project\Sprint 42" `
-    -Area               "My Project\My Team" `
+    -Title        "Customer impact dashboard" `
+    -Description  "Surface customer-impact rollups on the team home page." `
+    -Priority     2 `
+    -ParentEpicId 1180 `
+    -Iteration    "My Project\Sprint 42" `
+    -Area         "My Project\My Team" `
     -NoOpen `
     -NoChildStoriesPrompt
 ```
@@ -397,17 +496,16 @@ Just like the user-story creator, picking `0` / cancel at the interactive parent
 
 ### Creating a new Epic
 
-`az-New-AzDevOpsEpic` is the top tier of the Epic → Feature → Story hierarchy, so it has **no parent picker** — Epics are root items. It mirrors `az-New-AzDevOpsFeature`'s walk-through otherwise (title / description / priority / acceptance criteria / iteration / area / tags / required fields), then creates the Epic and opens it in your browser. It returns the new Epic's `[int]` id, which is what makes it usable as the inline "create a parent Epic" target from `az-New-AzDevOpsFeature`'s orphan path. Story points and the child-stories hand-off are intentionally skipped — those belong to the lower tiers.
+`az-New-AzDevOpsEpic` is the top tier of the Epic → Feature → Story hierarchy, so it has **no parent picker** — Epics are root items. It mirrors `az-New-AzDevOpsFeature`'s walk-through otherwise (title / description / priority / iteration / area / tags / required fields), then creates the Epic and opens it in your browser. It returns the new Epic's `[int]` id, which is what makes it usable as the inline "create a parent Epic" target from `az-New-AzDevOpsFeature`'s orphan path. Story points and the child-stories hand-off are intentionally skipped — those belong to the lower tiers.
 
 ```powershell
 az-New-AzDevOpsEpic                                # full interactive walk-through
 az-New-AzDevOpsEpic `
-    -Title              "Customer-impact analytics" `
-    -Description        "All customer-impact reporting work for FY26." `
-    -Priority           2 `
-    -AcceptanceCriteria "- Exec dashboard ships`n- Per-team rollups available" `
-    -Iteration          "My Project\Sprint 42" `
-    -Area               "My Project\My Team" `
+    -Title       "Customer-impact analytics" `
+    -Description "All customer-impact reporting work for FY26." `
+    -Priority    2 `
+    -Iteration   "My Project\Sprint 42" `
+    -Area        "My Project\My Team" `
     -NoOpen
 ```
 
@@ -595,4 +693,15 @@ New-UnplannedWorkDebrief -Date 2026-05-19
 ```
 
 Reads the day's local ledger (kept under the AzDO cache dir so total time can be summed — AzDO doesn't store per-session minutes), prints the per-Task breakdown with total time, and on confirm posts a roll-up comment on the daily story.
+
+### Tagging teammates
+
+Set `$env:AZ_DEBRIEF_TEAM` to a `;`-separated list of teammate emails (names work too) to make people taggable from the debrief flow. Commas also work as separators, so avoid them inside a value (use emails, which never contain a comma):
+
+```powershell
+$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com'
+az-Sync-UnplannedTeam   # resolve the roster to Azure DevOps identities and cache it
+```
+
+`az-Sync-UnplannedTeam` resolves each entry to an Azure DevOps identity (display name + email + identity id) via the identities API and caches it under the AzDO cache dir next to the per-day ledger — re-run it whenever you change the env var. Both debriefs (the per-firefight `Start-UnplannedWork` stop and the `New-UnplannedWorkDebrief` roll-up) then ask **"Tag teammate(s) on this debrief?"**. Answer yes and you get a type-to-filter picker showing each teammate's **name and email** so you can confirm the right person; the ones you pick are added to the posted comment as real Azure DevOps `@`-mentions, so they're notified. Tagging is always optional — pick nobody (or skip the prompt) and the debrief posts exactly as before.
 

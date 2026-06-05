@@ -25,7 +25,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 flowchart LR
     subgraph User["User session ($profile)"]
         Profile["powcuts_home.ps1<br/>dot-sources azdevops_*.ps1"]
-        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>(org/project come from<br/>az devops configure --defaults)"]
+        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>$env:AZ_DEBRIEF_TEAM<br/>(org/project come from<br/>az devops configure --defaults)"]
     end
 
     subgraph Public["Public functions"]
@@ -40,6 +40,7 @@ flowchart LR
         OpenM["az-Open-Mention"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
+        Epics["az-Show-Epics"]
         Orphans["az-Show-Orphans"]
         ShowAreas["az-Show-Areas"]
         ShowIters["az-Show-Iterations"]
@@ -114,6 +115,7 @@ flowchart LR
     OpenM --> MentionsJson
     Tree --> HierJson
     Board --> HierJson
+    Epics --> HierJson
     Orphans --> HierJson
     Find --> HierJson
     ShowFeats --> HierJson
@@ -385,7 +387,7 @@ flowchart TD
 
 Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, `$iconFeature`, `$iconStory`) — never raw `[char]0x...` literals at the call site.
 
-The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board` and `az-Show-Features` too; `az-Show-Features` passes `-DefaultType 'Feature'` since its rows omit a Type column. When more than one row is selected it first offers a single bulk-open gate (`Invoke-AzDevOpsOpenAllSelected`, a `[y/N]` prompt defaulting to no via `Read-AzDevOpsYesNo -DefaultNo`); a yes opens every selected row and returns, while no (or a bare Enter) falls through to the per-row loop. For each selected work-item row it then offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). The shared `Get-AzDevOpsRowId` helper extracts each row's work-item id (or 0 when the row carries none) for both the bulk and per-row paths. `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
+The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, and `az-Show-Orphans` too; `az-Show-Features` passes `-DefaultType 'Feature'` and `az-Show-Epics` passes `-DefaultType 'Epic'` since their rows omit a Type column. When more than one row is selected it first offers a single bulk-open gate (`Invoke-AzDevOpsOpenAllSelected`, a `[y/N]` prompt defaulting to no via `Read-AzDevOpsYesNo -DefaultNo`); a yes opens every selected row and returns, while no (or a bare Enter) falls through to the per-row loop. For each selected work-item row it then offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). The shared `Get-AzDevOpsRowId` helper extracts each row's work-item id (or 0 when the row carries none) for both the bulk and per-row paths. `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
 
 ---
 
@@ -453,7 +455,7 @@ Picker fallback: if `iterations.json` / `areas.json` aren't in the cache yet (us
 
 ## 8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off
 
-Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from the cached hierarchy, fills `title / description / priority / area / iteration / AC`, creates the Feature, links to the Epic, then asks "Add child stories now?" — on yes hands off to `az-New-AzDevOpsFeatureStories -ParentId $newFeatureId` with the captured `area / iteration` pre-seeded. Story points are intentionally skipped (Features don't carry story points in default Agile / Scrum templates).
+Tier-one-up counterpart to `az-New-AzDevOpsUserStory`. Picks a parent Epic from the cached hierarchy, fills `title / description (Summary + Business Value) / priority / area / iteration`, creates the Feature, links to the Epic, then asks "Add child stories now?" — on yes hands off to `az-New-AzDevOpsFeatureStories -ParentId $newFeatureId` with the captured `area / iteration` pre-seeded. Story points are intentionally skipped (Features don't carry story points in default Agile / Scrum templates).
 
 ```mermaid
 flowchart TD
@@ -466,15 +468,12 @@ flowchart TD
     Title -- no --> ReadTitle["Read-Host 'title'"]
     Title -- yes --> Desc{Description param?}
     ReadTitle --> Desc
-    Desc -- no --> ReadDesc["Read-Host 'description'"]
+    Desc -- no --> ReadDesc["Read-AzDevOpsFeatureDescription<br/>(Summary + Business Value prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
     Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
-    Prio -- yes --> AC{AC param?}
-    ReadPrio --> AC
-    AC -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
-    AC -- yes --> Epic{ParentEpicId >= 0?}
-    ReadAC --> Epic
+    Prio -- yes --> Epic{ParentEpicId >= 0?}
+    ReadPrio --> Epic
     Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
     Epic -- yes --> Iter{Iteration param?}
     PickEpic --> Iter
@@ -624,21 +623,28 @@ flowchart TD
     Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
     FlushDesc --> AskFuture{future-feature opportunity?}
     AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
-    AskFuture -- no --> PostComment
-    MaybeStory --> PostComment
-    PostComment["Format-UnplannedDebriefComment<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+    AskFuture -- no --> Tag
+    MaybeStory --> Tag
+    Tag["Select-UnplannedDebriefMention<br/>type-to-filter roster picker (Name+Email)<br/>→ Format-UnplannedMentionAnchor (data-vss-mention)"]
+    Tag --> PostComment
+    PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
     PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
-    ReadLedger --> Rollup["Format-UnplannedDailyDebrief<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
+    ReadLedger --> TagDay["Select-UnplannedDebriefMention<br/>(same roster picker)"]
+    TagDay --> Rollup["Format-UnplannedDailyDebrief<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
 
+    SyncTeam(["az-Sync-UnplannedTeam"]) --> ResolveTeam["Sync-UnplannedDebriefTeam<br/>read $env:AZ_DEBRIEF_TEAM (';'/','-split)<br/>→ Resolve-UnplannedTeamMember<br/>→ Get-AzDevOpsIdentity<br/>→ az devops invoke (ims/Identities)"]
+    ResolveTeam --> TeamCache["Save-UnplannedTeamCache<br/>debrief-team.json"]
+    TeamCache --> Done3([end])
+
     classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
-    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup io
+    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
 ```
 
-Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-UnplannedDebriefMention` offers a type-to-filter picker over the cached team roster (`debrief-team.json`, seeded from `$env:AZ_DEBRIEF_TEAM` and resolved to identity GUIDs by `az-Sync-UnplannedTeam`); picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
 
 ---
 
@@ -663,6 +669,7 @@ graph LR
     OpenM(["az-Open-Mention"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
+    Epics(["az-Show-Epics"]):::pub
     Orphans(["az-Show-Orphans"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
     ShowIters(["az-Show-Iterations"]):::pub
@@ -695,6 +702,22 @@ graph LR
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
+    SyncUWTeam(["az-Sync-UnplannedTeam"]):::pub
+    UWRosterSync[Sync-UnplannedDebriefTeam]:::priv
+    UWGetTeam[Get-UnplannedDebriefTeam]:::priv
+    UWRoster[Get-UnplannedTeamRoster]:::priv
+    UWResolve[Resolve-UnplannedTeamMember]:::priv
+    UWTeamSave[Save-UnplannedTeamCache]:::priv
+    UWTeamRead[Read-UnplannedTeamCache]:::priv
+    UWTeamPath[Get-UnplannedTeamCachePath]:::priv
+    UWMentionPick[Select-UnplannedDebriefMention]:::priv
+    UWMentionMenu[Select-UnplannedMentionFromMenu]:::priv
+    UWAnchor[Format-UnplannedMentionAnchor]:::priv
+    UWMentionLine[Format-UnplannedMentionLine]:::priv
+    UWCachePath[Get-UnplannedCacheFilePath]:::priv
+    UWJsonRead[Read-UnplannedJsonCache]:::priv
+    UWJsonSave[Save-UnplannedJsonCache]:::priv
+    UWLedgerPath[Get-UnplannedLedgerPath]:::priv
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -749,6 +772,7 @@ graph LR
     SetField[Set-AzDevOpsWorkItemField]:::priv
     AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
+    Identity[Get-AzDevOpsIdentity]:::priv
     ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
@@ -836,6 +860,7 @@ graph LR
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
     USDesc[Read-AzDevOpsUserStoryDescription]:::priv
+    FeatDesc[Read-AzDevOpsFeatureDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
     PParent[Read-AzDevOpsParentPick]:::priv
@@ -856,6 +881,7 @@ graph LR
     CGate[Test-AzDevOpsCreateGate]:::priv
     ResIA[Resolve-AzDevOpsIterationArea]:::priv
     CrLink[Invoke-AzDevOpsCreateAndLink]:::priv
+    AddHier[Add-AzDevOpsHierarchyCacheItem]:::priv
 
     %% Multi-project resolver layer (azdevops_projects.ps1)
     MapDef[Test-AzDevOpsProjectMapDefined]:::priv
@@ -1017,6 +1043,12 @@ graph LR
     Board --> TitleCol
     Board --> ShowRows
 
+    Epics --> ReadH
+    Epics --> Stale
+    Epics --> SelAct
+    Epics --> TitleCol
+    Epics --> ShowRows
+
     Orphans --> ReadH
     Orphans --> Stale
     Orphans --> SelAct
@@ -1027,6 +1059,7 @@ graph LR
     %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
     Board --> RowAction
+    Epics --> RowAction
     ShowFeats --> RowAction
     Orphans --> RowAction
     RowAction --> Multi2{"2+ rows?"}
@@ -1123,7 +1156,7 @@ graph LR
     NewF --> CGate
     NewF --> ReadH
     NewF --> Pri
-    NewF --> AC
+    NewF --> FeatDesc
     NewF --> PEpic
     NewF --> ResIA
     NewF --> CrLink
@@ -1153,6 +1186,7 @@ graph LR
     ResIA --> PKind
     CrLink --> InvCreate --> NewWI --> AzJson
     CrLink --> InvLink --> AddRel --> AzJson
+    CrLink --> AddHier --> WriteFile
 
     %% Unplanned work sessions
     StartUW --> CGate
@@ -1171,6 +1205,32 @@ graph LR
     InvUWDebrief --> UWLedger
     NewUWDebrief --> AddDisc
     NewUWDebrief --> UWLedger
+
+    %% Debrief team tagging (azdevops_unplanned.ps1 + Get-AzDevOpsIdentity)
+    SyncUWTeam --> CGate
+    SyncUWTeam --> UWRosterSync
+    UWRosterSync --> UWRoster
+    UWRosterSync --> UWResolve --> Identity --> AzJson
+    UWRosterSync --> UWTeamSave
+    InvUWDebrief --> UWMentionPick
+    NewUWDebrief --> UWMentionPick
+    InvUWDebrief --> UWMentionLine
+    NewUWDebrief --> UWMentionLine
+    UWMentionPick --> UWGetTeam
+    UWMentionPick --> UWMentionMenu
+    UWGetTeam --> UWTeamRead
+    UWGetTeam --> UWRosterSync
+    UWMentionLine --> UWAnchor
+    UWTeamSave --> UWTeamPath
+    UWTeamSave --> UWJsonSave
+    UWTeamRead --> UWTeamPath
+    UWTeamRead --> UWJsonRead
+    UWTeamPath --> UWCachePath
+    UWLedger --> UWLedgerPath
+    UWLedger --> UWJsonRead
+    UWLedger --> UWJsonSave
+    UWLedgerPath --> UWCachePath
+    UWCachePath --> Paths
 
     %% Parent picker shared between Feature and Epic pickers
     PFeat --> PParent

@@ -426,3 +426,31 @@ function Get-AzDevOpsWorkItemTypeDefinition {
     )
     return $result
 }
+
+
+function Get-AzDevOpsIdentity {
+    # `az devops invoke --area ims --resource Identities` wrapper. Resolves a
+    # display name, email, or alias to the org's identity records via the
+    # Identity Management Service search endpoint. Returns the canonical
+    # envelope; the parsed JSON is { count, value: [ { id, providerDisplayName,
+    # properties }, ... ] } where each value's `id` is the identity GUID
+    # (TeamFoundationId) that the work-item discussion control expects inside a
+    # data-vss-mention anchor.
+    #
+    # Like Get-AzDevOpsWorkItemTypeDefinition this routes through `az devops
+    # invoke` (REST passthrough) because the azure-devops extension exposes no
+    # first-class identity-search subcommand. searchFilter=General matches
+    # against name, email, and alias, so one query handles either input shape.
+    param([Parameter(Mandatory)] [string] $Query)
+
+    $apiVersion = '7.1-preview.1'
+
+    $result = Invoke-AzDevOpsAzJson -ArgList @(
+        'devops', 'invoke',
+        '--area',             'ims',
+        '--resource',         'Identities',
+        '--query-parameters', 'searchFilter=General', "filterValue=$Query",
+        '--api-version',      $apiVersion
+    )
+    return $result
+}

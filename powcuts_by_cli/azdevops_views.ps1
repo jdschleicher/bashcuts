@@ -1204,10 +1204,59 @@ function az-Show-Board {
 
     $rows = @($byState | Sort-Object State, Type, Id | Select-Object State, Id, Type, (Get-AzDevOpsTitleColumn), Iteration)
 
+    if ($rows.Count -eq 0) {
+        Write-Host "(no items in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
     $title = "Board - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+# ---------------------------------------------------------------------------
+# Epics view (top-tier hierarchy roots)
+#
+# Public function:
+#   az-Show-Epics - flat grid of Epics from the active project's hierarchy
+#                   cache. Select a row to open it in the browser or create a
+#                   child Feature (Epic -> Feature is the wired child mapping);
+#                   tick several rows to open them all at once via the shared
+#                   Invoke-AzDevOpsRowAction "open all" prompt.
+#
+# Reads the same hierarchy.json az-Show-Board / az-Show-Tree consume; never
+# calls `az` directly. Single-project like Board/Tree (not multi-project like
+# az-Show-Features). Default -State filter excludes closed states via
+# Select-AzDevOpsActiveItems; pass -State Closed,Resolved for the archive view.
+# ---------------------------------------------------------------------------
+
+function az-Show-Epics {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+
+    $epics = @($items | Where-Object { $_.Type -eq 'Epic' })
+    $active = Select-AzDevOpsActiveItems -Items $epics -State $State
+
+    $rows = @($active | Sort-Object State, Id | Select-Object State, Id, (Get-AzDevOpsTitleColumn), Iteration)
+
+    if ($rows.Count -eq 0) {
+        Write-Host "(no epics in hierarchy cache)" -ForegroundColor Yellow
+        return
+    }
+
+    $title = "Epics - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected -DefaultType 'Epic'
 }
 
 

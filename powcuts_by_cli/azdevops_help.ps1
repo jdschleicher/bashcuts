@@ -213,10 +213,24 @@ $script:AzDevOpsHelpCatalog = @(
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Show-Features'
+        Name          = 'az-Show-Epics'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 8
+        Purpose       = 'Epics from the active project hierarchy cache; select a row to open it or create a child Feature, or tick several rows to open them all at once'
+        Args          = '[-State <states>]'
+        Example       = 'az-Show-Epics'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(130)
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Show-Features'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 9
         Purpose       = 'Features across the project map from the hierarchy cache; select a row to open it or create a child story'
         Args          = '[-Project <name>] [-State <states>]'
         Example       = 'az-Show-Features'
@@ -230,7 +244,7 @@ $script:AzDevOpsHelpCatalog = @(
         Name          = 'az-Show-Orphans'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
-        Order         = 9
+        Order         = 10
         Purpose       = 'Lists parentless Features and stories under the active area so stray items can be re-parented; select a row to open it or create a child'
         Args          = '[-Area <path>] [-State <states>]'
         Example       = 'az-Show-Orphans'
