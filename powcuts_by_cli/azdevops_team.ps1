@@ -41,6 +41,26 @@ $script:AzDevOpsMentionVersion = 'version:2.0'
 $script:AzDevOpsTeamIconPeople = [char]::ConvertFromUtf32(0x1F465)   # busts in silhouette
 
 
+function New-AzDevOpsTeamMemberRecord {
+    # Single definition site for the teammate record shape consumed by the
+    # mention picker and anchor builder. Both roster sources - team CLI rows
+    # (ConvertFrom-AzDevOpsTeamMemberRow) and env-var identity lookups
+    # (Resolve-AzDevOpsTeamMember) - funnel through here so the shape has one home.
+    param(
+        [string] $DisplayName,
+        [string] $Email,
+        [string] $Id
+    )
+
+    $record = [PSCustomObject]@{
+        DisplayName = $DisplayName
+        Email       = $Email
+        Id          = $Id
+    }
+    return $record
+}
+
+
 function Get-AzDevOpsTeamCachePath {
     # Resolved-roster cache (display name + email + identity GUID) under the
     # AzDO cache dir, so debriefs build mention anchors without re-hitting the
@@ -119,11 +139,7 @@ function ConvertFrom-AzDevOpsTeamMemberRow {
         $identity.uniqueName
     }
 
-    $record = [PSCustomObject]@{
-        DisplayName = $displayName
-        Email       = $identity.uniqueName
-        Id          = $identity.id
-    }
+    $record = New-AzDevOpsTeamMemberRecord -DisplayName $displayName -Email $identity.uniqueName -Id $identity.id
     return $record
 }
 
@@ -171,11 +187,7 @@ function Resolve-AzDevOpsTeamMember {
         $Identifier
     }
 
-    $record = [PSCustomObject]@{
-        DisplayName = $displayName
-        Email       = $email
-        Id          = $identity.id
-    }
+    $record = New-AzDevOpsTeamMemberRecord -DisplayName $displayName -Email $email -Id $identity.id
     return $record
 }
 
