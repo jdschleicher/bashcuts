@@ -597,19 +597,15 @@ Private helpers:
 
 Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
+The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
+
 ```mermaid
 flowchart TD
     Start([Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
     Gate -- false --> Abort1([abort])
-    Gate -- true --> Daily[Get-UnplannedWorkDailyStory]
+    Gate -- true --> AskTitle["prompt firefight title<br/>(Read-Host)"]
+    AskTitle --> PlatCheck{Test-WpfIsWindows?}
 
-    Daily --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
-    Find -- found --> HaveStory[daily story id]
-    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
-    NewStory --> HaveStory
-
-    HaveStory --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
-    Task --> PlatCheck{Test-WpfIsWindows?}
     PlatCheck -- Windows --> WpfLoop["Show-WpfStopwatch<br/>(WPF circular overlay)<br/>Log Item / Create New Story / Stop"]
     PlatCheck -- macOS/Linux --> Loop[session loop — Read-UnplannedKeyPress poll]
 
@@ -617,8 +613,22 @@ flowchart TD
     LogItem --> Loop
     Loop -- every ReminderMinutes --> Balloon["Show-UnplannedReminder<br/>(New-UnplannedBalloon NotifyIcon)"]
     Balloon --> Loop
-    Loop -- Esc/Q --> Debrief[Invoke-UnplannedDebrief]
-    WpfLoop -- Stop/right-click --> Debrief
+    Loop -- Esc/Q --> Daily
+    WpfLoop -- Stop/right-click --> Daily
+
+    Daily["Get-UnplannedWorkDailyStory<br/>(deferred to stop)"] --> CacheCheck["Get-UnplannedCachedStoryId<br/>unplanned-story-YYYY-MM-DD.json"]
+    CacheCheck -- hit --> HaveStory[daily story id]
+    CacheCheck -- miss --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
+    Find -- found --> SaveStory["Save-UnplannedCachedStoryId"]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
+    NewStory --> SaveStory
+    SaveStory --> HaveStory
+
+    HaveStory -- story id 0 --> Fallback["Show-UnplannedCapturedItemsFallback<br/>(print items, don't lose them)"]
+    HaveStory -- ok --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
+    Task -- create failed --> Fallback
+    Fallback --> Done
+    Task -- ok --> Debrief[Invoke-UnplannedDebrief]
 
     Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
     FlushDesc --> AskFuture{future-feature opportunity?}
@@ -641,7 +651,7 @@ flowchart TD
     TeamCache --> Done3([end])
 
     classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
-    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
+    class CacheCheck,Find,NewStory,SaveStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
 ```
 
 Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-UnplannedDebriefMention` offers a type-to-filter picker over the cached team roster (`debrief-team.json`, seeded from `$env:AZ_DEBRIEF_TEAM` and resolved to identity GUIDs by `az-Sync-UnplannedTeam`); picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
@@ -695,9 +705,13 @@ graph LR
     StartUW(["Start-UnplannedWork"]):::pub
     NewUWDebrief(["New-UnplannedWorkDebrief"]):::pub
     GetDaily[Get-UnplannedWorkDailyStory]:::priv
+    UWGetCachedStory[Get-UnplannedCachedStoryId]:::priv
+    UWSaveCachedStory[Save-UnplannedCachedStoryId]:::priv
+    UWStoryCachePath[Get-UnplannedStoryCachePath]:::priv
     FindUW[Find-UnplannedWorkStoryId]:::priv
     NewUWStory[New-UnplannedWorkStory]:::priv
     NewUWTask[New-UnplannedWorkTask]:::priv
+    UWFallback[Show-UnplannedCapturedItemsFallback]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
@@ -1191,11 +1205,19 @@ graph LR
     %% Unplanned work sessions
     StartUW --> CGate
     StartUW --> GetDaily
+    GetDaily --> UWGetCachedStory
+    UWGetCachedStory --> UWStoryCachePath
+    UWGetCachedStory --> UWJsonRead
     GetDaily --> FindUW --> Boards
     GetDaily --> NewUWStory --> InvCreate
+    GetDaily --> UWSaveCachedStory
+    UWSaveCachedStory --> UWStoryCachePath
+    UWSaveCachedStory --> UWJsonSave
+    UWStoryCachePath --> UWCachePath
     StartUW --> NewUWTask
     NewUWTask --> NewWI
     NewUWTask --> InvLink
+    StartUW --> UWFallback
     StartUW --> UWBalloon
     StartUW --> WpfStopwatch
     StartUW --> InvUWDebrief

@@ -218,11 +218,11 @@ function Set-WpfArcPoint {
 
     $angle    = $Pct * 360
     $angleRad = [Math]::PI * ($angle - 90) / 180
-    $x        = $center + $radius * [Math]::Cos($angleRad)
-    $y        = $center + $radius * [Math]::Sin($angleRad)
+    $x        = [double]($center + $radius * [Math]::Cos($angleRad))
+    $y        = [double]($center + $radius * [Math]::Sin($angleRad))
 
     $ArcSegment.IsLargeArc = ($angle -gt 180)
-    $ArcSegment.Point      = New-Object System.Windows.Point($x, $y)
+    $ArcSegment.Point      = [System.Windows.Point]::new($x, $y)
 }
 
 

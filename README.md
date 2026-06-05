@@ -675,10 +675,10 @@ Start-UnplannedWork -NoReminder
 ```
 
 Flow:
-1. Finds (or creates) today's daily **Unplanned Work** story, then creates a child **Task** for this firefight and links it
-2. Runs a foreground session — press **Space** to log a timestamped item, **Esc/Q** to stop
+1. Prompts for the firefight title, then starts the session **immediately** — no waiting on Azure DevOps round-trips up front (the story and Task are created when you stop, at debrief time)
+2. Runs a foreground session — press **Space** to log a timestamped item, **Esc/Q** to stop (Windows shows a circular WPF stopwatch overlay; macOS/Linux a terminal counter)
 3. A reminder balloon pops every `-ReminderMinutes` until you stop
-4. On stop: captured items flush to the Task **description**, then you're prompted for debrief notes and whether there's an opportunity for a new feature / user story to prevent the firefight in future (it can spin one up via `az-New-AzDevOpsUserStory`). A single debrief comment (time spent + notes + opportunity) is posted on the Task.
+4. On stop: today's daily **Unplanned Work** story is found or created (its id is cached for the rest of the day, so the next firefight grabs it instantly) and a child **Task** for this firefight is created and linked; captured items flush to the Task **description**, then you're prompted for debrief notes and whether there's an opportunity for a new feature / user story to prevent the firefight in future (it can spin one up via `az-New-AzDevOpsUserStory`). A single debrief comment (time spent + notes + opportunity) is posted on the Task.
 
 Start three separate firefights in a day and you get three Tasks under the one daily story — exactly the "three different chats, three different efforts" shape.
 
