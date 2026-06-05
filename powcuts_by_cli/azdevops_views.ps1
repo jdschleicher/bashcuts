@@ -1000,15 +1000,15 @@ function Read-AzDevOpsRowActionChoice {
 
 
 function Get-AzDevOpsRowId {
-    # Returns the positive work-item id off a selected row, or $null when the
-    # row carries no usable id (synthetic action rows, classification nodes).
-    # Shared by the open-all batch path and the per-row loop so the id guard
+    # Returns the positive work-item id from a selected grid row, or 0 when the
+    # row carries no usable Id column (classification nodes, header rows). Shared
+    # by the bulk-open gate and the per-row dispatcher so the presence check
     # lives in one place.
     param([Parameter(Mandatory)] $Row)
 
     $hasId = $Row.PSObject.Properties.Match('Id').Count -gt 0 -and [int]$Row.Id -gt 0
     if (-not $hasId) {
-        return $null
+        return 0
     }
 
     $id = [int]$Row.Id
@@ -1016,52 +1016,47 @@ function Get-AzDevOpsRowId {
 }
 
 
-function Read-AzDevOpsOpenAllChoice {
-    # Batch prompt shown when more than one row is selected: offers to open
-    # every selected work item in the browser in one go. Returns $true to open
-    # all, $false to fall through to the per-row open/create-child prompt.
-    # Enter defaults to "open all" - the common intent when several rows are
-    # ticked is to fan them out into browser tabs.
-    param([Parameter(Mandatory)] [int] $Count)
+function Invoke-AzDevOpsOpenAllSelected {
+    # Bulk-open gate for multi-row grid selections. Asks once whether to open
+    # every selected row in the browser; on yes, opens each row that carries a
+    # usable work-item id and returns $true. On no - a bare Enter is the safe
+    # default via Read-AzDevOpsYesNo -DefaultNo - returns $false so the caller
+    # drops to the per-row open/create prompt loop.
+    param([Parameter(Mandatory)] $Rows)
+
+    $rows  = @($Rows)
+    $count = $rows.Count
 
     Write-Host ""
-    Write-Host "$Count items selected." -ForegroundColor Cyan
+    $prompt  = "Open all $count selected items in the browser?"
+    $openAll = Read-AzDevOpsYesNo -Prompt $prompt -DefaultNo
 
-    $resp = Read-Host "  Open all $Count in browser? [Y]es / [n]=prompt each"
-
-    if ($resp -match '^(n|no)$') {
+    if (-not $openAll) {
         return $false
     }
 
-    return $true
-}
-
-
-function Open-AzDevOpsSelectedRows {
-    # Opens every selected row that carries a usable work-item id in the
-    # browser; rows without an id are skipped with a hint. Backs the "open all"
-    # batch path of Invoke-AzDevOpsRowAction.
-    param([Parameter(Mandatory)] $Rows)
-
-    foreach ($row in @($Rows)) {
+    foreach ($row in $rows) {
         $id = Get-AzDevOpsRowId -Row $row
-        if ($null -eq $id) {
+        if ($id -le 0) {
             Write-Host "(selected row has no work-item id - nothing to open)" -ForegroundColor Yellow
             continue
         }
 
         az-Open-WorkItemById -Id $id
     }
+
+    return $true
 }
 
 
 function Invoke-AzDevOpsRowAction {
     # Post-selection dispatcher shared by the interactive az-Show-* work-item
-    # views. When more than one row is selected, first offers a single "open
-    # all" shortcut; otherwise (or when declined) prompts per row to open it in
-    # the browser or create its hierarchical child. Rows without a usable
-    # work-item id are skipped with a hint. -DefaultType supplies the type for
-    # views whose rows omit a Type column.
+    # views. When more than one row is selected, first offers a single bulk-open
+    # gate; declining (or a single-row selection) falls through to the per-row
+    # loop, which prompts to open each row in the browser or create its
+    # hierarchical child. Rows without a usable work-item id are skipped with a
+    # hint. -DefaultType supplies the type for views whose rows omit a Type
+    # column.
     param(
         $Selected,
         [string] $DefaultType
@@ -1074,16 +1069,15 @@ function Invoke-AzDevOpsRowAction {
     $rows = @($Selected)
 
     if ($rows.Count -gt 1) {
-        $openAll = Read-AzDevOpsOpenAllChoice -Count $rows.Count
-        if ($openAll) {
-            Open-AzDevOpsSelectedRows -Rows $rows
+        $openedAll = Invoke-AzDevOpsOpenAllSelected -Rows $rows
+        if ($openedAll) {
             return
         }
     }
 
     foreach ($row in $rows) {
         $id = Get-AzDevOpsRowId -Row $row
-        if ($null -eq $id) {
+        if ($id -le 0) {
             Write-Host "(selected row has no work-item id - nothing to open)" -ForegroundColor Yellow
             continue
         }

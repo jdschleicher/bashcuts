@@ -12,8 +12,9 @@
 #                                countdown to end early and still post a debrief.
 #   Register-TimerIntegration  - add an integration (Name, Description,
 #                                FetchItems, AddComment, optional ViewHint,
-#                                optional CloseItem). Registering with an
-#                                existing Name replaces it.
+#                                optional OpenItem, optional CloseItem, optional
+#                                SupportsMentions). Registering with an existing
+#                                Name replaces it.
 #
 # Integration contract (each entry of $script:TimerIntegrations):
 #   Name        [string]      - display name shown in the picker
@@ -25,6 +26,15 @@
 #   ViewHint    [scriptblock] - param([int]$Id); returns a one-line string
 #                               printed after a successful comment post
 #                               (e.g. "View discussion: az-Open-WorkItemById 1234")
+#   OpenItem    [scriptblock] - optional; param([int]$Id); opens the work item
+#                               in the OS browser. Azure DevOps maps this to
+#                               az-Open-WorkItemById. When provided, both the
+#                               WPF countdown overlay and the WPF debrief form
+#                               surface an "Open work item" button (clicking it
+#                               opens the browser without stopping the timer or
+#                               closing the form); the terminal path offers an
+#                               "[o] Open in browser" choice in the next-action
+#                               menu.
 #   CloseItem   [scriptblock] - optional; param([int]$Id); transitions the work
 #                               item to its done state. Azure DevOps maps this
 #                               to System.State=$script:TimerCloseState (default
@@ -140,42 +150,70 @@ function Read-TimerNextAction {
     # Console counterpart to the WPF debrief's restart buttons. Offers the same
     # three-way choice and returns the shared action token: 'SameItem' reuses
     # the work item just debriefed, 'NewItem' returns to the picker, 'Done'
-    # (also the blank/unrecognized default) ends the loop.
+    # (also the blank/unrecognized default) ends the loop. When -OpenAction is
+    # supplied an extra "[o] Open work item" choice opens the item in the
+    # browser and re-prompts, so opening never consumes the restart decision.
     param(
-        [Parameter(Mandatory)] [string] $ItemLabel
+        [Parameter(Mandatory)] [string] $ItemLabel,
+        [scriptblock] $OpenAction
     )
 
-    Write-Host ""
-    Write-Host "Start another session?" -ForegroundColor Cyan
-    Write-Host "  [s] Same item — $ItemLabel"
-    Write-Host "  [p] Pick another item"
-    Write-Host "  [d] Done"
+    $openEnabled = ($null -ne $OpenAction)
 
-    $raw = Read-Host "Choose [s/p/D]"
-    if (-not $raw) {
-        return 'Done'
+    $prompt = if ($openEnabled) {
+        "Choose [s/p/o/D]"
+    } else {
+        "Choose [s/p/D]"
     }
 
-    $normalized = $raw.Trim().ToLowerInvariant()
-    switch ($normalized) {
-        's' {
-            return 'SameItem'
+    while ($true) {
+        Write-Host ""
+        Write-Host "Start another session?" -ForegroundColor Cyan
+        Write-Host "  [s] Same item — $ItemLabel"
+        Write-Host "  [p] Pick another item"
+        if ($openEnabled) {
+            Write-Host "  [o] Open work item in browser"
         }
+        Write-Host "  [d] Done"
 
-        'same' {
-            return 'SameItem'
-        }
-
-        'p' {
-            return 'NewItem'
-        }
-
-        'pick' {
-            return 'NewItem'
-        }
-
-        default {
+        $raw = Read-Host $prompt
+        if (-not $raw) {
             return 'Done'
+        }
+
+        $normalized = $raw.Trim().ToLowerInvariant()
+        switch ($normalized) {
+            's' {
+                return 'SameItem'
+            }
+
+            'same' {
+                return 'SameItem'
+            }
+
+            'p' {
+                return 'NewItem'
+            }
+
+            'pick' {
+                return 'NewItem'
+            }
+
+            'o' {
+                if ($openEnabled) {
+                    & $OpenAction
+                }
+            }
+
+            'open' {
+                if ($openEnabled) {
+                    & $OpenAction
+                }
+            }
+
+            default {
+                return 'Done'
+            }
         }
     }
 }
@@ -281,6 +319,7 @@ function az-Register-TimerIntegration {
         [Parameter(Mandatory)] [scriptblock] $FetchItems,
         [Parameter(Mandatory)] [scriptblock] $AddComment,
         [scriptblock] $ViewHint,
+        [scriptblock] $OpenItem,
         [scriptblock] $CloseItem,
         [switch]      $SupportsMentions
     )
@@ -291,6 +330,7 @@ function az-Register-TimerIntegration {
         FetchItems       = $FetchItems
         AddComment       = $AddComment
         ViewHint         = $ViewHint
+        OpenItem         = $OpenItem
         CloseItem        = $CloseItem
         SupportsMentions = [bool]$SupportsMentions
     }
@@ -363,12 +403,18 @@ function Show-TimerCountdown {
     # Delegates to the WPF circular overlay on Windows; falls back to the
     # snake-animation on macOS / Linux. Returns the same outcome shape in
     # both paths so the orchestrator (az-Start-TimerSession) is unchanged.
-    param([Parameter(Mandatory)] [int] $Seconds)
+    # -OpenAction, when supplied, adds an "Open work item" button to the WPF
+    # overlay; the snake fallback has no buttons and ignores it (the terminal
+    # next-action menu carries the open affordance instead).
+    param(
+        [Parameter(Mandatory)] [int] $Seconds,
+        [scriptblock] $OpenAction
+    )
 
     $onWindows = Test-WpfIsWindows
 
     if ($onWindows) {
-        $result = Show-WpfTimerCountdown -Seconds $Seconds
+        $result = Show-WpfTimerCountdown -Seconds $Seconds -OpenAction $OpenAction
         return $result
     }
 
@@ -437,10 +483,16 @@ function Show-WpfTimerCountdown {
     # as Show-TimerCountdown so az-Start-TimerSession needs no changes.
     # If "Capture Story" is clicked the overlay closes, az-New-AzDevOpsUserStory
     # runs in the terminal, then the overlay reopens with the remaining time.
-    param([Parameter(Mandatory)] [int] $Seconds)
+    # When -OpenAction is supplied an "Open work item" button is shown; clicking
+    # it opens the item in the browser without stopping the countdown.
+    param(
+        [Parameter(Mandatory)] [int] $Seconds,
+        [scriptblock] $OpenAction
+    )
 
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
 
+    $openEnabled    = ($null -ne $OpenAction)
     $flashMaxTicks  = 15
     $defaultSeconds = $Seconds
 
@@ -543,6 +595,26 @@ function Show-WpfTimerCountdown {
         $actionRow.Children.Add($btnCapture)  | Out-Null
         $actionRow.Children.Add($btnComplete) | Out-Null
         $vbox.Children.Add($actionRow) | Out-Null
+
+        $openRow = New-Object System.Windows.Controls.StackPanel -Property @{
+            Orientation         = 'Horizontal'
+            HorizontalAlignment = 'Center'
+            Margin              = '0,0,0,5'
+            Visibility          = [System.Windows.Visibility]::Collapsed
+        }
+        $btnOpenItem = New-Object System.Windows.Controls.Button -Property @{
+            Content    = 'Open work item'
+            Width      = 120
+            Height     = 22
+            Background = $brushes.Button
+            Foreground = $brushes.White
+        }
+        $openRow.Children.Add($btnOpenItem) | Out-Null
+        $vbox.Children.Add($openRow) | Out-Null
+
+        if ($openEnabled) {
+            $openRow.Visibility = [System.Windows.Visibility]::Visible
+        }
 
         $exitHint = New-Object System.Windows.Controls.TextBlock -Property @{
             Text                = 'Click time to pause  ·  Right-click to exit'
@@ -698,6 +770,10 @@ function Show-WpfTimerCountdown {
                 $Script:WpfOutcome = 'Interrupted'
                 $mainWin.Close()
             }
+        })
+
+        $btnOpenItem.Add_Click({
+            & $OpenAction
         })
 
         # ---- Show ----
@@ -895,6 +971,30 @@ function New-TimerCloseScript {
 }
 
 
+function New-TimerOpenScript {
+    # Builds the closure that invokes the chosen integration's OpenItem against
+    # the picked item's Id. Both WPF surfaces (countdown overlay + debrief form)
+    # and the terminal next-action menu need the same { & $chosen.OpenItem -Id
+    # $pickedItem.Id }.GetNewClosure() shape, so they share this helper instead
+    # of inlining it. Returns $null when the integration supplies no OpenItem,
+    # so callers can use the result directly as the "is open available?" gate.
+    param(
+        [Parameter(Mandatory)] $Integration,
+        [Parameter(Mandatory)] $Item
+    )
+
+    if ($null -eq $Integration.OpenItem) {
+        return $null
+    }
+
+    $openScript = {
+        & $Integration.OpenItem -Id $Item.Id
+    }.GetNewClosure()
+
+    return $openScript
+}
+
+
 function Show-WpfTimerDebrief {
     # Windows-only themed debrief form the countdown overlay morphs into. Two
     # multiline fields (Debrief + Next) share the timer's dark/blue theme. On
@@ -918,6 +1018,7 @@ function Show-WpfTimerDebrief {
     param(
         [Parameter(Mandatory)] [bool]        $Interrupted,
         [Parameter(Mandatory)] [scriptblock] $SubmitAction,
+        [scriptblock] $OpenAction,
         [scriptblock] $CloseAction
     )
 
@@ -931,6 +1032,7 @@ function Show-WpfTimerDebrief {
     $Script:WpfDebriefCloseRequested = $false
     $Script:WpfDebriefCloseResult    = $null
 
+    $openEnabled   = ($null -ne $OpenAction)
     $closeEnabled  = ($null -ne $CloseAction)
     $checkboxLabel = "Work complete — resolve this story (sets State=$script:TimerCloseState)"
 
@@ -977,6 +1079,27 @@ function Show-WpfTimerDebrief {
         Cursor              = [System.Windows.Input.Cursors]::SizeAll
     }
     $vbox.Children.Add($titleLabel) | Out-Null
+
+    # ---- Open-item button (only when integration supplies an OpenAction) ----
+
+    $openPanel = New-Object System.Windows.Controls.StackPanel -Property @{
+        HorizontalAlignment = 'Center'
+        Margin              = '0,0,0,12'
+        Visibility          = [System.Windows.Visibility]::Collapsed
+    }
+    $btnOpenItem = New-Object System.Windows.Controls.Button -Property @{
+        Content    = 'Open work item'
+        Width      = 130
+        Height     = 24
+        Background = $brushes.Button
+        Foreground = $brushes.White
+    }
+    $openPanel.Children.Add($btnOpenItem) | Out-Null
+    $vbox.Children.Add($openPanel) | Out-Null
+
+    if ($openEnabled) {
+        $openPanel.Visibility = [System.Windows.Visibility]::Visible
+    }
 
     # ---- Debrief field ----
 
@@ -1142,6 +1265,10 @@ function Show-WpfTimerDebrief {
         $mainWin.Close()
     })
 
+    $btnOpenItem.Add_Click({
+        & $OpenAction
+    })
+
     $btnPost.Add_Click({
         $debriefText = $debriefBox.Text
         $nextText    = $nextBox.Text
@@ -1169,6 +1296,11 @@ function Show-WpfTimerDebrief {
         if ($exitCode -eq 0) {
             $Script:WpfDebriefPostResult = $postResult
             $Script:WpfDebriefOutcome    = 'Posted'
+
+            # Notes are now committed to the item — lock them so they can't be
+            # edited, but keep them readable and selectable (IsReadOnly, not IsEnabled).
+            $debriefBox.IsReadOnly = $true
+            $nextBox.IsReadOnly    = $true
 
             $wantsResolve = ($closeEnabled -and ($chkResolve.IsChecked -eq $true))
 
@@ -1317,8 +1449,10 @@ function az-Start-TimerSession {
             Write-Host "Starting $Minutes-minute session on item $($pickedItem.Id): $($pickedItem.Title)" -ForegroundColor Green
             Start-Sleep -Seconds 2
 
+            $openAction = New-TimerOpenScript -Integration $chosen -Item $pickedItem
+
             $seconds         = $Minutes * 60
-            $countdownResult = Show-TimerCountdown -Seconds $seconds
+            $countdownResult = Show-TimerCountdown -Seconds $seconds -OpenAction $openAction
 
             # Optional teammate tagging, offered only for integrations whose
             # comments can carry AzDO @-mention anchors (SupportsMentions). The
@@ -1360,6 +1494,7 @@ function az-Start-TimerSession {
                 $debriefResult = Show-WpfTimerDebrief `
                     -Interrupted  $countdownResult.Interrupted `
                     -SubmitAction $submitAction `
+                    -OpenAction   $openAction `
                     -CloseAction  $closeAction
 
                 if (-not $debriefResult.PostResult) {
@@ -1428,7 +1563,7 @@ function az-Start-TimerSession {
                 }
 
                 $itemLabel  = "$($pickedItem.Id): $($pickedItem.Title)"
-                $nextAction = Read-TimerNextAction -ItemLabel $itemLabel
+                $nextAction = Read-TimerNextAction -ItemLabel $itemLabel -OpenAction $openAction
             }
 
             $resolved      = Resolve-TimerNextAction -Action $nextAction
@@ -1499,6 +1634,10 @@ az-Register-TimerIntegration `
         param([Parameter(Mandatory)] [int] $Id)
         $hint = "View discussion: az-Open-WorkItemById $Id"
         return $hint
+    } `
+    -OpenItem    {
+        param([Parameter(Mandatory)] [int] $Id)
+        az-Open-WorkItemById -Id $Id
     } `
     -CloseItem   {
         param([Parameter(Mandatory)] [int] $Id)

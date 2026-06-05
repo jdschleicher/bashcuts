@@ -2,6 +2,7 @@
 
 * [Choose which Prerequisite CLI's and Other Tools to Install](#tools-used)
 * [System Setup for bash and PowerShell Profiles](#system-setup)
+* [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup)
 * [How to use bashcuts](#how-to)
 * [Azure DevOps work-item shortcuts](#azure-devops)
 * [Timer sessions](#timer-sessions)
@@ -76,21 +77,7 @@ fi
 
 Once PowerShell Core has been installed on your machine you can open up a new PowerShell terminal in VS Code or a standalone PowerShell Terminal.
 
-With the terminal open enter "$profile" into the terminal to see where the terminal's expecting a profile file to exist. This file may not exist so we may need to create it. 
-
-To create the file enter the below powershell command to create an empty file at the expected profile path:
-
-```
-New-Item -ItemType File -Path $profile
-```
-
-To edit the profile select, enter the below command:
-
-```
-start $profile
-```
-
-This will open up the PowerShell profile and may prompt for which application to open the file in. Choose VSCode and select the checkbox to use VSCode for all ps1 files. This gives us syntax highlighting and other features that can be leveraged within the VS Code IDE.
+> **New to PowerShell profiles or the Azure CLI?** See [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup) below for a from-zero walkthrough of finding, creating, and editing your `$profile` (with screenshots) plus installing and configuring `az`. The snippet below assumes you already have a profile file open for editing.
 
 With the PowerShell Profile open add the following code snippet AND **IMPORTANT** replace the path directories to point to where the bashcuts directory was cloned to.
 
@@ -111,15 +98,135 @@ if ("$path_to_bashcuts_parent_directory\$bashcuts_git_directory" -ne $NULL) {
 
 ```
 
-For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update.
+For the PowerShell terminal from the VS Code PowerShell extension, we can use the same steps as above. It more than likely will be a different profile to update. See [Machine Setup: PowerShell Profile & Azure CLI](#machine-setup) for the difference between the standalone-pwsh profile and the VS Code-host profile.
 
-Here's a screen shot of the commands to the empty profile being opened in VS Code:
+***
+
+<br>
+
+# <a name="machine-setup"></a>Machine Setup: PowerShell Profile & Azure CLI
+
+This section is a from-zero walkthrough for a fresh machine: get your PowerShell `$profile` under control, then install and configure the Azure CLI (`az`) so the `az-*` shortcuts work. Everything below is one-time-per-machine setup.
+
+<br>
+
+## Managing your PowerShell profile
+
+Your `$profile` is the script PowerShell runs every time a terminal starts — it's where bashcuts gets wired in (see [System Setup](#system-setup) above) and where you set the `$env:AZ_*` variables the Azure DevOps shortcuts read.
+
+### Find the active profile
+
+```powershell
+$profile                      # path PowerShell loads for the current host
+$PROFILE.CurrentUserAllHosts  # shared across every PowerShell host on this machine
+```
+
+**Heads up — VS Code uses a different profile.** A standalone `pwsh` terminal and the VS Code PowerShell-extension terminal each load their **own** `$profile` path. Run `$profile` in each terminal to see the two distinct paths; if a shortcut works in one but not the other, you've likely only wired up one of them. `$PROFILE.CurrentUserAllHosts` is the path that applies to both, if you'd rather maintain a single file.
+
+### Create it if it doesn't exist
+
+```powershell
+New-Item -ItemType File -Path $profile -Force
+```
+
+`-Force` creates any missing parent directories so this works on a clean machine.
+
+### Edit it
+
+```powershell
+code $profile    # open in VS Code (recommended — syntax highlighting for .ps1)
+start $profile   # or open in your OS default editor
+```
+
+If `start $profile` prompts for which application to open the file in, choose VS Code and tick the checkbox to use VS Code for all `.ps1` files.
+
+Here's a screen shot of the empty profile being opened in VS Code:
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/c76f2eb0-6091-496a-bfe5-d1dafe557b27)
 
-Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal:
+Here's a side-by-side view of a regular PowerShell core terminal and the PowerShell VS Code extension terminal — note each has its own profile:
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/f52313f0-a877-4971-828a-954fead5c25d)
+
+### Reload after editing
+
+You don't have to close and reopen the terminal — dot-source the profile to re-run it in the current session:
+
+```powershell
+. $profile
+```
+
+<br>
+
+## Configuring the Azure CLI (`az`)
+
+The Azure DevOps shortcuts (`az-Connect-AzDevOps`, `az-Sync-AzDevOpsCache`, the work-item views and creators) all shell out to the Azure CLI. Get `az` installed and configured once and they all light up. (`az-Connect-AzDevOps` automates several of these steps interactively on first run — this is the manual reference.)
+
+### 1. Install the Azure CLI
+
+Follow Microsoft's per-OS installer: https://aka.ms/installazurecli
+
+### 2. Verify the install
+
+```powershell
+az version
+```
+
+You should see a JSON blob with `azure-cli` and your installed version. If `az` isn't found, reopen your terminal so the updated `PATH` takes effect.
+
+### 3. Sign in
+
+```powershell
+az login
+```
+
+This opens a browser to authenticate. On a headless box, or when the browser flow won't complete, use device-code auth:
+
+```powershell
+az login --use-device-code
+```
+
+If your organization spans multiple Entra ID tenants, target the right one explicitly:
+
+```powershell
+az login --tenant <tenant-id-or-domain>
+```
+
+### 4. Keep it current
+
+```powershell
+az upgrade
+```
+
+The `azure-devops` extension and the `az boards` surface move quickly; an out-of-date CLI is a common cause of confusing errors.
+
+### 5. Pick the right subscription
+
+```powershell
+az account show                          # which subscription am I on?
+az account list --output table           # all subscriptions available to me
+az account set --subscription "<name-or-id>"
+```
+
+### 6. Add the `azure-devops` extension
+
+Required for every `az boards` / `az devops` call the shortcuts make:
+
+```powershell
+az extension add --name azure-devops
+```
+
+(`az-Connect-AzDevOps` will offer to install this for you on first run.)
+
+### 7. Set your org and project defaults
+
+Org and project are stored in your Azure CLI profile — not in PowerShell env vars — so you only do this once per machine (or after switching orgs):
+
+```powershell
+az devops configure --defaults organization='https://dev.azure.com/myorg' project='My Project'
+```
+
+With those seven steps done, head to [Azure DevOps work-item shortcuts](#azure-devops) to set the optional `$env:AZ_*` profile variables and run `az-Connect-AzDevOps` to confirm everything is wired up.
 
 ***
 
@@ -166,19 +273,7 @@ PowerShell shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_
 
 ### Prerequisites
 
-- Azure CLI: https://aka.ms/installazurecli
-- `azure-devops` CLI extension: `az extension add --name azure-devops` (`az-Connect-AzDevOps` will offer to install this for you on first run)
-- An active `az login` session (`az-Connect-AzDevOps` will offer to start one for you on first run)
-
-### Configure org and project defaults
-
-Org and project are stored in your Microsoft profile via the Azure CLI — not in PowerShell env vars. Run once per machine (or after switching orgs):
-
-```powershell
-az devops configure --defaults organization='https://dev.azure.com/myorg' project='My Project'
-```
-
-(`az-Connect-AzDevOps` will guide you through this interactively on first run.)
+The Azure CLI (`az`), the `azure-devops` extension, an active `az login` session, and your org/project defaults (`az devops configure --defaults`) all need to be in place. See **[Machine Setup: PowerShell Profile & Azure CLI](#machine-setup)** for the full from-zero walkthrough — or just run `az-Connect-AzDevOps`, which checks each prerequisite and offers to install the extension / start an `az login` for you on first run.
 
 ### Optional profile environment variables
 
@@ -507,6 +602,10 @@ On **Windows** the countdown morphs into a themed debrief form that shares the t
 
 On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
+### Opening the work item in your browser
+
+When the chosen integration supplies an `OpenItem` capability, both timer surfaces add a one-click jump to the item in your browser — no need to copy the ID into a separate command. On **Windows** an **Open work item** button appears on the countdown overlay (open it mid-session without stopping the clock) and on the debrief form (open it while you write your notes — the form stays put). On **macOS/Linux** the **Start another session?** menu gains an `[o] Open work item in browser` choice that opens the item and re-prompts, so opening never consumes your restart decision. The built-in **Azure DevOps** integration maps `OpenItem` to `az-Open-WorkItemById`; integrations without an `OpenItem` simply don't show the button or option.
+
 ### Closing the story when a session finishes the task
 
 When the chosen integration supplies a `CloseItem` capability, the debrief surface adds a one-click way to transition the work item to its done state right after the comment lands — so a session that actually finished the task doesn't leave the item lingering in **Active**. On **Windows** the debrief form renders a **Work complete — resolve this story** checkbox above **Post Debrief**; ticking it makes the post sequence run the comment, then the state transition, and reports both outcomes before the **Start another session?** choice appears. On **macOS/Linux** the same trigger is a `Resolve this item now? [y/N]` prompt that follows a successful comment post (default **No** — your work item is never resolved without an explicit yes).
@@ -550,6 +649,13 @@ Register-TimerIntegration `
     -ViewHint    {
         param([Parameter(Mandatory)] [int] $Id)
         "View: my-tracker open $Id"
+    } `
+    -OpenItem    {
+        # Optional. When present, the countdown overlay and debrief form show an
+        # "Open work item" button (Windows) and the terminal next-action menu
+        # offers `[o] Open work item in browser`.
+        param([Parameter(Mandatory)] [int] $Id)
+        Open-MyTrackerItem -Id $Id
     } `
     -CloseItem   {
         # Optional. When present, the debrief shows a resolve checkbox
