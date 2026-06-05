@@ -627,7 +627,7 @@ Press **Esc** during the countdown (or use **Mark Complete Early** on the Window
 
 On both platforms the **Start another session?** choice appears after every successful post (completed or interrupted). On macOS/Linux it's a terminal prompt — `[s] Same item / [p] Pick another item / [d] Done` (blank or `d` ends the session) — mirroring the Windows buttons: **Same item** loops straight back to the countdown on the work item you just debriefed, **Pick another** returns to the picker so you can pivot to a different story / integration without retyping the command. **Ctrl-C** is still a hard exit — no debrief, no comment.
 
-When the chosen integration is Azure DevOps and you've cached a roster with `az-Sync-AzDevOpsTeam`, the debrief first asks **"Tag teammate(s) on this debrief?"** so you can notify colleagues on the posted comment — see [Tagging teammates](#tagging-teammates) below. Custom integrations can opt into the same picker by registering with `-SupportsMentions`.
+When the chosen integration is Azure DevOps and you've cached a roster with `az-Sync-AzDevOpsTeam`, the debrief form shows a **"Tag teammates" field** (type a name/email, click a suggestion) so you can notify colleagues on the posted comment — see [Tagging teammates](#tagging-teammates) below. Custom integrations can opt into the same field by registering with `-SupportsMentions`.
 
 ### Registering your own integration
 
@@ -727,5 +727,10 @@ $env:AZ_TEAM = 'contractor@example.com;lead@othergroup.com'
 az-Sync-AzDevOpsTeam
 ```
 
-Once a roster is cached, each debrief asks **"Tag teammate(s) on this debrief? [y/N]"**. Answer yes and you get a type-to-filter picker showing each teammate's **name and email** so you can confirm the right person; the ones you pick are added to the posted comment as real `@`-mentions, so they're notified. Tagging is always optional — the prompt defaults to no, and picking nobody (or skipping it) posts the debrief exactly as before. If you've never run `az-Sync-AzDevOpsTeam`, the prompt is skipped entirely.
+Once a roster is cached, each debrief gives you a **"Tag teammates" field** — there's no yes/no prompt to get past:
+
+- **On Windows** (the Pomodoro timer's debrief form) it's a blank text box above the **Post** button. Start typing a name or email and a small list of matching teammates appears underneath; click one to add it. Added people show on a **"Tagged: …"** line (click that line to clear). Leave the box empty to tag nobody.
+- **On macOS/Linux and in the unplanned-work debriefs** it's a single blank prompt — `Tag teammates (; or , separated names/emails, blank = none)`. Type one or more teammates (or just press Enter to skip).
+
+Either way the people you pick are added to the posted comment as real `@`-mentions, so they're notified. Typed entries resolve against the cached roster first and fall back to a live identity lookup, so a name that's slightly outside your synced team still works. Tagging is always optional, and if you've never run `az-Sync-AzDevOpsTeam` the field doesn't appear at all.
 

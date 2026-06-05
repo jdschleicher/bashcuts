@@ -43,12 +43,14 @@
 #                               (WPF) / "Resolve this item now? [y/N]" prompt
 #                               (terminal) that fires only after a successful
 #                               AddComment.
-#   SupportsMentions [bool]   - optional; when set the debrief offers the shared
-#                               "Tag teammate(s)?" picker (Select-AzDevOpsMention
-#                               in azdevops_team.ps1) and appends a notifying
-#                               @-mention line to the composed comment. Only the
-#                               Azure DevOps integration sets it - the anchors
-#                               are AzDO identity GUIDs, meaningless elsewhere.
+#   SupportsMentions [bool]   - optional; when set (and a roster has been synced
+#                               via az-Sync-AzDevOpsTeam) the debrief shows a
+#                               "Tag teammates" field — an in-form type-to-filter
+#                               box on the WPF debrief, a typed Read-Host on the
+#                               console path — and appends a notifying @-mention
+#                               line to the composed comment. Only the Azure
+#                               DevOps integration sets it; the anchors are AzDO
+#                               identity GUIDs, meaningless elsewhere.
 #
 # Azure DevOps integration is registered at the bottom of this file; reads
 # $HOME/.bashcuts-cache/azure-devops/assigned.json (populated by
@@ -1011,6 +1013,14 @@ function Show-WpfTimerDebrief {
     # { Cancelled; NextAction; PostResult; CloseRequested; CloseResult } for the
     # orchestrator, where NextAction is 'Done' / 'SameItem' / 'NewItem'.
     #
+    # -TeamRoster, when non-empty, renders a "Tag teammates" field above the Post
+    # button: a blank textbox you type a name/email into; a live suggestion list
+    # under it filters the roster, and clicking a suggestion adds that teammate
+    # to a "Tagged:" line (click the line to clear). The selected records are
+    # passed to -SubmitAction as its THIRD argument, so SubmitAction's signature
+    # is param($DebriefText, $NextText, $Mentions). An empty roster hides the
+    # field entirely and SubmitAction receives an empty mention set.
+    #
     # The az post is synchronous on the dispatcher thread, so the spinner can't
     # truly animate during the call. The form forces a Render-priority dispatch
     # before posting so the "Posting..." overlay paints, then blocks briefly on
@@ -1018,6 +1028,7 @@ function Show-WpfTimerDebrief {
     param(
         [Parameter(Mandatory)] [bool]        $Interrupted,
         [Parameter(Mandatory)] [scriptblock] $SubmitAction,
+        [AllowEmptyCollection()] [object[]]  $TeamRoster = @(),
         [scriptblock] $OpenAction,
         [scriptblock] $CloseAction
     )
@@ -1032,8 +1043,15 @@ function Show-WpfTimerDebrief {
     $Script:WpfDebriefCloseRequested = $false
     $Script:WpfDebriefCloseResult    = $null
 
+    # Backing state for the tag-teammates field: the records picked so far, and
+    # the roster records parallel to the visible suggestion list (so a click maps
+    # back to a record without binding WPF to PSObject properties).
+    $Script:WpfDebriefMentions   = New-Object System.Collections.Generic.List[object]
+    $Script:WpfDebriefSuggestions = New-Object System.Collections.Generic.List[object]
+
     $openEnabled   = ($null -ne $OpenAction)
     $closeEnabled  = ($null -ne $CloseAction)
+    $tagEnabled    = (@($TeamRoster).Count -gt 0)
     $checkboxLabel = "Work complete — resolve this story (sets State=$script:TimerCloseState)"
 
     $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgress
@@ -1146,6 +1164,53 @@ function Show-WpfTimerDebrief {
         Margin                      = '0,0,0,12'
     }
     $vbox.Children.Add($nextBox) | Out-Null
+
+    # ---- Tag-teammates field (only when a synced roster is supplied) ----
+
+    $tagLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text       = 'Tag teammates (optional) — type a name or email'
+        FontSize   = 11
+        Foreground = $brushes.Hint
+        Margin     = '0,0,0,3'
+        Visibility = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($tagLabel) | Out-Null
+
+    $tagBox = New-Object System.Windows.Controls.TextBox -Property @{
+        Background  = $brushes.Button
+        Foreground  = $brushes.White
+        BorderBrush = $brushes.Stroke
+        Padding     = '4'
+        Margin      = '0,0,0,3'
+        Visibility  = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($tagBox) | Out-Null
+
+    $tagSuggestList = New-Object System.Windows.Controls.ListBox -Property @{
+        Background  = $brushes.Bg
+        Foreground  = $brushes.White
+        BorderBrush = $brushes.Stroke
+        MaxHeight   = 96
+        Margin      = '0,0,0,3'
+        Visibility  = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($tagSuggestList) | Out-Null
+
+    $tagChosenText = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text         = ''
+        FontSize     = 11
+        Foreground   = $brushes.White
+        TextWrapping = 'Wrap'
+        Margin       = '0,0,0,10'
+        Cursor       = [System.Windows.Input.Cursors]::Hand
+        Visibility   = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($tagChosenText) | Out-Null
+
+    if ($tagEnabled) {
+        $tagLabel.Visibility = [System.Windows.Visibility]::Visible
+        $tagBox.Visibility   = [System.Windows.Visibility]::Visible
+    }
 
     # ---- Resolve checkbox (only when integration supplies a CloseAction) ----
 
@@ -1269,9 +1334,74 @@ function Show-WpfTimerDebrief {
         & $OpenAction
     })
 
+    # Repaint the "Tagged:" line from the chosen-mentions backing list.
+    $refreshTagChosen = {
+        if ($Script:WpfDebriefMentions.Count -gt 0) {
+            $names = @($Script:WpfDebriefMentions | ForEach-Object { $_.DisplayName })
+            $tagChosenText.Text       = 'Tagged: ' + ($names -join ', ') + '   (click to clear)'
+            $tagChosenText.Visibility = [System.Windows.Visibility]::Visible
+        } else {
+            $tagChosenText.Text       = ''
+            $tagChosenText.Visibility = [System.Windows.Visibility]::Collapsed
+        }
+    }
+
+    $tagBox.Add_TextChanged({
+        $needle = $tagBox.Text.Trim().ToLowerInvariant()
+        if (-not $needle) {
+            $tagSuggestList.Items.Clear()
+            $tagSuggestList.Visibility = [System.Windows.Visibility]::Collapsed
+            return
+        }
+
+        $chosenIds = @($Script:WpfDebriefMentions | ForEach-Object { $_.Id })
+
+        $matches = @($TeamRoster | Where-Object {
+            ($_.Id -notin $chosenIds) -and (
+                ($_.DisplayName -and $_.DisplayName.ToLowerInvariant().Contains($needle)) -or
+                ($_.Email -and $_.Email.ToLowerInvariant().Contains($needle))
+            )
+        } | Select-Object -First 6)
+
+        $Script:WpfDebriefSuggestions.Clear()
+        $tagSuggestList.Items.Clear()
+        foreach ($member in $matches) {
+            $Script:WpfDebriefSuggestions.Add($member)
+            $tagSuggestList.Items.Add("$($member.DisplayName)  <$($member.Email)>") | Out-Null
+        }
+
+        $tagSuggestList.Visibility = if ($tagSuggestList.Items.Count -gt 0) {
+            [System.Windows.Visibility]::Visible
+        } else {
+            [System.Windows.Visibility]::Collapsed
+        }
+    })
+
+    $tagSuggestList.Add_SelectionChanged({
+        $index = $tagSuggestList.SelectedIndex
+        if ($index -lt 0 -or $index -ge $Script:WpfDebriefSuggestions.Count) {
+            return
+        }
+
+        $member = $Script:WpfDebriefSuggestions[$index]
+        $Script:WpfDebriefMentions.Add($member)
+
+        $tagBox.Text = ''
+        $tagSuggestList.Items.Clear()
+        $tagSuggestList.Visibility = [System.Windows.Visibility]::Collapsed
+
+        & $refreshTagChosen
+    })
+
+    $tagChosenText.Add_MouseLeftButtonUp({
+        $Script:WpfDebriefMentions.Clear()
+        & $refreshTagChosen
+    })
+
     $btnPost.Add_Click({
         $debriefText = $debriefBox.Text
         $nextText    = $nextBox.Text
+        $mentions    = @($Script:WpfDebriefMentions)
 
         $btnPost.IsEnabled      = $false
         $statusText.Foreground  = $brushes.White
@@ -1286,7 +1416,7 @@ function Show-WpfTimerDebrief {
             [System.Windows.Threading.DispatcherPriority]::Render
         )
 
-        $postResult = & $SubmitAction $debriefText $nextText
+        $postResult = & $SubmitAction $debriefText $nextText $mentions
 
         $spinner.Timer.Stop()
         $spinner.Text.Visibility = [System.Windows.Visibility]::Collapsed
@@ -1454,14 +1584,14 @@ function az-Start-TimerSession {
             $seconds         = $Minutes * 60
             $countdownResult = Show-TimerCountdown -Seconds $seconds -OpenAction $openAction
 
-            # Optional teammate tagging, offered only for integrations whose
-            # comments can carry AzDO @-mention anchors (SupportsMentions). The
-            # picker is a console TUI, so it runs here - before either debrief
-            # branch - rather than fighting the WPF form; the selection is then
-            # threaded into the composed comment in both the WPF and console paths.
-            $mentions = @()
-            if ($chosen.SupportsMentions -and (Get-Command Select-AzDevOpsMention -ErrorAction SilentlyContinue)) {
-                $mentions = Select-AzDevOpsMention
+            # Teammate tagging is offered only for integrations whose comments
+            # can carry AzDO @-mention anchors (SupportsMentions) and only once a
+            # roster has been synced. The WPF debrief form renders an in-form tag
+            # field from this roster; the console path prompts with a typed field
+            # below. An empty roster disables tagging on both paths.
+            $teamRoster = @()
+            if ($chosen.SupportsMentions -and (Get-Command Get-AzDevOpsTeam -ErrorAction SilentlyContinue)) {
+                $teamRoster = @(Get-AzDevOpsTeam)
             }
 
             $onWindows = Test-WpfIsWindows
@@ -1470,8 +1600,9 @@ function az-Start-TimerSession {
 
                 $submitAction = {
                     param(
-                        [string] $DebriefText,
-                        [string] $NextText
+                        [string]   $DebriefText,
+                        [string]   $NextText,
+                        [object[]] $Mentions
                     )
 
                     $composed = Format-TimerCommentBody `
@@ -1480,7 +1611,7 @@ function az-Start-TimerSession {
                         -TotalSeconds   $countdownResult.TotalSeconds `
                         -Debrief        $DebriefText `
                         -Next           $NextText `
-                        -Mentions       $mentions
+                        -Mentions       $Mentions
 
                     $posted = & $chosen.AddComment -Id $pickedItem.Id -Body $composed
                     return $posted
@@ -1494,6 +1625,7 @@ function az-Start-TimerSession {
                 $debriefResult = Show-WpfTimerDebrief `
                     -Interrupted  $countdownResult.Interrupted `
                     -SubmitAction $submitAction `
+                    -TeamRoster   $teamRoster `
                     -OpenAction   $openAction `
                     -CloseAction  $closeAction
 
@@ -1524,6 +1656,11 @@ function az-Start-TimerSession {
                 $iconMemo = $script:TimerIconMemo
                 $debrief  = Read-Host "$iconMemo Debrief — what did you accomplish?"
                 $next     = Read-Host "$iconMemo Next — what's the next step?"
+
+                $mentions = @()
+                if ($teamRoster.Count -gt 0 -and (Get-Command Select-AzDevOpsMention -ErrorAction SilentlyContinue)) {
+                    $mentions = Select-AzDevOpsMention
+                }
 
                 $body = Format-TimerCommentBody `
                     -Interrupted    $countdownResult.Interrupted `
