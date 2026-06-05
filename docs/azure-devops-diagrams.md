@@ -708,6 +708,7 @@ graph LR
     UWTeamList[Get-AzDevOpsTeamList]:::priv
     UWTeamMembers[Get-AzDevOpsTeamMemberList]:::priv
     UWMemberRow[ConvertFrom-AzDevOpsTeamMemberRow]:::priv
+    UWMemberRec[New-AzDevOpsTeamMemberRecord]:::priv
     UWGetTeam[Get-AzDevOpsTeam]:::priv
     UWRoster[Get-AzDevOpsTeamEnvRoster]:::priv
     UWResolve[Resolve-AzDevOpsTeamMember]:::priv
@@ -1217,9 +1218,10 @@ graph LR
     UWRosterSync --> UWTeamPick
     UWTeamPick --> UWTeamList --> AzJson
     UWRosterSync --> UWTeamMembers --> AzJson
-    UWTeamMembers --> UWMemberRow
+    UWTeamMembers --> UWMemberRow --> UWMemberRec
     UWRosterSync --> UWRoster
     UWRosterSync --> UWResolve --> Identity --> AzJson
+    UWResolve --> UWMemberRec
     UWRosterSync --> UWTeamSave
     InvUWDebrief --> UWMentionPick
     NewUWDebrief --> UWMentionPick
