@@ -400,11 +400,11 @@ function Format-UnplannedDebriefComment {
 }
 
 
-function Get-UnplannedLedgerPath {
-    # Per-day ledger under the AzDO cache dir so New-UnplannedWorkDebrief can
-    # total time across firefights (AzDO doesn't store our per-session minutes).
-    # Returns $null when the cache layout isn't available.
-    param([datetime] $Date = (Get-Date))
+function Get-UnplannedCacheFilePath {
+    # Resolve <cacheDir>/<FileName> under the active AzDO cache layout, or $null
+    # when the cache dir isn't available. Single source of the cache-dir guard
+    # shared by the per-day ledger path and the debrief-team roster path.
+    param([Parameter(Mandatory)] [string] $FileName)
 
     if (-not (Get-Command Get-AzDevOpsCachePaths -ErrorAction SilentlyContinue)) {
         return $null
@@ -415,8 +415,60 @@ function Get-UnplannedLedgerPath {
         return $null
     }
 
+    $path = Join-Path $paths.Dir $FileName
+    return $path
+}
+
+
+function Read-UnplannedJsonCache {
+    # Read a JSON-array cache file written by Save-UnplannedJsonCache. Returns
+    # an empty array when the file is absent or unparseable. Shared by the
+    # ledger reader and the debrief-team roster reader.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        $items = @(Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
+    }
+    catch {
+        return @()
+    }
+
+    return $items
+}
+
+
+function Save-UnplannedJsonCache {
+    # Ensure the parent dir exists, then write $Items as a JSON array (UTF-8).
+    # -AsArray keeps the single-element case an array on disk (PowerShell's
+    # ConvertTo-Json otherwise unwraps a one-item collection). Shared by the
+    # per-day ledger and the debrief-team roster cache.
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Items
+    )
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $json = ConvertTo-Json -InputObject @($Items) -Depth 5 -AsArray
+    Set-Content -LiteralPath $Path -Value $json -Encoding UTF8
+}
+
+
+function Get-UnplannedLedgerPath {
+    # Per-day ledger under the AzDO cache dir so New-UnplannedWorkDebrief can
+    # total time across firefights (AzDO doesn't store our per-session minutes).
+    # Returns $null when the cache layout isn't available.
+    param([datetime] $Date = (Get-Date))
+
     $stamp = $Date.ToString('yyyy-MM-dd')
-    $path  = Join-Path $paths.Dir "unplanned-$stamp.json"
+    $path  = Get-UnplannedCacheFilePath -FileName "unplanned-$stamp.json"
     return $path
 }
 
@@ -435,20 +487,7 @@ function Add-UnplannedLedgerEntry {
         return
     }
 
-    $dir = Split-Path -Parent $path
-    if (-not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-
-    $existing = @()
-    if (Test-Path -LiteralPath $path) {
-        try {
-            $existing = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-        }
-        catch {
-            $existing = @()
-        }
-    }
+    $existing = Read-UnplannedJsonCache -Path $path
 
     $entry = [PSCustomObject]@{
         StoryId   = $StoryId
@@ -459,9 +498,9 @@ function Add-UnplannedLedgerEntry {
         EndedAt   = (Get-Date).ToString('o')
     }
 
-    $all  = @($existing) + $entry
-    $json = ConvertTo-Json -InputObject @($all) -Depth 5 -AsArray
-    Set-Content -LiteralPath $path -Value $json -Encoding UTF8
+    $all = @($existing) + $entry
+
+    Save-UnplannedJsonCache -Path $path -Items $all
 }
 
 
@@ -546,18 +585,9 @@ function Get-UnplannedTeamCachePath {
     # Resolved-roster cache (display name + email + identity GUID) under the
     # AzDO cache dir, so debriefs build mention anchors without re-hitting the
     # identities API every session. Returns $null when the cache layout isn't
-    # available (same guard as Get-UnplannedLedgerPath).
-    if (-not (Get-Command Get-AzDevOpsCachePaths -ErrorAction SilentlyContinue)) {
-        return $null
-    }
-
-    $paths = Get-AzDevOpsCachePaths
-    if (-not $paths.Dir) {
-        return $null
-    }
-
+    # available.
     $cacheFile = $script:UnplannedTeamCacheFile
-    $path      = Join-Path $paths.Dir $cacheFile
+    $path      = Get-UnplannedCacheFilePath -FileName $cacheFile
     return $path
 }
 
@@ -622,29 +652,17 @@ function Save-UnplannedTeamCache {
         return
     }
 
-    $dir = Split-Path -Parent $path
-    if (-not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-
-    $json = ConvertTo-Json -InputObject @($Members) -Depth 5 -AsArray
-    Set-Content -LiteralPath $path -Value $json -Encoding UTF8
+    Save-UnplannedJsonCache -Path $path -Items $Members
 }
 
 
 function Read-UnplannedTeamCache {
     $path = Get-UnplannedTeamCachePath
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    if (-not $path) {
         return @()
     }
 
-    try {
-        $members = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-    }
-    catch {
-        return @()
-    }
-
+    $members = Read-UnplannedJsonCache -Path $path
     return $members
 }
 
@@ -710,8 +728,13 @@ function Format-UnplannedMentionAnchor {
     $atSign         = '@'
     $quote          = '"'
 
+    # HTML-encode the visible label so a display name containing < > & can't
+    # break (or inject into) the anchor posted to the discussion thread. The Id
+    # is an identity GUID, so it needs no encoding.
+    $label = [System.Net.WebUtility]::HtmlEncode($Member.DisplayName)
+
     $dataAttr = "data-vss-mention=$quote$mentionVersion,$($Member.Id)$quote"
-    $anchor   = "<a href=$quote#$quote $dataAttr>$atSign$($Member.DisplayName)</a>"
+    $anchor   = "<a href=$quote#$quote $dataAttr>$atSign$label</a>"
     return $anchor
 }
 

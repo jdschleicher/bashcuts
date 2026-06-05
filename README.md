@@ -601,7 +601,7 @@ Reads the day's local ledger (kept under the AzDO cache dir so total time can be
 
 ### Tagging teammates
 
-Set `$env:AZ_DEBRIEF_TEAM` to a `;`-separated list of teammate emails (names work too) to make people taggable from the debrief flow:
+Set `$env:AZ_DEBRIEF_TEAM` to a `;`-separated list of teammate emails (names work too) to make people taggable from the debrief flow. Commas also work as separators, so avoid them inside a value (use emails, which never contain a comma):
 
 ```powershell
 $env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com'
