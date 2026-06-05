@@ -507,6 +507,10 @@ On **Windows** the countdown morphs into a themed debrief form that shares the t
 
 On **macOS/Linux** the debrief is collected with terminal `Read-Host` prompts after the snake animation, and a `Posting...` indicator shows while the comment is sent.
 
+### Opening the work item in your browser
+
+When the chosen integration supplies an `OpenItem` capability, both timer surfaces add a one-click jump to the item in your browser — no need to copy the ID into a separate command. On **Windows** an **Open work item** button appears on the countdown overlay (open it mid-session without stopping the clock) and on the debrief form (open it while you write your notes — the form stays put). On **macOS/Linux** the **Start another session?** menu gains an `[o] Open work item in browser` choice that opens the item and re-prompts, so opening never consumes your restart decision. The built-in **Azure DevOps** integration maps `OpenItem` to `az-Open-WorkItemById`; integrations without an `OpenItem` simply don't show the button or option.
+
 ### Closing the story when a session finishes the task
 
 When the chosen integration supplies a `CloseItem` capability, the debrief surface adds a one-click way to transition the work item to its done state right after the comment lands — so a session that actually finished the task doesn't leave the item lingering in **Active**. On **Windows** the debrief form renders a **Work complete — resolve this story** checkbox above **Post Debrief**; ticking it makes the post sequence run the comment, then the state transition, and reports both outcomes before the **Start another session?** choice appears. On **macOS/Linux** the same trigger is a `Resolve this item now? [y/N]` prompt that follows a successful comment post (default **No** — your work item is never resolved without an explicit yes).
@@ -548,6 +552,13 @@ Register-TimerIntegration `
     -ViewHint    {
         param([Parameter(Mandatory)] [int] $Id)
         "View: my-tracker open $Id"
+    } `
+    -OpenItem    {
+        # Optional. When present, the countdown overlay and debrief form show an
+        # "Open work item" button (Windows) and the terminal next-action menu
+        # offers `[o] Open work item in browser`.
+        param([Parameter(Mandatory)] [int] $Id)
+        Open-MyTrackerItem -Id $Id
     } `
     -CloseItem   {
         # Optional. When present, the debrief shows a resolve checkbox
