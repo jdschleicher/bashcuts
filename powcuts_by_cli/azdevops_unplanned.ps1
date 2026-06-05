@@ -16,6 +16,11 @@
 #   New-UnplannedWorkDebrief - read the day's ledger, total the time across all
 #                              firefights, and post a roll-up comment on the
 #                              daily story.
+#   az-Sync-UnplannedTeam      - resolve $env:AZ_DEBRIEF_TEAM (';'-separated
+#                              emails/names) to Azure DevOps identities and
+#                              cache them, so both debriefs can offer a
+#                              type-to-filter picker that tags teammates with
+#                              real notifying @-mentions.
 #
 # Like pow_timer.ps1 this is PowerShell-only - the Windows balloon reminder and
 # the non-blocking key poll have no bash counterpart.
@@ -29,12 +34,17 @@ $script:UnplannedDefaultStoryPriority   = 2
 $script:UnplannedPollIntervalMs         = 100
 $script:UnplannedPollsPerSecond         = 10
 
+$script:UnplannedTeamEnvVar    = 'AZ_DEBRIEF_TEAM'
+$script:UnplannedTeamCacheFile = 'debrief-team.json'
+$script:UnplannedMentionVersion = 'version:2.0'
+
 $script:UnplannedIconFire   = [char]::ConvertFromUtf32(0x1F525)   # fire
 $script:UnplannedIconMemo   = [char]::ConvertFromUtf32(0x1F4DD)   # memo
 $script:UnplannedIconClock  = [char]::ConvertFromUtf32(0x23F0)    # alarm clock
 $script:UnplannedIconCheck  = [char]::ConvertFromUtf32(0x2705)    # check mark
 $script:UnplannedIconRocket = [char]::ConvertFromUtf32(0x1F680)   # rocket
 $script:UnplannedIconBullet = [char]::ConvertFromUtf32(0x2022)    # bullet
+$script:UnplannedIconPeople = [char]::ConvertFromUtf32(0x1F465)   # busts in silhouette
 
 
 function Read-UnplannedYesNo {
@@ -350,7 +360,8 @@ function Format-UnplannedDebriefComment {
         [Parameter(Mandatory)] [int]    $ElapsedMinutes,
         [Parameter(Mandatory)] [int]    $ItemCount,
         [string] $Debrief,
-        [string] $FutureFeature
+        [string] $FutureFeature,
+        [AllowEmptyCollection()] [object[]] $Mentions
     )
 
     $iconCheck  = $script:UnplannedIconCheck
@@ -376,6 +387,12 @@ function Format-UnplannedDebriefComment {
         $lines += ''
     }
 
+    $mentionLine = Format-UnplannedMentionLine -Members $Mentions
+    if ($mentionLine) {
+        $lines += $mentionLine
+        $lines += ''
+    }
+
     $lines += '<em>via bashcuts az-Start-UnplannedWork</em>'
 
     $body = $lines -join '<br/>'
@@ -383,11 +400,11 @@ function Format-UnplannedDebriefComment {
 }
 
 
-function Get-UnplannedLedgerPath {
-    # Per-day ledger under the AzDO cache dir so New-UnplannedWorkDebrief can
-    # total time across firefights (AzDO doesn't store our per-session minutes).
-    # Returns $null when the cache layout isn't available.
-    param([datetime] $Date = (Get-Date))
+function Get-UnplannedCacheFilePath {
+    # Resolve <cacheDir>/<FileName> under the active AzDO cache layout, or $null
+    # when the cache dir isn't available. Single source of the cache-dir guard
+    # shared by the per-day ledger path and the debrief-team roster path.
+    param([Parameter(Mandatory)] [string] $FileName)
 
     if (-not (Get-Command Get-AzDevOpsCachePaths -ErrorAction SilentlyContinue)) {
         return $null
@@ -398,8 +415,60 @@ function Get-UnplannedLedgerPath {
         return $null
     }
 
+    $path = Join-Path $paths.Dir $FileName
+    return $path
+}
+
+
+function Read-UnplannedJsonCache {
+    # Read a JSON-array cache file written by Save-UnplannedJsonCache. Returns
+    # an empty array when the file is absent or unparseable. Shared by the
+    # ledger reader and the debrief-team roster reader.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        $items = @(Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
+    }
+    catch {
+        return @()
+    }
+
+    return $items
+}
+
+
+function Save-UnplannedJsonCache {
+    # Ensure the parent dir exists, then write $Items as a JSON array (UTF-8).
+    # -AsArray keeps the single-element case an array on disk (PowerShell's
+    # ConvertTo-Json otherwise unwraps a one-item collection). Shared by the
+    # per-day ledger and the debrief-team roster cache.
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Items
+    )
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $json = ConvertTo-Json -InputObject @($Items) -Depth 5 -AsArray
+    Set-Content -LiteralPath $Path -Value $json -Encoding UTF8
+}
+
+
+function Get-UnplannedLedgerPath {
+    # Per-day ledger under the AzDO cache dir so New-UnplannedWorkDebrief can
+    # total time across firefights (AzDO doesn't store our per-session minutes).
+    # Returns $null when the cache layout isn't available.
+    param([datetime] $Date = (Get-Date))
+
     $stamp = $Date.ToString('yyyy-MM-dd')
-    $path  = Join-Path $paths.Dir "unplanned-$stamp.json"
+    $path  = Get-UnplannedCacheFilePath -FileName "unplanned-$stamp.json"
     return $path
 }
 
@@ -418,20 +487,7 @@ function Add-UnplannedLedgerEntry {
         return
     }
 
-    $dir = Split-Path -Parent $path
-    if (-not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-
-    $existing = @()
-    if (Test-Path -LiteralPath $path) {
-        try {
-            $existing = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-        }
-        catch {
-            $existing = @()
-        }
-    }
+    $existing = Read-UnplannedJsonCache -Path $path
 
     $entry = [PSCustomObject]@{
         StoryId   = $StoryId
@@ -442,9 +498,9 @@ function Add-UnplannedLedgerEntry {
         EndedAt   = (Get-Date).ToString('o')
     }
 
-    $all  = @($existing) + $entry
-    $json = ConvertTo-Json -InputObject @($all) -Depth 5 -AsArray
-    Set-Content -LiteralPath $path -Value $json -Encoding UTF8
+    $all = @($existing) + $entry
+
+    Save-UnplannedJsonCache -Path $path -Items $all
 }
 
 
@@ -452,7 +508,8 @@ function Format-UnplannedDailyDebrief {
     param(
         [Parameter(Mandatory)] [object[]] $Entries,
         [Parameter(Mandatory)] [int]      $TotalMinutes,
-        [datetime] $Date = (Get-Date)
+        [datetime] $Date = (Get-Date),
+        [AllowEmptyCollection()] [object[]] $Mentions
     )
 
     $iconCheck = $script:UnplannedIconCheck
@@ -470,11 +527,310 @@ function Format-UnplannedDailyDebrief {
         $lines += "$bullet Task #$($e.TaskId) - $($e.Minutes) min, $($e.ItemCount) item(s): $($e.Title)"
     }
 
+    $mentionLine = Format-UnplannedMentionLine -Members $Mentions
+    if ($mentionLine) {
+        $lines += ''
+        $lines += $mentionLine
+    }
+
     $lines += ''
     $lines += '<em>via bashcuts New-UnplannedWorkDebrief</em>'
 
     $body = $lines -join '<br/>'
     return $body
+}
+
+
+# ---------------------------------------------------------------------------
+# Debrief team tagging
+#
+# A roster of teammates (sourced from $env:AZ_DEBRIEF_TEAM, ';'- or
+# ','-separated emails/names) is resolved to Azure DevOps identities and cached
+# under the AzDO cache dir next to the per-day ledger. Both debriefs offer a
+# type-to-filter picker over that roster; the picked teammates are injected
+# into the comment as data-vss-mention anchors so they are actually notified.
+# Identity resolution (Get-AzDevOpsIdentity) and the anchor shape
+# (Format-UnplannedMentionAnchor) are the two places to revisit if a tagged
+# teammate does not receive a notification.
+# ---------------------------------------------------------------------------
+
+function Get-UnplannedTeamRoster {
+    # Split $env:AZ_DEBRIEF_TEAM into a clean list of teammate identifiers
+    # (emails and/or names). Accepts ';' or ',' separators, trims whitespace,
+    # and drops blanks and case-insensitive duplicates. Returns an empty array
+    # when the env var is unset.
+    $raw = [Environment]::GetEnvironmentVariable($script:UnplannedTeamEnvVar)
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return @()
+    }
+
+    $separators = [char[]]@(';', ',')
+    $parts      = $raw.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)
+
+    $seen   = New-Object System.Collections.Generic.HashSet[string]
+    $roster = New-Object System.Collections.Generic.List[string]
+    foreach ($part in $parts) {
+        $trimmed = $part.Trim()
+        if ($trimmed -and $seen.Add($trimmed.ToLowerInvariant())) {
+            $roster.Add($trimmed)
+        }
+    }
+
+    $result = @($roster)
+    return $result
+}
+
+
+function Get-UnplannedTeamCachePath {
+    # Resolved-roster cache (display name + email + identity GUID) under the
+    # AzDO cache dir, so debriefs build mention anchors without re-hitting the
+    # identities API every session. Returns $null when the cache layout isn't
+    # available.
+    $cacheFile = $script:UnplannedTeamCacheFile
+    $path      = Get-UnplannedCacheFilePath -FileName $cacheFile
+    return $path
+}
+
+
+function Resolve-UnplannedTeamMember {
+    # Resolve one roster entry (email or display name) to a { DisplayName,
+    # Email, Id } record via the identities API. The Id is the identity GUID
+    # the discussion control needs for a notifying @-mention. Returns $null
+    # when the lookup fails or matches nobody, so Sync-UnplannedDebriefTeam can
+    # report the miss and skip it rather than caching a half-resolved entry.
+    param([Parameter(Mandatory)] [string] $Identifier)
+
+    if (-not (Get-Command Get-AzDevOpsIdentity -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    $result = Get-AzDevOpsIdentity -Query $Identifier
+    if ($result.ExitCode -ne 0) {
+        return $null
+    }
+
+    try {
+        $parsed = $result.Json | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    $candidates = @($parsed.value)
+    if ($candidates.Count -eq 0) {
+        return $null
+    }
+
+    $identity = $candidates[0]
+
+    $displayName = if ($identity.providerDisplayName) {
+        $identity.providerDisplayName
+    } else {
+        $Identifier
+    }
+
+    $email = if ($identity.properties -and $identity.properties.Mail -and $identity.properties.Mail.'$value') {
+        $identity.properties.Mail.'$value'
+    } else {
+        $Identifier
+    }
+
+    $record = [PSCustomObject]@{
+        DisplayName = $displayName
+        Email       = $email
+        Id          = $identity.id
+    }
+    return $record
+}
+
+
+function Save-UnplannedTeamCache {
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Members)
+
+    $path = Get-UnplannedTeamCachePath
+    if (-not $path) {
+        return
+    }
+
+    Save-UnplannedJsonCache -Path $path -Items $Members
+}
+
+
+function Read-UnplannedTeamCache {
+    $path = Get-UnplannedTeamCachePath
+    if (-not $path) {
+        return @()
+    }
+
+    $members = Read-UnplannedJsonCache -Path $path
+    return $members
+}
+
+
+function Sync-UnplannedDebriefTeam {
+    # Resolve every $env:AZ_DEBRIEF_TEAM entry to an identity record and write
+    # the roster cache. Returns the resolved records. Entries that don't resolve
+    # are reported and skipped so one bad email doesn't sink the whole roster.
+    $roster = Get-UnplannedTeamRoster
+    if ($roster.Count -eq 0) {
+        $envVar = $script:UnplannedTeamEnvVar
+        Write-Host "No team configured. Set `$env:$envVar (';'-separated emails) to enable debrief tagging." -ForegroundColor Yellow
+        return @()
+    }
+
+    $resolved = New-Object System.Collections.Generic.List[object]
+    foreach ($member in $roster) {
+        $record = Resolve-UnplannedTeamMember -Identifier $member
+        if ($null -eq $record -or -not $record.Id) {
+            Write-Host "  Could not resolve '$member' to an Azure DevOps identity - skipping." -ForegroundColor Yellow
+            continue
+        }
+
+        $resolved.Add($record)
+    }
+
+    $records = @($resolved)
+    Save-UnplannedTeamCache -Members $records
+    return $records
+}
+
+
+function Get-UnplannedDebriefTeam {
+    # Cached roster reader. Auto-syncs from $env:AZ_DEBRIEF_TEAM the first time
+    # (or after the cache is cleared) so callers don't have to run
+    # az-Sync-UnplannedTeam by hand. Returns an empty array when no team is
+    # configured.
+    $cached = Read-UnplannedTeamCache
+    if ($cached.Count -gt 0) {
+        return $cached
+    }
+
+    $roster = Get-UnplannedTeamRoster
+    if ($roster.Count -eq 0) {
+        return @()
+    }
+
+    $synced = Sync-UnplannedDebriefTeam
+    return $synced
+}
+
+
+function Format-UnplannedMentionAnchor {
+    # Build the Azure DevOps discussion @-mention anchor for one resolved
+    # teammate. The data-vss-mention attribute carries the identity GUID; the
+    # work-item discussion control turns this exact anchor shape into a real
+    # notification on save, and the version token mirrors what the AzDO web
+    # editor emits. If a tagged teammate is NOT notified, this anchor (and the
+    # identity GUID feeding it from Get-AzDevOpsIdentity) is what to revisit.
+    param([Parameter(Mandatory)] [object] $Member)
+
+    $mentionVersion = $script:UnplannedMentionVersion
+    $atSign         = '@'
+    $quote          = '"'
+
+    # HTML-encode the visible label so a display name containing < > & can't
+    # break (or inject into) the anchor posted to the discussion thread. The Id
+    # is an identity GUID, so it needs no encoding.
+    $label = [System.Net.WebUtility]::HtmlEncode($Member.DisplayName)
+
+    $dataAttr = "data-vss-mention=$quote$mentionVersion,$($Member.Id)$quote"
+    $anchor   = "<a href=$quote#$quote $dataAttr>$atSign$label</a>"
+    return $anchor
+}
+
+
+function Format-UnplannedMentionLine {
+    # Compose the single "Tagged: @a @b" line appended to a debrief comment.
+    # Returns '' for an empty selection so both formatters can skip the line
+    # (and keep posting exactly as before) when nobody is tagged.
+    param([AllowEmptyCollection()] [object[]] $Members)
+
+    # Drop $null / unresolved entries so an omitted -Mentions arg (which arrives
+    # as @($null), a 1-element array) collapses to an empty line rather than a
+    # broken anchor.
+    $memberList = @($Members | Where-Object { $null -ne $_ -and $_.Id })
+    if ($memberList.Count -eq 0) {
+        return ''
+    }
+
+    $iconPeople = $script:UnplannedIconPeople
+
+    $anchors = New-Object System.Collections.Generic.List[string]
+    foreach ($member in $memberList) {
+        $anchor = Format-UnplannedMentionAnchor -Member $member
+        $anchors.Add($anchor)
+    }
+
+    $line = "$iconPeople Tagged: " + ($anchors -join ' ')
+    return $line
+}
+
+
+function Select-UnplannedMentionFromMenu {
+    # Numbered Read-Host fallback for Select-UnplannedDebriefMention when no
+    # Out-ConsoleGridView host is available. Accepts a comma-separated list of
+    # indices; ignores blanks and out-of-range entries. Returns the chosen
+    # member records.
+    param([Parameter(Mandatory)] [object[]] $Team)
+
+    Write-Host ''
+    Write-Host 'Teammates available to tag:' -ForegroundColor Cyan
+    for ($i = 0; $i -lt $Team.Count; $i++) {
+        $member = $Team[$i]
+        Write-Host ("  {0}) {1}  <{2}>" -f ($i + 1), $member.DisplayName, $member.Email)
+    }
+
+    $raw = Read-Host 'Numbers to tag (comma-separated, blank = none)'
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return @()
+    }
+
+    $separators = [char[]]@(';', ',')
+    $tokens     = $raw.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)
+
+    $picked = New-Object System.Collections.Generic.List[object]
+    foreach ($token in $tokens) {
+        $index = 0
+        if ([int]::TryParse($token.Trim(), [ref]$index)) {
+            $zeroBased = $index - 1
+            if ($zeroBased -ge 0 -and $zeroBased -lt $Team.Count) {
+                $picked.Add($Team[$zeroBased])
+            }
+        }
+    }
+
+    $result = @($picked)
+    return $result
+}
+
+
+function Select-UnplannedDebriefMention {
+    # Type-to-filter picker over the cached roster for debrief tagging. Shows
+    # Name + Email so the user can confirm the right person before tagging.
+    # Out-ConsoleGridView multi-select when available (its filter box is the
+    # "type and the right names bubble up" behavior); a Read-Host numbered menu
+    # otherwise. Returns the selected member records - possibly empty, since
+    # tagging is always optional and 'tag nobody' leaves the debrief unchanged.
+    $team = Get-UnplannedDebriefTeam
+    if ($team.Count -eq 0) {
+        return @()
+    }
+
+    if (-not (Read-UnplannedYesNo -Prompt 'Tag teammate(s) on this debrief?')) {
+        return @()
+    }
+
+    if (Test-AzDevOpsGridAvailable) {
+        $grid = $team |
+            Select-Object DisplayName, Email, Id |
+            Out-ConsoleGridView -Title 'Pick teammate(s) to tag (filter as you type, Esc = none)' -OutputMode Multiple
+
+        $picked = @($grid)
+        return $picked
+    }
+
+    $menuPicked = Select-UnplannedMentionFromMenu -Team $team
+    return $menuPicked
 }
 
 
@@ -527,11 +883,14 @@ function Invoke-UnplannedDebrief {
         }
     }
 
+    $mentions = Select-UnplannedDebriefMention
+
     $commentBody = Format-UnplannedDebriefComment `
         -ElapsedMinutes $elapsedMinutes `
         -ItemCount      $itemList.Count `
         -Debrief        $debrief `
-        -FutureFeature  $futureFeature
+        -FutureFeature  $futureFeature `
+        -Mentions       $mentions
 
     Write-Host ""
     Write-Host "Posting debrief comment to Task #$TaskId..." -ForegroundColor Cyan
@@ -933,11 +1292,38 @@ function New-UnplannedWorkDebrief {
         return
     }
 
-    $body = Format-UnplannedDailyDebrief -Entries $entries -TotalMinutes $totalMinutes -Date $Date
+    $mentions = Select-UnplannedDebriefMention
+
+    $body = Format-UnplannedDailyDebrief -Entries $entries -TotalMinutes $totalMinutes -Date $Date -Mentions $mentions
     $result = Add-AzDevOpsDiscussionComment -Id $storyId -Body $body
     if ($result.ExitCode -eq 0) {
         Write-Host "Posted daily roll-up on story #$storyId." -ForegroundColor Green
     } else {
         Write-Host "Failed to post roll-up: $($result.Error)" -ForegroundColor Red
+    }
+}
+
+
+function az-Sync-UnplannedTeam {
+    # Refresh the cached debrief-tagging roster from $env:AZ_DEBRIEF_TEAM. Run
+    # this after changing the env var so the next debrief's tag picker reflects
+    # the new team. Resolution uses the Azure DevOps identities API, so it needs
+    # a configured org (same create gate as the other write commands).
+    [CmdletBinding()]
+    param()
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'az-Sync-UnplannedTeam')) {
+        return
+    }
+
+    $members = Sync-UnplannedDebriefTeam
+    if ($members.Count -eq 0) {
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Cached $($members.Count) teammate(s) for debrief tagging:" -ForegroundColor Green
+    foreach ($member in $members) {
+        Write-Host ("  {0}  <{1}>" -f $member.DisplayName, $member.Email)
     }
 }

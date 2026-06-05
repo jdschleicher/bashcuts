@@ -25,7 +25,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 flowchart LR
     subgraph User["User session ($profile)"]
         Profile["powcuts_home.ps1<br/>dot-sources azdevops_*.ps1"]
-        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>(org/project come from<br/>az devops configure --defaults)"]
+        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>$env:AZ_DEBRIEF_TEAM<br/>(org/project come from<br/>az devops configure --defaults)"]
     end
 
     subgraph Public["Public functions"]
@@ -620,21 +620,28 @@ flowchart TD
     Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
     FlushDesc --> AskFuture{future-feature opportunity?}
     AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
-    AskFuture -- no --> PostComment
-    MaybeStory --> PostComment
-    PostComment["Format-UnplannedDebriefComment<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+    AskFuture -- no --> Tag
+    MaybeStory --> Tag
+    Tag["Select-UnplannedDebriefMention<br/>type-to-filter roster picker (Name+Email)<br/>→ Format-UnplannedMentionAnchor (data-vss-mention)"]
+    Tag --> PostComment
+    PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
     PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
-    ReadLedger --> Rollup["Format-UnplannedDailyDebrief<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
+    ReadLedger --> TagDay["Select-UnplannedDebriefMention<br/>(same roster picker)"]
+    TagDay --> Rollup["Format-UnplannedDailyDebrief<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
 
+    SyncTeam(["az-Sync-UnplannedTeam"]) --> ResolveTeam["Sync-UnplannedDebriefTeam<br/>read $env:AZ_DEBRIEF_TEAM (';'/','-split)<br/>→ Resolve-UnplannedTeamMember<br/>→ Get-AzDevOpsIdentity<br/>→ az devops invoke (ims/Identities)"]
+    ResolveTeam --> TeamCache["Save-UnplannedTeamCache<br/>debrief-team.json"]
+    TeamCache --> Done3([end])
+
     classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
-    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup io
+    class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
 ```
 
-Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-UnplannedDebriefMention` offers a type-to-filter picker over the cached team roster (`debrief-team.json`, seeded from `$env:AZ_DEBRIEF_TEAM` and resolved to identity GUIDs by `az-Sync-UnplannedTeam`); picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
 
 ---
 
@@ -692,6 +699,22 @@ graph LR
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
+    SyncUWTeam(["az-Sync-UnplannedTeam"]):::pub
+    UWRosterSync[Sync-UnplannedDebriefTeam]:::priv
+    UWGetTeam[Get-UnplannedDebriefTeam]:::priv
+    UWRoster[Get-UnplannedTeamRoster]:::priv
+    UWResolve[Resolve-UnplannedTeamMember]:::priv
+    UWTeamSave[Save-UnplannedTeamCache]:::priv
+    UWTeamRead[Read-UnplannedTeamCache]:::priv
+    UWTeamPath[Get-UnplannedTeamCachePath]:::priv
+    UWMentionPick[Select-UnplannedDebriefMention]:::priv
+    UWMentionMenu[Select-UnplannedMentionFromMenu]:::priv
+    UWAnchor[Format-UnplannedMentionAnchor]:::priv
+    UWMentionLine[Format-UnplannedMentionLine]:::priv
+    UWCachePath[Get-UnplannedCacheFilePath]:::priv
+    UWJsonRead[Read-UnplannedJsonCache]:::priv
+    UWJsonSave[Save-UnplannedJsonCache]:::priv
+    UWLedgerPath[Get-UnplannedLedgerPath]:::priv
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -746,6 +769,7 @@ graph LR
     SetField[Set-AzDevOpsWorkItemField]:::priv
     AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
+    Identity[Get-AzDevOpsIdentity]:::priv
     ConfDef[Get-AzDevOpsConfiguredDefaults]:::priv
 
     %% Query echo helpers (azdevops_db.ps1)
@@ -1178,6 +1202,32 @@ graph LR
     InvUWDebrief --> UWLedger
     NewUWDebrief --> AddDisc
     NewUWDebrief --> UWLedger
+
+    %% Debrief team tagging (azdevops_unplanned.ps1 + Get-AzDevOpsIdentity)
+    SyncUWTeam --> CGate
+    SyncUWTeam --> UWRosterSync
+    UWRosterSync --> UWRoster
+    UWRosterSync --> UWResolve --> Identity --> AzJson
+    UWRosterSync --> UWTeamSave
+    InvUWDebrief --> UWMentionPick
+    NewUWDebrief --> UWMentionPick
+    InvUWDebrief --> UWMentionLine
+    NewUWDebrief --> UWMentionLine
+    UWMentionPick --> UWGetTeam
+    UWMentionPick --> UWMentionMenu
+    UWGetTeam --> UWTeamRead
+    UWGetTeam --> UWRosterSync
+    UWMentionLine --> UWAnchor
+    UWTeamSave --> UWTeamPath
+    UWTeamSave --> UWJsonSave
+    UWTeamRead --> UWTeamPath
+    UWTeamRead --> UWJsonRead
+    UWTeamPath --> UWCachePath
+    UWLedger --> UWLedgerPath
+    UWLedger --> UWJsonRead
+    UWLedger --> UWJsonSave
+    UWLedgerPath --> UWCachePath
+    UWCachePath --> Paths
 
     %% Parent picker shared between Feature and Epic pickers
     PFeat --> PParent

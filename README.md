@@ -188,6 +188,7 @@ Add any of these to your PowerShell `$profile` to enable additional features:
 $env:AZ_USER_EMAIL = 'user@example.com'   # enables accurate mentions WIQL
 $env:AZ_AREA       = 'My Project\My Team' # default area path for hierarchy queries
 $env:AZ_ITERATION  = 'My Project\Sprint 42' # default iteration for work item creation
+$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com' # teammates taggable in unplanned-work debriefs
 $env:BASHCUTS_NO_SPINNER = '1'            # opt out of the az-call loading spinner
 ```
 
@@ -597,4 +598,15 @@ New-UnplannedWorkDebrief -Date 2026-05-19
 ```
 
 Reads the day's local ledger (kept under the AzDO cache dir so total time can be summed — AzDO doesn't store per-session minutes), prints the per-Task breakdown with total time, and on confirm posts a roll-up comment on the daily story.
+
+### Tagging teammates
+
+Set `$env:AZ_DEBRIEF_TEAM` to a `;`-separated list of teammate emails (names work too) to make people taggable from the debrief flow. Commas also work as separators, so avoid them inside a value (use emails, which never contain a comma):
+
+```powershell
+$env:AZ_DEBRIEF_TEAM = 'alice@example.com;bob@example.com'
+az-Sync-UnplannedTeam   # resolve the roster to Azure DevOps identities and cache it
+```
+
+`az-Sync-UnplannedTeam` resolves each entry to an Azure DevOps identity (display name + email + identity id) via the identities API and caches it under the AzDO cache dir next to the per-day ledger — re-run it whenever you change the env var. Both debriefs (the per-firefight `Start-UnplannedWork` stop and the `New-UnplannedWorkDebrief` roll-up) then ask **"Tag teammate(s) on this debrief?"**. Answer yes and you get a type-to-filter picker showing each teammate's **name and email** so you can confirm the right person; the ones you pick are added to the posted comment as real Azure DevOps `@`-mentions, so they're notified. Tagging is always optional — pick nobody (or skip the prompt) and the debrief posts exactly as before.
 
