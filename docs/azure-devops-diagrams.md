@@ -25,7 +25,7 @@ How the public surface, the local cache, and the `az` CLI relate. Read-only cons
 flowchart LR
     subgraph User["User session ($profile)"]
         Profile["powcuts_home.ps1<br/>dot-sources azdevops_*.ps1"]
-        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>$env:AZ_DEBRIEF_TEAM<br/>(org/project come from<br/>az devops configure --defaults)"]
+        EnvVars["$env:AZ_USER_EMAIL<br/>$env:AZ_AREA<br/>$env:AZ_ITERATION<br/>$env:AZ_TEAM<br/>(org/project come from<br/>az devops configure --defaults)"]
     end
 
     subgraph Public["Public functions"]
@@ -625,26 +625,26 @@ flowchart TD
     AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
     AskFuture -- no --> Tag
     MaybeStory --> Tag
-    Tag["Select-UnplannedDebriefMention<br/>type-to-filter roster picker (Name+Email)<br/>→ Format-UnplannedMentionAnchor (data-vss-mention)"]
+    Tag["Select-AzDevOpsMention<br/>type-to-filter roster picker (Name+Email)<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
     Tag --> PostComment
     PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
     PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
-    ReadLedger --> TagDay["Select-UnplannedDebriefMention<br/>(same roster picker)"]
+    ReadLedger --> TagDay["Select-AzDevOpsMention<br/>(same shared roster picker)"]
     TagDay --> Rollup["Format-UnplannedDailyDebrief<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
 
-    SyncTeam(["az-Sync-UnplannedTeam"]) --> ResolveTeam["Sync-UnplannedDebriefTeam<br/>read $env:AZ_DEBRIEF_TEAM (';'/','-split)<br/>→ Resolve-UnplannedTeamMember<br/>→ Get-AzDevOpsIdentity<br/>→ az devops invoke (ims/Identities)"]
-    ResolveTeam --> TeamCache["Save-UnplannedTeamCache<br/>debrief-team.json"]
+    SyncTeam(["az-Sync-AzDevOpsTeam"]) --> ResolveTeam["Sync-AzDevOpsTeam<br/>Select-AzDevOpsTeamFromCli → Get-AzDevOpsTeamList<br/>→ Get-AzDevOpsTeamMemberList (az devops team list-member)<br/>→ ConvertFrom-AzDevOpsTeamMemberRow<br/>+ $env:AZ_TEAM supplement → Resolve-AzDevOpsTeamMember → Get-AzDevOpsIdentity"]
+    ResolveTeam --> TeamCache["Save-AzDevOpsTeamCache<br/>team.json"]
     TeamCache --> Done3([end])
 
     classDef io fill:#5a3a1a,stroke:#ffaa55,color:#fff
     class Find,NewStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
 ```
 
-Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-UnplannedDebriefMention` offers a type-to-filter picker over the cached team roster (`debrief-team.json`, seeded from `$env:AZ_DEBRIEF_TEAM` and resolved to identity GUIDs by `az-Sync-UnplannedTeam`); picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-AzDevOpsMention` offers a type-to-filter picker over the cached team roster (`team.json`). That roster and picker are **shared** — they live in `azdevops_team.ps1` and the Pomodoro timer's debrief (`pow_timer.ps1`) tags through the same surface. `az-Sync-AzDevOpsTeam` builds the roster primarily from a **project team's members** (`az devops team list-member`, which returns name/email/identity-GUID in one call), optionally supplemented by `$env:AZ_TEAM` (';'/','-separated emails/names resolved individually via `Get-AzDevOpsIdentity`). Picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick (or an un-synced roster) posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
 
 ---
 
@@ -702,22 +702,31 @@ graph LR
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
-    SyncUWTeam(["az-Sync-UnplannedTeam"]):::pub
-    UWRosterSync[Sync-UnplannedDebriefTeam]:::priv
-    UWGetTeam[Get-UnplannedDebriefTeam]:::priv
-    UWRoster[Get-UnplannedTeamRoster]:::priv
-    UWResolve[Resolve-UnplannedTeamMember]:::priv
-    UWTeamSave[Save-UnplannedTeamCache]:::priv
-    UWTeamRead[Read-UnplannedTeamCache]:::priv
-    UWTeamPath[Get-UnplannedTeamCachePath]:::priv
-    UWMentionPick[Select-UnplannedDebriefMention]:::priv
-    UWMentionMenu[Select-UnplannedMentionFromMenu]:::priv
-    UWAnchor[Format-UnplannedMentionAnchor]:::priv
-    UWMentionLine[Format-UnplannedMentionLine]:::priv
-    UWCachePath[Get-UnplannedCacheFilePath]:::priv
-    UWJsonRead[Read-UnplannedJsonCache]:::priv
-    UWJsonSave[Save-UnplannedJsonCache]:::priv
     UWLedgerPath[Get-UnplannedLedgerPath]:::priv
+
+    %% Team tagging — shared by the unplanned debriefs and the timer (azdevops_team.ps1)
+    SyncUWTeam(["az-Sync-AzDevOpsTeam"]):::pub
+    UWRosterSync[Sync-AzDevOpsTeam]:::priv
+    UWTeamPick[Select-AzDevOpsTeamFromCli]:::priv
+    UWTeamList[Get-AzDevOpsTeamList]:::priv
+    UWTeamMembers[Get-AzDevOpsTeamMemberList]:::priv
+    UWMemberRow[ConvertFrom-AzDevOpsTeamMemberRow]:::priv
+    UWMemberRec[New-AzDevOpsTeamMemberRecord]:::priv
+    UWGetTeam[Get-AzDevOpsTeam]:::priv
+    UWRoster[Get-AzDevOpsTeamEnvRoster]:::priv
+    UWResolve[Resolve-AzDevOpsTeamMember]:::priv
+    UWTeamSave[Save-AzDevOpsTeamCache]:::priv
+    UWTeamRead[Read-AzDevOpsTeamCache]:::priv
+    UWTeamPath[Get-AzDevOpsTeamCachePath]:::priv
+    UWMentionPick[Select-AzDevOpsMention]:::priv
+    UWMentionMenu[Select-AzDevOpsMentionFromMenu]:::priv
+    UWAnchor[Format-AzDevOpsMentionAnchor]:::priv
+    UWMentionLine[Format-AzDevOpsMentionLine]:::priv
+
+    %% Shared JSON-array cache plumbing (azdevops_paths.ps1)
+    UWCachePath[Get-AzDevOpsCacheFilePath]:::priv
+    UWJsonRead[Read-AzDevOpsJsonArrayCache]:::priv
+    UWJsonSave[Save-AzDevOpsJsonArrayCache]:::priv
 
     %% Step helpers
     C1[az-Confirm-AzDevOpsCli]:::priv
@@ -1206,11 +1215,16 @@ graph LR
     NewUWDebrief --> AddDisc
     NewUWDebrief --> UWLedger
 
-    %% Debrief team tagging (azdevops_unplanned.ps1 + Get-AzDevOpsIdentity)
+    %% Team tagging — shared by the unplanned debriefs and the timer (azdevops_team.ps1)
     SyncUWTeam --> CGate
     SyncUWTeam --> UWRosterSync
+    UWRosterSync --> UWTeamPick
+    UWTeamPick --> UWTeamList --> AzJson
+    UWRosterSync --> UWTeamMembers --> AzJson
+    UWTeamMembers --> UWMemberRow --> UWMemberRec
     UWRosterSync --> UWRoster
     UWRosterSync --> UWResolve --> Identity --> AzJson
+    UWResolve --> UWMemberRec
     UWRosterSync --> UWTeamSave
     InvUWDebrief --> UWMentionPick
     NewUWDebrief --> UWMentionPick
@@ -1219,7 +1233,6 @@ graph LR
     UWMentionPick --> UWGetTeam
     UWMentionPick --> UWMentionMenu
     UWGetTeam --> UWTeamRead
-    UWGetTeam --> UWRosterSync
     UWMentionLine --> UWAnchor
     UWTeamSave --> UWTeamPath
     UWTeamSave --> UWJsonSave

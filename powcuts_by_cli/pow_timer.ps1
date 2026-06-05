@@ -12,8 +12,9 @@
 #                                countdown to end early and still post a debrief.
 #   Register-TimerIntegration  - add an integration (Name, Description,
 #                                FetchItems, AddComment, optional ViewHint,
-#                                optional OpenItem, optional CloseItem).
-#                                Registering with an existing Name replaces it.
+#                                optional OpenItem, optional CloseItem, optional
+#                                SupportsMentions). Registering with an existing
+#                                Name replaces it.
 #
 # Integration contract (each entry of $script:TimerIntegrations):
 #   Name        [string]      - display name shown in the picker
@@ -42,6 +43,12 @@
 #                               (WPF) / "Resolve this item now? [y/N]" prompt
 #                               (terminal) that fires only after a successful
 #                               AddComment.
+#   SupportsMentions [bool]   - optional; when set the debrief offers the shared
+#                               "Tag teammate(s)?" picker (Select-AzDevOpsMention
+#                               in azdevops_team.ps1) and appends a notifying
+#                               @-mention line to the composed comment. Only the
+#                               Azure DevOps integration sets it - the anchors
+#                               are AzDO identity GUIDs, meaningless elsewhere.
 #
 # Azure DevOps integration is registered at the bottom of this file; reads
 # $HOME/.bashcuts-cache/azure-devops/assigned.json (populated by
@@ -313,17 +320,19 @@ function az-Register-TimerIntegration {
         [Parameter(Mandatory)] [scriptblock] $AddComment,
         [scriptblock] $ViewHint,
         [scriptblock] $OpenItem,
-        [scriptblock] $CloseItem
+        [scriptblock] $CloseItem,
+        [switch]      $SupportsMentions
     )
 
     $entry = [PSCustomObject]@{
-        Name        = $Name
-        Description = $Description
-        FetchItems  = $FetchItems
-        AddComment  = $AddComment
-        ViewHint    = $ViewHint
-        OpenItem    = $OpenItem
-        CloseItem   = $CloseItem
+        Name             = $Name
+        Description      = $Description
+        FetchItems       = $FetchItems
+        AddComment       = $AddComment
+        ViewHint         = $ViewHint
+        OpenItem         = $OpenItem
+        CloseItem        = $CloseItem
+        SupportsMentions = [bool]$SupportsMentions
     }
 
     $existing = @($script:TimerIntegrations | Where-Object { $_.Name -eq $Name })
@@ -809,7 +818,8 @@ function Format-TimerCommentBody {
         [Parameter(Mandatory)] [int]    $ElapsedSeconds,
         [Parameter(Mandatory)] [int]    $TotalSeconds,
         [Parameter(Mandatory)] [string] $Debrief,
-        [Parameter(Mandatory)] [string] $Next
+        [Parameter(Mandatory)] [string] $Next,
+        [AllowEmptyCollection()] [object[]] $Mentions
     )
 
     $iconCheck  = $script:TimerIconCheck
@@ -836,9 +846,23 @@ function Format-TimerCommentBody {
         '',
         "$iconRocket Next:",
         $Next,
-        '',
-        '<em>via bashcuts Start-TimerSession</em>'
+        ''
     )
+
+    # Notifying @-mention line (shared with the unplanned debriefs). Empty for
+    # an unselected / unsupported integration, so the comment posts unchanged.
+    $mentionLine = if (Get-Command Format-AzDevOpsMentionLine -ErrorAction SilentlyContinue) {
+        Format-AzDevOpsMentionLine -Members $Mentions
+    } else {
+        ''
+    }
+
+    if ($mentionLine) {
+        $lines += $mentionLine
+        $lines += ''
+    }
+
+    $lines += '<em>via bashcuts Start-TimerSession</em>'
 
     $body = $lines -join '<br/>'
     return $body
@@ -1430,6 +1454,16 @@ function az-Start-TimerSession {
             $seconds         = $Minutes * 60
             $countdownResult = Show-TimerCountdown -Seconds $seconds -OpenAction $openAction
 
+            # Optional teammate tagging, offered only for integrations whose
+            # comments can carry AzDO @-mention anchors (SupportsMentions). The
+            # picker is a console TUI, so it runs here - before either debrief
+            # branch - rather than fighting the WPF form; the selection is then
+            # threaded into the composed comment in both the WPF and console paths.
+            $mentions = @()
+            if ($chosen.SupportsMentions -and (Get-Command Select-AzDevOpsMention -ErrorAction SilentlyContinue)) {
+                $mentions = Select-AzDevOpsMention
+            }
+
             $onWindows = Test-WpfIsWindows
 
             if ($onWindows) {
@@ -1445,7 +1479,8 @@ function az-Start-TimerSession {
                         -ElapsedSeconds $countdownResult.ElapsedSeconds `
                         -TotalSeconds   $countdownResult.TotalSeconds `
                         -Debrief        $DebriefText `
-                        -Next           $NextText
+                        -Next           $NextText `
+                        -Mentions       $mentions
 
                     $posted = & $chosen.AddComment -Id $pickedItem.Id -Body $composed
                     return $posted
@@ -1495,7 +1530,8 @@ function az-Start-TimerSession {
                     -ElapsedSeconds $countdownResult.ElapsedSeconds `
                     -TotalSeconds   $countdownResult.TotalSeconds `
                     -Debrief        $debrief `
-                    -Next           $next
+                    -Next           $next `
+                    -Mentions       $mentions
 
                 Write-Host ""
                 $postScript = {
@@ -1607,4 +1643,5 @@ az-Register-TimerIntegration `
         param([Parameter(Mandatory)] [int] $Id)
         $result = Set-AzDevOpsWorkItemField -Id $Id -Fields @("System.State=$script:TimerCloseState")
         return $result
-    }
+    } `
+    -SupportsMentions

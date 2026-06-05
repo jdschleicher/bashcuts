@@ -99,6 +99,64 @@ function Get-AzDevOpsCachePaths {
 }
 
 
+function Get-AzDevOpsCacheFilePath {
+    # Resolve <cacheDir>/<FileName> under the active cache layout, or $null when
+    # the cache dir isn't available. Single source of the cache-dir guard for
+    # feature-local caches that aren't part of the synced hierarchy dataset -
+    # e.g. the unplanned per-day ledger and the team-tagging roster.
+    param([Parameter(Mandatory)] [string] $FileName)
+
+    $paths = Get-AzDevOpsCachePaths
+    if (-not $paths.Dir) {
+        return $null
+    }
+
+    $path = Join-Path $paths.Dir $FileName
+    return $path
+}
+
+
+function Read-AzDevOpsJsonArrayCache {
+    # Read a JSON-array cache file written by Save-AzDevOpsJsonArrayCache.
+    # Returns an empty array when the file is absent or unparseable. Shared by
+    # the unplanned ledger and the team roster cache.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        $items = @(Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
+    }
+    catch {
+        return @()
+    }
+
+    return $items
+}
+
+
+function Save-AzDevOpsJsonArrayCache {
+    # Ensure the parent dir exists, then write $Items as a JSON array (UTF-8).
+    # -AsArray keeps the single-element case an array on disk (PowerShell's
+    # ConvertTo-Json otherwise unwraps a one-item collection). Shared by the
+    # unplanned ledger and the team roster cache.
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Items
+    )
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $json = ConvertTo-Json -InputObject @($Items) -Depth 5 -AsArray
+    Set-Content -LiteralPath $Path -Value $json -Encoding UTF8
+}
+
+
 function Initialize-AzDevOpsCacheDir {
     $paths = Get-AzDevOpsCachePaths
     New-AzDevOpsDirectoryIfMissing -Path $paths.Dir

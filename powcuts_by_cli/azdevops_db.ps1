@@ -454,3 +454,44 @@ function Get-AzDevOpsIdentity {
     )
     return $result
 }
+
+
+function Get-AzDevOpsTeamList {
+    # `az devops team list` wrapper. Lists the teams in the configured default
+    # project (or the explicit default below). Returns the canonical envelope;
+    # the parsed JSON is an array of { id, name, description, ... }. Used by the
+    # team-roster sync to let the user pick which team to tag from.
+    $defaults = Get-AzDevOpsConfiguredDefaults
+    $project  = $defaults.Project
+
+    $argList = @('devops', 'team', 'list')
+    if ($project) {
+        $argList += '--project'
+        $argList += $project
+    }
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    return $result
+}
+
+
+function Get-AzDevOpsTeamMemberList {
+    # `az devops team list-member` wrapper. Lists the members of a team in the
+    # configured default project. Returns the canonical envelope; the parsed
+    # JSON is an array of { identity: { id, displayName, uniqueName, ... },
+    # isTeamAdmin } - identity.id is the GUID a data-vss-mention anchor needs,
+    # so team members resolve without a separate identities lookup.
+    param([Parameter(Mandatory)] [string] $Team)
+
+    $defaults = Get-AzDevOpsConfiguredDefaults
+    $project  = $defaults.Project
+
+    $argList = @('devops', 'team', 'list-member', '--team', $Team)
+    if ($project) {
+        $argList += '--project'
+        $argList += $project
+    }
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    return $result
+}
