@@ -1378,6 +1378,11 @@ function Show-WpfTimerDebrief {
     })
 
     $tagSuggestList.Add_SelectionChanged({
+        # The bounds guard is load-bearing, not defensive: clearing $tagBox.Text
+        # and the Items below re-fires TextChanged + SelectionChanged from inside
+        # this handler with SelectedIndex = -1, so the guard turns each re-entry
+        # into a safe no-op (without it, the empty re-entry would index past the
+        # suggestion list). Keep it.
         $index = $tagSuggestList.SelectedIndex
         if ($index -lt 0 -or $index -ge $Script:WpfDebriefSuggestions.Count) {
             return
