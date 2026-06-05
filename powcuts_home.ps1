@@ -112,6 +112,13 @@ if ($pow_timer -ne $NULL) {
     Write-Host "no pow_timer.ps1"
 }
 
+$azdevops_team = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_team.ps1"
+if ($azdevops_team -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_team.ps1"
+} else {
+    Write-Host "no azdevops_team.ps1"
+}
+
 $azdevops_unplanned = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
 if ($azdevops_unplanned -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_unplanned.ps1"
