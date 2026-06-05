@@ -360,11 +360,14 @@ flowchart TD
     Grid -- yes --> Pfx["Get-AzDevOpsWorkItemUrlPrefix<br/>(once, not per row)"]
     Pfx --> RowsFn["Get-AzDevOpsTreeRows<br/>(Type/Id/Title/State/Depth/Path/Url)"]
     RowsFn --> Show["Show-AzDevOpsRows<br/>→ Out-ConsoleGridView"]
-    Show --> Action["Invoke-AzDevOpsRowAction"]
-    Action --> Multi{">1 row selected?"}
-    Multi -- yes --> OpenAll["Read-AzDevOpsOpenAllChoice<br/>→ Open-AzDevOpsSelectedRows<br/>→ az-Open-WorkItemById (each)"]
-    Multi -- "no / declined" --> Choice{Read-AzDevOpsRowActionChoice<br/>(per selected row)}
-    Choice -- open --> OpenSel["Get-AzDevOpsRowId →<br/>az-Open-WorkItemById"]
+    Show --> Action[Invoke-AzDevOpsRowAction]
+    Action --> Multi{"2+ rows selected?"}
+    Multi -- yes --> OpenAll["Invoke-AzDevOpsOpenAllSelected<br/>Read-AzDevOpsYesNo [y/N]"]
+    OpenAll -- yes --> OpenSel
+    OpenAll -- "no (incl. Enter)" --> PerRow
+    Multi -- no --> PerRow
+    PerRow["per selected row<br/>(Get-AzDevOpsRowId)"] --> Choice{Read-AzDevOpsRowActionChoice}
+    Choice -- open --> OpenSel["az-Open-WorkItemById"]
     Choice -- create --> Child["New-AzDevOpsChildForRow<br/>(Get-AzDevOpsChildTypeFor →<br/>az-New-AzDevOpsFeature / UserStory / az-New-Task)"]
     Choice -- skip --> NoOp([skip])
     Grid -- no --> ForEpic{foreach epic}
@@ -384,7 +387,7 @@ flowchart TD
 
 Icon helper `Get-AzDevOpsTreeIcon` returns named codepoint locals (`$iconEpic`, `$iconFeature`, `$iconStory`) — never raw `[char]0x...` literals at the call site.
 
-The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, and `az-Show-Orphans` too; `az-Show-Features` passes `-DefaultType 'Feature'` and `az-Show-Epics` passes `-DefaultType 'Epic'` since their rows omit a Type column. When more than one row is selected it first offers a single "open all in browser" shortcut (`Read-AzDevOpsOpenAllChoice` → `Open-AzDevOpsSelectedRows`); otherwise (or when declined) it falls through to the per-row prompt offering open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). The id guard for both paths is centralized in `Get-AzDevOpsRowId`. `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
+The grid branch's post-selection step (`Invoke-AzDevOpsRowAction`) is shared by `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, and `az-Show-Orphans` too; `az-Show-Features` passes `-DefaultType 'Feature'` and `az-Show-Epics` passes `-DefaultType 'Epic'` since their rows omit a Type column. When more than one row is selected it first offers a single bulk-open gate (`Invoke-AzDevOpsOpenAllSelected`, a `[y/N]` prompt defaulting to no via `Read-AzDevOpsYesNo -DefaultNo`); a yes opens every selected row and returns, while no (or a bare Enter) falls through to the per-row loop. For each selected work-item row it then offers open-in-browser or create-the-hierarchical-child (Epic→Feature, Feature→User Story, requirement-tier→Task). The shared `Get-AzDevOpsRowId` helper extracts each row's work-item id (or 0 when the row carries none) for both the bulk and per-row paths. `az-Show-Areas` / `az-Show-Iterations` use the parallel `Invoke-AzDevOpsClassificationAction`, which offers a Boards-hub open only (classification rows carry no work-item id).
 
 ---
 
@@ -828,13 +831,12 @@ graph LR
 
     %% Interactive post-selection row actions (azdevops_views.ps1 + azdevops_classification.ps1)
     RowAction[Invoke-AzDevOpsRowAction]:::priv
+    OpenAllSel[Invoke-AzDevOpsOpenAllSelected]:::priv
+    RowId[Get-AzDevOpsRowId]:::priv
     RowChoice[Read-AzDevOpsRowActionChoice]:::priv
     ChildType[Get-AzDevOpsChildTypeFor]:::priv
     ChildForRow[New-AzDevOpsChildForRow]:::priv
     RowType[Resolve-AzDevOpsRowType]:::priv
-    RowId[Get-AzDevOpsRowId]:::priv
-    OpenAllChoice[Read-AzDevOpsOpenAllChoice]:::priv
-    OpenSelRows[Open-AzDevOpsSelectedRows]:::priv
     ClsAction[Invoke-AzDevOpsClassificationAction]:::priv
 
     %% URL builders (shared base)
@@ -1060,11 +1062,12 @@ graph LR
     Epics --> RowAction
     ShowFeats --> RowAction
     Orphans --> RowAction
+    RowAction --> Multi2{"2+ rows?"}
+    Multi2 -- yes --> OpenAllSel
+    OpenAllSel --> YN
+    OpenAllSel --> RowId
+    OpenAllSel --> OpenUrl
     RowAction --> RowId
-    RowAction --> OpenAllChoice
-    RowAction --> OpenSelRows
-    OpenSelRows --> RowId
-    OpenSelRows --> OpenUrl
     RowAction --> RowType
     RowAction --> ChildType
     RowAction --> RowChoice
