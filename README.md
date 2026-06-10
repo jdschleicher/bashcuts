@@ -674,19 +674,19 @@ Register-TimerIntegration `
 
 # <a name="unplanned-work"></a>Unplanned work sessions
 
-`Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
+`az-Start-UnplannedWork` is the free-for-all companion to the Pomodoro timer for firefighting that can't be time-boxed. Each day rolls up under a single **Unplanned Work — yyyy-MM-dd** User Story; every firefight you start becomes a child **Task** with its own debrief. PowerShell-only, like the timer (the Windows balloon reminder and key-poll loop have no bash counterpart).
 
 ### Run a session
 
 ```powershell
 # Prompts for the firefight title, reminds every 5 min
-Start-UnplannedWork
+az-Start-UnplannedWork
 
 # Skip the title prompt, custom reminder cadence
-Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
+az-Start-UnplannedWork -Title 'Help Dana with the deploy' -ReminderMinutes 10
 
 # No balloon reminder
-Start-UnplannedWork -NoReminder
+az-Start-UnplannedWork -NoReminder
 ```
 
 Flow:
@@ -711,7 +711,7 @@ Reads the day's local ledger (kept under the AzDO cache dir so total time can be
 
 ### Tagging teammates
 
-Every debrief that posts a comment — the Pomodoro timer (`Start-TimerSession`), the per-firefight `Start-UnplannedWork` stop, and the `New-UnplannedWorkDebrief` roll-up — can tag teammates with real, notifying Azure DevOps `@`-mentions. The taggable roster is shared across all three and is built by `az-Sync-AzDevOpsTeam`:
+Every debrief that posts a comment — the Pomodoro timer (`Start-TimerSession`), the per-firefight `az-Start-UnplannedWork` stop, and the `New-UnplannedWorkDebrief` roll-up — can tag teammates with real, notifying Azure DevOps `@`-mentions. The taggable roster is shared across all three and is built by `az-Sync-AzDevOpsTeam`:
 
 ```powershell
 az-Sync-AzDevOpsTeam          # pick a project team, cache its members for tagging

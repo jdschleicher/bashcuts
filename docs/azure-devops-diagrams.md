@@ -12,7 +12,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
 - [10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#10-start-azdevopsbackgroundsync--silent-on-open-refresh)
-- [11. `Start-UnplannedWork` — firefighting session loop + debrief](#11-start-unplannedwork--firefighting-session-loop--debrief)
+- [11. `az-Start-UnplannedWork` — firefighting session loop + debrief](#11-az-start-unplannedwork--firefighting-session-loop--debrief)
 - [12. Function dependency map](#12-function-dependency-map)
 
 ---
@@ -593,7 +593,7 @@ Private helpers:
 
 ---
 
-## 11. `Start-UnplannedWork` — firefighting session loop + debrief
+## 11. `az-Start-UnplannedWork` — firefighting session loop + debrief
 
 Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
@@ -601,7 +601,7 @@ The session starts the instant you've named the firefight: the daily story and c
 
 ```mermaid
 flowchart TD
-    Start([Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
+    Start([az-Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
     Gate -- false --> Abort1([abort])
     Gate -- true --> AskTitle["prompt firefight title<br/>(Read-Host)"]
     AskTitle --> PlatCheck{Test-WpfIsWindows?}
@@ -702,7 +702,7 @@ graph LR
     FindProj(["az-Find-AzDevOpsProject"]):::pub
 
     %% Unplanned work sessions (azdevops_unplanned.ps1)
-    StartUW(["Start-UnplannedWork"]):::pub
+    StartUW(["az-Start-UnplannedWork"]):::pub
     NewUWDebrief(["New-UnplannedWorkDebrief"]):::pub
     GetDaily[Get-UnplannedWorkDailyStory]:::priv
     UWGetCachedStory[Get-UnplannedCachedStoryId]:::priv
