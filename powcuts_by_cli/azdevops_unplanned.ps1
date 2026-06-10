@@ -161,15 +161,83 @@ function New-UnplannedWorkStory {
 }
 
 
+function Get-UnplannedStoryCachePath {
+    # Per-day cache of today's daily-story id so a second firefight in the same
+    # day grabs it instantly - no WIQL lookup, and no risk of two sessions
+    # racing into creating duplicate daily stories. Lives next to the per-day
+    # ledger under the AzDO cache dir. Returns $null when the cache layout isn't
+    # available.
+    param([datetime] $Date = (Get-Date))
+
+    $stamp = $Date.ToString('yyyy-MM-dd')
+    $path  = Get-AzDevOpsCacheFilePath -FileName "unplanned-story-$stamp.json"
+    return $path
+}
+
+
+function Get-UnplannedCachedStoryId {
+    # Read today's cached daily-story id, or 0 when nothing is cached / the
+    # cache layout isn't available.
+    param([datetime] $Date = (Get-Date))
+
+    $path = Get-UnplannedStoryCachePath -Date $Date
+    if (-not $path) {
+        return 0
+    }
+
+    $rows = Read-AzDevOpsJsonArrayCache -Path $path
+    if (@($rows).Count -eq 0) {
+        return 0
+    }
+
+    $first = @($rows)[0]
+    $id = [int]$first.StoryId
+    return $id
+}
+
+
+function Save-UnplannedCachedStoryId {
+    # Persist today's daily-story id so the next firefight grabs it without a
+    # WIQL round-trip. Written the moment the story is found or created.
+    param(
+        [Parameter(Mandatory)] [int] $Id,
+        [datetime] $Date = (Get-Date)
+    )
+
+    $path = Get-UnplannedStoryCachePath -Date $Date
+    if (-not $path) {
+        return
+    }
+
+    $entry = [PSCustomObject]@{
+        StoryId  = $Id
+        Title    = Get-UnplannedWorkDailyStoryTitle -Date $Date
+        CachedAt = (Get-Date).ToString('o')
+    }
+
+    Save-AzDevOpsJsonArrayCache -Path $path -Items @($entry)
+}
+
+
 function Get-UnplannedWorkDailyStory {
-    # Find-or-create today's daily story. -NoCreate returns 0 instead of
-    # creating when none exists (used by the daily-debrief reader).
+    # Find-or-create today's daily story. Checks the per-day id cache first so a
+    # repeat firefight grabs the story with no WIQL lookup (and two sessions
+    # can't race into creating duplicates), then falls back to a WIQL lookup,
+    # then creates. The resolved id is cached on the way out. -NoCreate returns
+    # 0 instead of creating when none exists (used by the daily-debrief reader).
     param([switch] $NoCreate)
 
     $title = Get-UnplannedWorkDailyStoryTitle
 
+    $cachedId = Get-UnplannedCachedStoryId
+    if ($cachedId -gt 0) {
+        Write-Host "Using cached daily story #$cachedId : $title" -ForegroundColor DarkGray
+        return $cachedId
+    }
+
     $existingId = Find-UnplannedWorkStoryId -Title $title
     if ($existingId -gt 0) {
+        Save-UnplannedCachedStoryId -Id $existingId
         Write-Host "Using existing daily story #$existingId : $title" -ForegroundColor DarkGray
         return $existingId
     }
@@ -180,6 +248,10 @@ function Get-UnplannedWorkDailyStory {
 
     Write-Host "No daily story for today yet - creating '$title'..." -ForegroundColor Cyan
     $newId = New-UnplannedWorkStory -Title $title
+    if ($newId -gt 0) {
+        Save-UnplannedCachedStoryId -Id $newId
+    }
+
     return $newId
 }
 
@@ -256,7 +328,6 @@ function New-UnplannedBalloon {
 function Show-UnplannedReminder {
     param(
         $Balloon,
-        [Parameter(Mandatory)] [int]    $TaskId,
         [Parameter(Mandatory)] [string] $TaskTitle
     )
 
@@ -268,7 +339,7 @@ function Show-UnplannedReminder {
 
     $Balloon.BalloonTipIcon  = [System.Windows.Forms.ToolTipIcon]::Warning
     $Balloon.BalloonTipTitle = "$iconFire Unplanned work in progress"
-    $Balloon.BalloonTipText  = "Task #$TaskId still open: $TaskTitle. Space = log item, Esc = stop."
+    $Balloon.BalloonTipText  = "Still firefighting: $TaskTitle. Space = log item, Esc = stop."
     $Balloon.ShowBalloonTip(0)
 }
 
@@ -301,7 +372,6 @@ function Read-UnplannedKeyPress {
 
 function Show-UnplannedStatus {
     param(
-        [Parameter(Mandatory)] [int]    $TaskId,
         [Parameter(Mandatory)] [string] $TaskTitle,
         [Parameter(Mandatory)] [int]    $ElapsedSeconds,
         [Parameter(Mandatory)] [int]    $ItemCount,
@@ -315,7 +385,7 @@ function Show-UnplannedStatus {
     Clear-Host
     Write-Host ""
     Write-Host "  $iconFire UNPLANNED WORK SESSION" -ForegroundColor Red
-    Write-Host "  Task #$TaskId  $TaskTitle" -ForegroundColor Yellow
+    Write-Host "  $TaskTitle" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  $iconClock Elapsed: $elapsed     Items captured: $ItemCount" -ForegroundColor Cyan
     Write-Host "  Reminder every $ReminderMinutes min" -ForegroundColor DarkGray
@@ -476,6 +546,32 @@ function Format-UnplannedDailyDebrief {
 }
 
 
+function Show-UnplannedCapturedItemsFallback {
+    # Last-resort dump of the items captured during a session when the daily
+    # story / Task couldn't be created at debrief time, so the work isn't lost -
+    # the user can paste these into the work item by hand.
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [object[]] $Items
+    )
+
+    $itemList = @($Items)
+
+    Write-Host ""
+    Write-Host "Captured items for '$Title' (not posted - create failed):" -ForegroundColor Yellow
+
+    if ($itemList.Count -eq 0) {
+        Write-Host "  (no items captured)" -ForegroundColor DarkGray
+        return
+    }
+
+    $bullet = $script:UnplannedIconBullet
+    foreach ($entry in $itemList) {
+        Write-Host "  $bullet [$($entry.Time)] $($entry.Text)"
+    }
+}
+
+
 function Invoke-UnplannedDebrief {
     # Stop-of-session tail, split out of az-Start-UnplannedWork so the orchestrator
     # reads as gate -> story -> task -> loop -> debrief. Flushes the captured
@@ -553,9 +649,10 @@ function Show-WpfStopwatch {
     # Arc fills as time passes (amber colour distinguishes it from the Pomodoro
     # blue). "Log Item" opens an input dialog; "Create New Story" hides the overlay,
     # runs az-New-AzDevOpsUserStory in the terminal, then resumes. "Stop" /
-    # right-click closes and returns the list of captured items.
+    # right-click closes and returns the list of captured items. The work item
+    # doesn't exist yet - it's created at debrief time - so the overlay shows
+    # the firefight title rather than a Task id.
     param(
-        [Parameter(Mandatory)] [int]    $TaskId,
         [Parameter(Mandatory)] [string] $TaskTitle,
         [Parameter(Mandatory)] [int]    $ReminderMinutes,
         [switch] $NoReminder
@@ -564,7 +661,7 @@ function Show-WpfStopwatch {
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
     Add-Type -AssemblyName Microsoft.VisualBasic
 
-    $maxDisplaySecs = $script:WpfStopwatchMaxSeconds
+    $maxDisplaySecs = [double]$script:WpfStopwatchMaxSeconds
 
     $Script:WpfElapsed = 0.0
     $Script:WpfItems   = New-Object System.Collections.Generic.List[object]
@@ -590,8 +687,16 @@ function Show-WpfStopwatch {
         HorizontalAlignment = 'Center'
     }
 
+    $titleEllipsis = [char]0x2026
+    $titleMaxChars = 28
+    $titleText = if ($TaskTitle.Length -gt $titleMaxChars) {
+        $TaskTitle.Substring(0, $titleMaxChars - 1) + $titleEllipsis
+    } else {
+        $TaskTitle
+    }
+
     $titleLabel = New-Object System.Windows.Controls.TextBlock -Property @{
-        Text                = "Task #$TaskId"
+        Text                = $titleText
         FontSize            = 11
         Foreground          = $brushes.Hint
         HorizontalAlignment = 'Center'
@@ -699,7 +804,7 @@ function Show-WpfStopwatch {
 
     $reminderTick.Add_Tick({
         if ($null -ne $balloon) {
-            Show-UnplannedReminder -Balloon $balloon -TaskId $TaskId -TaskTitle $TaskTitle
+            Show-UnplannedReminder -Balloon $balloon -TaskTitle $TaskTitle
         }
     })
 
@@ -761,12 +866,14 @@ function Show-WpfStopwatch {
 
 
 function az-Start-UnplannedWork {
-    # Orchestrator. Find-or-create today's daily story, create a child Task for
-    # this firefight, then run the foreground session: Space logs a timestamped
-    # item, Esc/Q stops. A reminder balloon fires every -ReminderMinutes. On
-    # stop the captured items flush to the Task description and a debrief comment
-    # (time spent + notes + optional future-feature opportunity) is posted; the
-    # session is recorded in the day's ledger for New-UnplannedWorkDebrief.
+    # Orchestrator. Prompt for the firefight first, then start the session
+    # immediately - the Azure DevOps daily story + child Task are created at the
+    # END (debrief time), so a burning fire isn't blocked on az boards round-trips
+    # at start. Space logs a timestamped item, Esc/Q stops; a reminder balloon
+    # fires every -ReminderMinutes. On stop the daily story is found-or-created
+    # (cached for the rest of the day so the next firefight grabs it instantly),
+    # the child Task is created and linked, captured items flush to its
+    # description, and a debrief comment is posted and recorded in the ledger.
     #
     # UTF-8 output encoding is applied around the loop so the glyphs render in
     # non-UTF-8 codepages, and restored on exit (including Ctrl-C) via finally.
@@ -781,12 +888,6 @@ function az-Start-UnplannedWork {
         return
     }
 
-    $storyId = Get-UnplannedWorkDailyStory
-    if ($storyId -le 0) {
-        Write-Host "No daily Unplanned Work story available - aborting." -ForegroundColor Red
-        return
-    }
-
     if (-not $Title) {
         $Title = Read-Host 'What is this firefight about? (Task title)'
     }
@@ -794,17 +895,6 @@ function az-Start-UnplannedWork {
         Write-Host "Task title is required - aborting." -ForegroundColor Red
         return
     }
-
-    $taskId = New-UnplannedWorkTask -Title $Title -StoryId $storyId
-    if ($taskId -le 0) {
-        Write-Host "Could not create the firefight Task - aborting." -ForegroundColor Red
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Firefight Task #$taskId created under story #$storyId." -ForegroundColor Green
-    Write-Host "Starting session." -ForegroundColor Green
-    Start-Sleep -Seconds 2
 
     $startTime = Get-Date
     $balloon   = $null
@@ -817,7 +907,6 @@ function az-Start-UnplannedWork {
 
         if ($onWindows) {
             $items = Show-WpfStopwatch `
-                -TaskId          $taskId `
                 -TaskTitle       $Title `
                 -ReminderMinutes $ReminderMinutes `
                 -NoReminder:$NoReminder
@@ -836,7 +925,7 @@ function az-Start-UnplannedWork {
 
             Write-Host "Space logs an item, Esc/Q stops and debriefs." -ForegroundColor Green
 
-            Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds 0 -ItemCount 0 -ReminderMinutes $ReminderMinutes
+            Show-UnplannedStatus -TaskTitle $Title -ElapsedSeconds 0 -ItemCount 0 -ReminderMinutes $ReminderMinutes
 
             while (-not $stopRequested) {
                 for ($p = 0; $p -lt $pollsPerSecond; $p++) {
@@ -860,7 +949,7 @@ function az-Start-UnplannedWork {
                         }
 
                         $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
-                        Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
+                        Show-UnplannedStatus -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
                         break
                     }
 
@@ -876,13 +965,31 @@ function az-Start-UnplannedWork {
                 # span many seconds, so $elapsed++ would undercount.
                 $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
 
-                Show-UnplannedStatus -TaskId $taskId -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
+                Show-UnplannedStatus -TaskTitle $Title -ElapsedSeconds $elapsed -ItemCount $items.Count -ReminderMinutes $ReminderMinutes
 
                 if (-not $NoReminder -and ($elapsed - $lastReminderAt) -ge $reminderSeconds) {
-                    Show-UnplannedReminder -Balloon $balloon -TaskId $taskId -TaskTitle $Title
+                    Show-UnplannedReminder -Balloon $balloon -TaskTitle $Title
                     $lastReminderAt = $elapsed
                 }
             }
+        }
+
+        # Creation is deferred to here: the session is over, so the daily story
+        # + child Task are created now, just before the debrief flushes the
+        # captured items and posts the comment. A failed create surfaces the
+        # captured items rather than losing them.
+        $storyId = Get-UnplannedWorkDailyStory
+        if ($storyId -le 0) {
+            Write-Host "No daily Unplanned Work story available - cannot record this session." -ForegroundColor Red
+            Show-UnplannedCapturedItemsFallback -Title $Title -Items $items
+            return
+        }
+
+        $taskId = New-UnplannedWorkTask -Title $Title -StoryId $storyId
+        if ($taskId -le 0) {
+            Write-Host "Could not create the firefight Task - cannot record this session." -ForegroundColor Red
+            Show-UnplannedCapturedItemsFallback -Title $Title -Items $items
+            return
         }
 
         Invoke-UnplannedDebrief -TaskId $taskId -StoryId $storyId -Title $Title -StartTime $startTime -Items $items
