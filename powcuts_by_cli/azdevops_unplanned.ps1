@@ -860,7 +860,7 @@ function Show-WpfStopwatch {
         $balloon.Dispose()
     }
 
-    $items = @($Script:WpfItems)
+    $items = $Script:WpfItems
     return $items
 }
 
