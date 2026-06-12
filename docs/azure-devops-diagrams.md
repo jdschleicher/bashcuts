@@ -635,14 +635,14 @@ flowchart TD
     AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
     AskFuture -- no --> Tag
     MaybeStory --> Tag
-    Tag["Select-AzDevOpsMention<br/>type-to-filter roster picker (Name+Email)<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
+    Tag["Select-AzDevOpsMention<br/>typed tag field → ConvertFrom-AzDevOpsMentionInput<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
     Tag --> PostComment
     PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
     PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
-    ReadLedger --> TagDay["Select-AzDevOpsMention<br/>(same shared roster picker)"]
+    ReadLedger --> TagDay["Select-AzDevOpsMention<br/>(same shared typed tag field)"]
     TagDay --> Rollup["Format-UnplannedDailyDebrief<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
 
@@ -654,7 +654,7 @@ flowchart TD
     class CacheCheck,Find,NewStory,SaveStory,Task,FlushDesc,PostComment,Ledger,Rollup,ResolveTeam,TeamCache io
 ```
 
-Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, `Select-AzDevOpsMention` offers a type-to-filter picker over the cached team roster (`team.json`). That roster and picker are **shared** — they live in `azdevops_team.ps1` and the Pomodoro timer's debrief (`pow_timer.ps1`) tags through the same surface. `az-Sync-AzDevOpsTeam` builds the roster primarily from a **project team's members** (`az devops team list-member`, which returns name/email/identity-GUID in one call), optionally supplemented by `$env:AZ_TEAM` (';'/','-separated emails/names resolved individually via `Get-AzDevOpsIdentity`). Picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — an empty pick (or an un-synced roster) posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
+Capture lands in two places per firefight: the accumulated bullet items flush to the Task **description** once at stop, and a single **discussion comment** carries the time spent, debrief notes, and any future-feature opportunity. Before each comment posts, the debrief shows a **typed tag field** (`Select-AzDevOpsMention` — a blank Read-Host here; an in-form text box with a live suggestion list on the Pomodoro timer's WPF debrief). Whatever you type (';'/','-separated names/emails) flows through `ConvertFrom-AzDevOpsMentionInput` → `Resolve-AzDevOpsMentionToken`, which matches each token against the cached roster (`team.json`) first and falls back to a live `Get-AzDevOpsIdentity` lookup. That roster and tag surface are **shared** — they live in `azdevops_team.ps1` and the timer (`pow_timer.ps1`) tags through the same code. `az-Sync-AzDevOpsTeam` builds the roster primarily from a **project team's members** (`az devops team list-member`, which returns name/email/identity-GUID in one call), optionally supplemented by `$env:AZ_TEAM`. Picked teammates are injected as real `data-vss-mention` anchors so they're notified. Tagging is optional — a blank field (or an un-synced roster) posts the debrief unchanged. Pure-UI helpers (`Show-UnplannedStatus`, `Format-UnplannedElapsed`, `Read-UnplannedYesNo`) are session-internal and omitted from the dependency map below.
 
 ---
 
@@ -733,7 +733,8 @@ graph LR
     UWTeamRead[Read-AzDevOpsTeamCache]:::priv
     UWTeamPath[Get-AzDevOpsTeamCachePath]:::priv
     UWMentionPick[Select-AzDevOpsMention]:::priv
-    UWMentionMenu[Select-AzDevOpsMentionFromMenu]:::priv
+    UWMentionInput[ConvertFrom-AzDevOpsMentionInput]:::priv
+    UWMentionToken[Resolve-AzDevOpsMentionToken]:::priv
     UWAnchor[Format-AzDevOpsMentionAnchor]:::priv
     UWMentionLine[Format-AzDevOpsMentionLine]:::priv
 
@@ -1253,7 +1254,9 @@ graph LR
     InvUWDebrief --> UWMentionLine
     NewUWDebrief --> UWMentionLine
     UWMentionPick --> UWGetTeam
-    UWMentionPick --> UWMentionMenu
+    UWMentionPick --> UWMentionInput
+    UWMentionInput --> UWMentionToken
+    UWMentionToken --> UWResolve
     UWGetTeam --> UWTeamRead
     UWMentionLine --> UWAnchor
     UWTeamSave --> UWTeamPath

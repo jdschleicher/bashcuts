@@ -24,8 +24,14 @@
 #                          changing $env:AZ_TEAM.
 #
 # Internal entry points (called by the debriefs):
-#   Select-AzDevOpsMention     - the optional "Tag teammate(s)?" type-to-filter
-#                                picker over the cached roster.
+#   Select-AzDevOpsMention     - console tag field for the debriefs with no WPF
+#                                form (non-Windows timer + unplanned). A blank
+#                                Read-Host (type names/emails, blank = none) -
+#                                no yes/no gate, no grid. The WPF timer form has
+#                                its own in-form tag field (Show-WpfTimerDebrief).
+#   ConvertFrom-AzDevOpsMentionInput - resolve a typed ';'/','-separated tag
+#                                string to teammate records (roster match first,
+#                                live identities lookup as fallback).
 #   Format-AzDevOpsMentionLine - render the picked members as a single
 #                                "Tagged: @a @b" line for a comment body.
 #
@@ -39,6 +45,7 @@ $script:AzDevOpsTeamEnvVar     = 'AZ_TEAM'
 $script:AzDevOpsTeamCacheFile  = 'team.json'
 $script:AzDevOpsMentionVersion = 'version:2.0'
 $script:AzDevOpsTeamIconPeople = [char]::ConvertFromUtf32(0x1F465)   # busts in silhouette
+$script:AzDevOpsListSeparators = [char[]]@(';', ',')                 # roster / tag-field delimiters
 
 
 function New-AzDevOpsTeamMemberRecord {
@@ -104,7 +111,7 @@ function Get-AzDevOpsTeamEnvRoster {
         return @()
     }
 
-    $separators = [char[]]@(';', ',')
+    $separators = $script:AzDevOpsListSeparators
     $parts      = $raw.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)
 
     $seen   = New-Object System.Collections.Generic.HashSet[string]
@@ -374,73 +381,104 @@ function Format-AzDevOpsMentionLine {
 }
 
 
-function Select-AzDevOpsMentionFromMenu {
-    # Numbered Read-Host fallback for Select-AzDevOpsMention when no
-    # Out-ConsoleGridView host is available. Accepts a comma-separated list of
-    # indices; ignores blanks and out-of-range entries. Returns the chosen
-    # member records.
-    param([Parameter(Mandatory)] [object[]] $Team)
+function Resolve-AzDevOpsMentionToken {
+    # Resolve one typed token (a name or email) to a teammate record. Prefers a
+    # match in the already-synced roster - exact email first, then a name/email
+    # substring - so tagging is instant and offline. Falls back to a live
+    # identities lookup when the roster has no match, so typing a teammate works
+    # even before az-Sync-AzDevOpsTeam has run. Returns $null when nothing matches.
+    param(
+        [Parameter(Mandatory)] [string] $Token,
+        [AllowEmptyCollection()] [object[]] $Roster
+    )
 
-    Write-Host ''
-    Write-Host 'Teammates available to tag:' -ForegroundColor Cyan
-    for ($i = 0; $i -lt $Team.Count; $i++) {
-        $member = $Team[$i]
-        Write-Host ("  {0}) {1}  <{2}>" -f ($i + 1), $member.DisplayName, $member.Email)
+    $needle = $Token.Trim()
+    if (-not $needle) {
+        return $null
     }
 
-    $raw = Read-Host 'Numbers to tag (comma-separated, blank = none)'
-    if ([string]::IsNullOrWhiteSpace($raw)) {
+    $lower = $needle.ToLowerInvariant()
+
+    $exact = @($Roster | Where-Object {
+        $_.Email -and $_.Email.ToLowerInvariant() -eq $lower
+    })
+    if ($exact.Count -ge 1) {
+        $hit = $exact[0]
+        return $hit
+    }
+
+    $contains = @($Roster | Where-Object {
+        ($_.DisplayName -and $_.DisplayName.ToLowerInvariant().Contains($lower)) -or
+        ($_.Email -and $_.Email.ToLowerInvariant().Contains($lower))
+    })
+    if ($contains.Count -ge 1) {
+        $hit = $contains[0]
+        return $hit
+    }
+
+    $live = Resolve-AzDevOpsTeamMember -Identifier $needle
+    return $live
+}
+
+
+function ConvertFrom-AzDevOpsMentionInput {
+    # Turn a free-text tag field (';'- or ','-separated names/emails) into the
+    # teammate records to mention. Each token resolves via Resolve-AzDevOpsMentionToken;
+    # unresolved tokens are reported and skipped so one typo doesn't sink the rest.
+    # De-dupes by identity id. Blank input returns an empty array.
+    param(
+        [AllowEmptyString()] [string] $Text,
+        [AllowEmptyCollection()] [object[]] $Roster
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
         return @()
     }
 
-    $separators = [char[]]@(';', ',')
-    $tokens     = $raw.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)
+    $separators = $script:AzDevOpsListSeparators
+    $tokens     = $Text.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)
 
-    $picked = New-Object System.Collections.Generic.List[object]
+    $records = New-Object System.Collections.Generic.List[object]
+    $seenIds = New-Object System.Collections.Generic.HashSet[string]
     foreach ($token in $tokens) {
-        $index = 0
-        if ([int]::TryParse($token.Trim(), [ref]$index)) {
-            $zeroBased = $index - 1
-            if ($zeroBased -ge 0 -and $zeroBased -lt $Team.Count) {
-                $picked.Add($Team[$zeroBased])
-            }
+        $member = Resolve-AzDevOpsMentionToken -Token $token -Roster $Roster
+        if ($null -eq $member -or -not $member.Id) {
+            Write-Host "  Could not match '$($token.Trim())' to a teammate - skipping." -ForegroundColor Yellow
+            continue
+        }
+
+        if ($seenIds.Add($member.Id)) {
+            $records.Add($member)
         }
     }
 
-    $result = @($picked)
+    $result = @($records)
     return $result
 }
 
 
 function Select-AzDevOpsMention {
-    # Type-to-filter picker over the cached roster for debrief tagging. Shows
-    # Name + Email so the user can confirm the right person before tagging.
-    # Out-ConsoleGridView multi-select when available (its filter box is the
-    # "type and the right names bubble up" behavior); a Read-Host numbered menu
-    # otherwise. Returns the selected member records - possibly empty, since
-    # tagging is always optional and 'tag nobody' leaves the debrief unchanged.
-    # An empty cache (no roster synced) returns silently so a user who never
-    # tags isn't nagged - run az-Sync-AzDevOpsTeam to populate it.
-    $team = Get-AzDevOpsTeam
-    if ($team.Count -eq 0) {
+    # Console teammate tagging for the debriefs that have no WPF form (the
+    # non-Windows timer path and the unplanned-work debriefs). A single blank
+    # field - no yes/no gate, no grid: type one or more teammates (';'/','-
+    # separated names or emails), or leave it blank to tag nobody. Typed tokens
+    # resolve against the cached roster first, then a live identities lookup, so
+    # it works with or without a prior az-Sync-AzDevOpsTeam. Returns the matched
+    # records (possibly empty). A user who has never run az-Sync-AzDevOpsTeam
+    # has no roster, so the field is skipped silently rather than shown on every
+    # debrief.
+    $roster = @(Get-AzDevOpsTeam)
+    if ($roster.Count -eq 0) {
         return @()
     }
 
-    if (-not (Read-AzDevOpsYesNo -Prompt 'Tag teammate(s) on this debrief?' -DefaultNo)) {
+    $raw = Read-Host 'Tag teammates (; or , separated names/emails, blank = none)'
+    if ([string]::IsNullOrWhiteSpace($raw)) {
         return @()
     }
 
-    if (Test-AzDevOpsGridAvailable) {
-        $grid = $team |
-            Select-Object DisplayName, Email, Id |
-            Out-ConsoleGridView -Title 'Pick teammate(s) to tag (filter as you type, Esc = none)' -OutputMode Multiple
-
-        $picked = @($grid)
-        return $picked
-    }
-
-    $menuPicked = Select-AzDevOpsMentionFromMenu -Team $team
-    return $menuPicked
+    $members = ConvertFrom-AzDevOpsMentionInput -Text $raw -Roster $roster
+    return $members
 }
 
 
