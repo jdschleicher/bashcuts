@@ -60,6 +60,27 @@ function New-AzDevOpsActionRow {
 # one-line tip to add it (Title-only search still works meanwhile).
 # ---------------------------------------------------------------------------
 
+function Get-AzDevOpsVisibleItems {
+    # Shared -IncludeClosed gate for the az-Find-* hierarchy views: drops items
+    # in a closed state unless the switch is set, in which case everything passes
+    # through. Extracted so az-Find-AzDevOpsText and az-Find-AzDevOpsWorkItem
+    # share one copy of the filter rather than each inlining the same if/else
+    # (CLAUDE.md extract-repeated-branches rule).
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] $Items,
+        [switch] $IncludeClosed
+    )
+
+    if ($IncludeClosed) {
+        return @($Items)
+    }
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $visible = @($Items | Where-Object { $_.State -notin $closedStates })
+    return $visible
+}
+
+
 function Select-AzDevOpsTextMatches {
     # Filters hierarchy items by a free-text query over Title + Description.
     # The query is split on whitespace into tokens; an item matches when EVERY
@@ -153,13 +174,7 @@ function az-Find-AzDevOpsText {
     Write-AzDevOpsStaleBanner
     Write-AzDevOpsNoDescriptionTip -Items $items
 
-    $closedStates = Get-AzDevOpsClosedStates
-    $visibleItems = if ($IncludeClosed) {
-        $items
-    }
-    else {
-        $items | Where-Object { $_.State -notin $closedStates }
-    }
+    $visibleItems = Get-AzDevOpsVisibleItems -Items $items -IncludeClosed:$IncludeClosed
 
     $hits = @(Select-AzDevOpsTextMatches -Items $visibleItems -Query $Query)
 
@@ -229,13 +244,7 @@ function az-Find-AzDevOpsWorkItem {
 
     Write-AzDevOpsStaleBanner
 
-    $closedStates = Get-AzDevOpsClosedStates
-    $visibleItems = if ($IncludeClosed) {
-        $items
-    }
-    else {
-        $items | Where-Object { $_.State -notin $closedStates }
-    }
+    $visibleItems = Get-AzDevOpsVisibleItems -Items $items -IncludeClosed:$IncludeClosed
 
     $byParent = @{}
     foreach ($item in $visibleItems) {
