@@ -254,6 +254,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @(125)
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Find-AzDevOpsText'
+        File          = 'powcuts_by_cli/azdevops_find.ps1'
+        Phase         = 'DailyRead'
+        Order         = 11
+        Purpose       = 'Fuzzy filter search across the hierarchy cache over Title + Description; type more in the grid to filter live; select a row to open it or create a child'
+        Args          = '[<query>] [-IncludeClosed]'
+        Example       = 'az-Find-AzDevOpsText "deploy pipeline"'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
     # --- Create ------------------------------------------------------------
 
     [PSCustomObject]@{

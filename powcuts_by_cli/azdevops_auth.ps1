@@ -69,7 +69,7 @@
 # Coverage:
 #                          Get-                  Show-                Find-
 #   Project                Projects              Project              Project
-#   Work Item (hierarchy)  --                    Tree, Board          WorkItem
+#   Work Item (hierarchy)  --                    Tree, Board          WorkItem, Text
 #   Work Item (assigned)   Assigned [pickable]   --                   --
 #   Work Item (mentions)   Mentions [pickable]   --                   --
 #   Area                   Areas                 Areas                Area
