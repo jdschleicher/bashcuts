@@ -42,6 +42,192 @@ function New-AzDevOpsActionRow {
 }
 
 
+# ---------------------------------------------------------------------------
+# Free-text fuzzy filter over the cached hierarchy
+#
+# Public function:
+#   az-Find-AzDevOpsText - filters the cached Epic/Feature/requirement-tier
+#                          rows by a free-text query over Title + Description
+#                          and hands the hits to Out-ConsoleGridView, whose own
+#                          live-filter box then narrows further. Selecting a row
+#                          opens it or creates its hierarchical child via the
+#                          shared Invoke-AzDevOpsRowAction dispatcher.
+#
+# Reads the same $HOME/.bashcuts-az-devops-app/cache/hierarchy.json that
+# az-Show-Tree / az-Find-AzDevOpsWorkItem consume; never calls `az` directly.
+# Description search needs [System.Description] in the hierarchy WIQLs - it's
+# in the seeded defaults, but users with older seeded *.wiql files get a
+# one-line tip to add it (Title-only search still works meanwhile).
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsVisibleItems {
+    # Shared -IncludeClosed gate for the az-Find-* hierarchy views: drops items
+    # in a closed state unless the switch is set, in which case everything passes
+    # through. Extracted so az-Find-AzDevOpsText and az-Find-AzDevOpsWorkItem
+    # share one copy of the filter rather than each inlining the same if/else
+    # (CLAUDE.md extract-repeated-branches rule).
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] $Items,
+        [switch] $IncludeClosed
+    )
+
+    if ($IncludeClosed) {
+        return @($Items)
+    }
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $visible = @($Items | Where-Object { $_.State -notin $closedStates })
+    return $visible
+}
+
+
+function Select-AzDevOpsTextMatches {
+    # Filters hierarchy items by a free-text query over Title + Description.
+    # The query is split on whitespace into tokens; an item matches when EVERY
+    # token appears (case-insensitive substring) in its combined "Title
+    # Description" haystack - an AND-of-substrings filter that behaves like the
+    # grid's live filter box but runs first so a large cache narrows to the hits
+    # before rendering. An empty/whitespace query returns every item unchanged
+    # so the caller can hand the full set to the grid's own live filter.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] $Items,
+        [string] $Query
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Query)) {
+        return @($Items)
+    }
+
+    $tokens = @($Query -split '\s+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+
+    $matched = foreach ($item in $Items) {
+        $haystack = "$($item.Title) $($item.Description)".ToLowerInvariant()
+
+        $allPresent = $true
+        foreach ($token in $tokens) {
+            if (-not $haystack.Contains($token)) {
+                $allPresent = $false
+                break
+            }
+        }
+
+        if ($allPresent) {
+            $item
+        }
+    }
+
+    return @($matched)
+}
+
+
+function Format-AzDevOpsTextSnippet {
+    # Collapses a (possibly multi-line, HTML-stripped) description into a single
+    # line and truncates it to a grid-friendly length so the Description column
+    # stays scannable. The -Query pre-filter still searches the full text; this
+    # only shapes what the grid renders (and what the grid's live filter sees).
+    param([string] $Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $snippetMaxLen = 200
+    $ellipsis      = '...'
+
+    $collapsed = ($Text -replace '\s+', ' ').Trim()
+
+    if ($collapsed.Length -gt $snippetMaxLen) {
+        $truncated = $collapsed.Substring(0, $snippetMaxLen - $ellipsis.Length) + $ellipsis
+        return $truncated
+    }
+
+    return $collapsed
+}
+
+
+function Write-AzDevOpsNoDescriptionTip {
+    # One-line hint shown when the hierarchy cache carries no descriptions at
+    # all - usually means the user's seeded WIQL files predate the
+    # [System.Description] addition. Keeps the search useful (Title-only) while
+    # pointing at the one edit that unlocks description search.
+    param([Parameter(Mandatory)] $Items)
+
+    $hasAnyDescription = @($Items | Where-Object { $_.Description }).Count -gt 0
+    if ($hasAnyDescription) {
+        return
+    }
+
+    Write-Host "Tip: no descriptions cached - add [System.Description] to your hierarchy WIQLs (az-Open-HierarchyWiqls), then re-run az-Sync-AzDevOpsCache to search descriptions too." -ForegroundColor DarkGray
+}
+
+
+function az-Find-AzDevOpsText {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)] [string] $Query,
+        [switch] $IncludeClosed
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+    Write-AzDevOpsNoDescriptionTip -Items $items
+
+    $visibleItems = Get-AzDevOpsVisibleItems -Items $items -IncludeClosed:$IncludeClosed
+
+    $hits = @(Select-AzDevOpsTextMatches -Items $visibleItems -Query $Query)
+
+    if ($hits.Count -eq 0) {
+        $scopeLabel = if ($Query) {
+            "matching '$Query'"
+        }
+        else {
+            'in the hierarchy cache'
+        }
+        Write-Host "(no work items $scopeLabel)" -ForegroundColor Yellow
+        return
+    }
+
+    $urlPrefix = Get-AzDevOpsWorkItemUrlPrefix
+
+    $rows = @($hits |
+        Sort-Object Type, Id |
+        Select-Object `
+            Id, `
+            Type, `
+            State, `
+            (Get-AzDevOpsTitleColumn), `
+            @{
+                Name       = 'Description'
+                Expression = { Format-AzDevOpsTextSnippet -Text $_.Description }
+            }, `
+            Iteration, `
+            @{
+                Name       = 'Url'
+                Expression = {
+                    if ($urlPrefix) {
+                        "$urlPrefix$($_.Id)"
+                    }
+                    else {
+                        ''
+                    }
+                }
+            })
+
+    $titleScope = if ($Query) {
+        " matching '$Query'"
+    }
+    else {
+        ''
+    }
+    $title = "Find work items$titleScope - $($rows.Count) items (type to filter Title + Description)"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
 function az-Find-AzDevOpsWorkItem {
     [CmdletBinding()]
     param(
@@ -58,13 +244,7 @@ function az-Find-AzDevOpsWorkItem {
 
     Write-AzDevOpsStaleBanner
 
-    $closedStates = Get-AzDevOpsClosedStates
-    $visibleItems = if ($IncludeClosed) {
-        $items
-    }
-    else {
-        $items | Where-Object { $_.State -notin $closedStates }
-    }
+    $visibleItems = Get-AzDevOpsVisibleItems -Items $items -IncludeClosed:$IncludeClosed
 
     $byParent = @{}
     foreach ($item in $visibleItems) {

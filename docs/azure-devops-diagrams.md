@@ -47,6 +47,7 @@ flowchart LR
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
+        FindText["az-Find-AzDevOpsText"]
         FindArea["az-Find-AzDevOpsArea"]
         FindIter["az-Find-AzDevOpsIteration"]
         FindProj["az-Find-AzDevOpsProject"]
@@ -118,6 +119,7 @@ flowchart LR
     Epics --> HierJson
     Orphans --> HierJson
     Find --> HierJson
+    FindText --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
 
@@ -692,6 +694,7 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
+    FindText(["az-Find-AzDevOpsText"]):::pub
     OpenHWiql(["az-Open-HierarchyWiqls"]):::pub
     ShowFeats(["az-Show-Features"]):::pub
 
@@ -821,6 +824,7 @@ graph LR
     ConvA[ConvertFrom-AzDevOpsAssignedItem]:::priv
     ConvM[ConvertFrom-AzDevOpsMentionItem]:::priv
     ConvH[ConvertFrom-AzDevOpsHierarchyItem]:::priv
+    HtmlText[ConvertFrom-AzDevOpsHtmlText]:::priv
     ReadA[Read-AzDevOpsAssignedCache]:::priv
     ReadM[Read-AzDevOpsMentionsCache]:::priv
     ReadH[Read-AzDevOpsHierarchyCache]:::priv
@@ -844,6 +848,12 @@ graph LR
     Icon[Get-AzDevOpsTreeIcon]:::priv
     NodeFmt[Format-AzDevOpsTreeNode]:::priv
     TreeRows[Get-AzDevOpsTreeRows]:::priv
+
+    %% Free-text search helpers (azdevops_find.ps1)
+    Visible[Get-AzDevOpsVisibleItems]:::priv
+    TextMatch[Select-AzDevOpsTextMatches]:::priv
+    TextSnip[Format-AzDevOpsTextSnippet]:::priv
+    NoDescTip[Write-AzDevOpsNoDescriptionTip]:::priv
 
     %% Grid presentation helpers (Out-ConsoleGridView)
     GridAvail[Test-AzDevOpsGridAvailable]:::priv
@@ -1028,6 +1038,7 @@ graph LR
     ReadM --> ConvM --> MentDN
     ReadH --> ReadJson
     ReadH --> ConvH
+    ConvH --> HtmlText
 
     GetA --> ReadA
     GetA --> Stale --> Age
@@ -1153,10 +1164,22 @@ graph LR
 
     Find --> ReadH
     Find --> Stale
-    Find --> Closed
+    Find --> Visible
     Find --> GridAvail
     Find --> ActionRow
     Find --> OpenUrl
+
+    FindText --> ReadH
+    FindText --> Stale
+    FindText --> NoDescTip
+    FindText --> Visible
+    Visible --> Closed
+    FindText --> TextMatch
+    FindText --> TextSnip
+    FindText --> TitleCol
+    FindText --> WiPfx
+    FindText --> ShowRows
+    FindText --> RowAction
 
     NewS --> CGate
     NewS --> ReadH
