@@ -35,6 +35,7 @@ flowchart LR
         Status["az-Get-AzDevOpsCacheStatus"]
         BgSync["Start-AzDevOpsBackgroundSync<br/>(on-open, internal)"]
         GetA["az-Get-AzDevOpsAssigned"]
+        ShowA["az-Show-Assigned"]
         OpenA["az-Open-Assigned"]
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-Mention"]
@@ -111,7 +112,8 @@ flowchart LR
     Sync --> SyncLog
 
     GetA --> AssignedJson
-    OpenA --> AssignedJson
+    ShowA --> AssignedJson
+    OpenA -.opens browser.-> AsgWeb(["Assigned to me<br/>web view"])
     GetM --> MentionsJson
     GetM -.exclude assigned ids.-> AssignedJson
     OpenM --> MentionsJson
@@ -299,56 +301,62 @@ Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`,
 
 ## 5. Cache consumers (`az-Get-AzDevOpsAssigned/Mentions` and `az-Open-Assigned/Mention`)
 
-The two parallel pairs share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads.
+The grid listings share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads. `az-Get-AzDevOpsAssigned` (pickable) and `az-Show-Assigned` (display-only) both enter through `Get-AzDevOpsAssignedRows`; only the final `Show-AzDevOpsRows` call differs (`-PassThru` vs display-only).
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant GetA as az-Get-AzDevOpsAssigned
+    participant GetA as az-Get-AzDevOpsAssigned / az-Show-Assigned
+    participant Rows as Get-AzDevOpsAssignedRows
     participant ReadA as Read-AzDevOpsAssignedCache
     participant ReadJ as Read-AzDevOpsJsonCache
     participant Conv as ConvertFrom-AzDevOpsAssignedItem
     participant Banner as Write-AzDevOpsStaleBanner
     participant Filter as Select-AzDevOpsActiveItems
     participant Sort as Sort-AzDevOpsByDateDesc
-    participant Title as Format-AzDevOpsTruncatedTitle
     participant Show as Show-AzDevOpsRows
     participant Cache as assigned.json
 
     User->>GetA: az-Get-AzDevOpsAssigned -State Active
-    GetA->>ReadA: ReadAssigned()
+    GetA->>Rows: Get-AzDevOpsAssignedRows -State Active
+    Rows->>ReadA: ReadAssigned()
     ReadA->>ReadJ: Read-AzDevOpsJsonCache(path, converter)
     ReadJ->>Cache: Get-Content -Raw
     Cache-->>ReadJ: JSON
     ReadJ->>Conv: per-row converter
     Conv-->>ReadJ: PSCustomObject[]
     ReadJ-->>ReadA: items
-    ReadA-->>GetA: items
-
-    GetA->>Banner: WARNING stale (if last-sync > 6h)
-    GetA->>Filter: filter by -State or active default
-    Filter-->>GetA: filtered[]
-    GetA->>Sort: newest-first by AssignedAt (or MentionedAt)
-    Sort-->>GetA: sorted[]
-    GetA->>Title: title-column projection
-    Title-->>GetA: rows
-    GetA->>Show: -PassThru (Out-ConsoleGridView<br/>or Format-Table fallback)
-    Show-->>User: selected rows / rendered table
+    ReadA-->>Rows: items
+    Rows->>Banner: WARNING stale (if last-sync > 6h)
+    Rows->>Filter: filter by -State or active default
+    Filter-->>Rows: filtered[]
+    Rows->>Sort: newest-first by AssignedAt
+    Sort-->>Rows: sorted[] (title-column projection applied)
+    Rows-->>GetA: rows
+    GetA->>Show: -PassThru (Get) / display-only (Show)<br/>Out-ConsoleGridView or Format-Table fallback
+    Show-->>User: selected rows (Get) / rendered grid (Show)
 ```
 
-Open-by-id flow re-uses the same cache + a different last-mile helper:
+`az-Open-Assigned` opens the project's "Assigned to me" web view — no id, no cache read:
 
 ```mermaid
 flowchart LR
-    A([az-Open-Assigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
-    RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
-    Find -- miss --> Hint([print 'run az-Get-AzDevOpsAssigned' + LASTEXITCODE=1])
-    Find -- hit --> Open["az-Open-WorkItemById<br/>(env-var guard + URL build)"]
-    Open --> SP["Start-Process<br/>$env:AZ_DEVOPS_ORG/$env:AZ_PROJECT/_workitems/edit/12345"]
+    A([az-Open-Assigned]) --> URL["Get-AzDevOpsAssignedToMeUrl<br/>(Get-AzDevOpsUrlBase + /_workitems/assignedtome/)"]
+    URL -- unset defaults --> Hint([print 'az devops defaults not configured' + LASTEXITCODE=1])
+    URL -- ok --> SP["Start-Process<br/>$org/$project/_workitems/assignedtome/"]
 ```
 
-`az-Open-Mention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
+Opening a single item by id is handled by `az-Open-WorkItemById` (env-var guard + URL build → `Start-Process`). `az-Open-Mention` re-uses the same cache pattern, then delegates to it after its id lookup:
+
+```mermaid
+flowchart LR
+    A([az-Open-Mention 12345]) --> RC[Read-AzDevOpsMentionsCache]
+    RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
+    Find -- miss --> Hint([print 'run az-Get-AzDevOpsMentions' + LASTEXITCODE=1])
+    Find -- hit --> Open["az-Open-WorkItemById<br/>(env-var guard + URL build)"]
+    Open --> SP["Start-Process<br/>.../_workitems/edit/12345"]
+```
 
 ---
 
@@ -683,6 +691,7 @@ graph LR
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
+    ShowA(["az-Show-Assigned"]):::pub
     OpenA(["az-Open-Assigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-Mention"]):::pub
@@ -841,6 +850,7 @@ graph LR
     Closed[Get-AzDevOpsClosedStates]:::priv
     Stale[Write-AzDevOpsStaleBanner]:::priv
     SelAct[Select-AzDevOpsActiveItems]:::priv
+    Rows[Get-AzDevOpsAssignedRows]:::priv
     Sort[Sort-AzDevOpsByDateDesc]:::priv
     Trunc[Format-AzDevOpsTruncatedTitle]:::priv
     TitleCol[Get-AzDevOpsTitleColumn]:::priv
@@ -877,6 +887,7 @@ graph LR
     %% URL builders (shared base)
     UrlBase[Get-AzDevOpsUrlBase]:::priv
     BoardsUrl[Get-AzDevOpsBoardsUrl]:::priv
+    AsgUrl[Get-AzDevOpsAssignedToMeUrl]:::priv
 
     %% Show-Features cache source + empty-state hint
     FeatSrc[Read-AzDevOpsFeaturesSource]:::priv
@@ -1047,15 +1058,17 @@ graph LR
     ReadH --> ReadJson
     ReadH --> ConvH
 
-    GetA --> ReadA
-    GetA --> Stale --> Age
-    GetA --> SelAct --> Closed
-    GetA --> Sort
-    GetA --> TitleCol --> Trunc
+    GetA --> Rows
+    ShowA --> Rows
+    Rows --> ReadA
+    Rows --> Stale --> Age
+    Rows --> SelAct --> Closed
+    Rows --> Sort
+    Rows --> TitleCol --> Trunc
     GetA --> ShowRows
-    OpenA --> ReadA
-    OpenA --> Find
-    OpenA --> OpenUrl --> WiUrl --> WiPfx
+    ShowA --> ShowRows
+    OpenA --> AsgUrl --> UrlBase
+    OpenUrl --> WiUrl --> WiPfx
     OpenUrl --> Az
     Find --> WiUrl
 
