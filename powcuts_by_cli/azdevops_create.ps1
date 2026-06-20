@@ -939,7 +939,8 @@ function Test-AzDevOpsParentIsFeature {
 function az-New-AzDevOpsFeatureStories {
     # Batch-create child User Stories under an existing Feature. Captures
     # parent / area / iteration ONCE up front; loops per-story prompts for
-    # title, AC, priority (Enter to reuse last), story points (same). At the
+    # title, description (As a / I want / so that), AC, priority (Enter to
+    # reuse last), story points (same). At the
     # end of each story prompts "Add another story? (y/N/c)" - 'c' re-picks
     # area / iteration without exiting the loop. Empty title at the top of
     # any iteration aborts the batch cleanly.
@@ -1005,6 +1006,7 @@ function az-New-AzDevOpsFeatureStories {
             break
         }
 
+        $description = Read-AzDevOpsUserStoryDescription
         $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
         $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
         $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints
@@ -1012,7 +1014,7 @@ function az-New-AzDevOpsFeatureStories {
 
         $createArgs = @{
             Title              = $title
-            Description        = ''
+            Description        = $description
             Priority           = $priority
             StoryPoints        = $storyPoints
             AcceptanceCriteria = $acceptanceCriteria

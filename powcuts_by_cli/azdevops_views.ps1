@@ -1541,3 +1541,230 @@ function az-Show-Orphans {
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected
 }
+
+
+# ---------------------------------------------------------------------------
+# Sprint views (cached items in one iteration)
+#
+# Public functions:
+#   az-Show-ItemsBySprint - pick a sprint (same iteration picker the create
+#                           flow uses), then list that sprint's items; pass
+#                           -Iteration <path> to skip the picker.
+#   az-Show-CurrentSprint - resolve the active sprint from the cached
+#                           iteration dates (today within Start..Finish, the
+#                           same rule `az boards iteration team list
+#                           --timeframe current` applies) and list its items;
+#                           falls back to $env:AZ_ITERATION when no dated
+#                           iteration brackets today.
+#
+# Both pull the union of hierarchy.json + assigned.json (deduped by Id) so a
+# Task or Bug assigned to you in the sprint shows alongside the Epic/Feature/
+# Story hierarchy, filter to the chosen IterationPath, and sort open items
+# first / closed items last (closed = Get-AzDevOpsClosedStates) so the work
+# that still needs doing sits at the top of the grid. Selection is dispatched
+# through the same Invoke-AzDevOpsRowAction the other az-Show-* views use.
+# ---------------------------------------------------------------------------
+
+function Sort-AzDevOpsByClosedLast {
+    # Open items first, closed items last. The primary key is closed-state
+    # membership: $false (open) sorts above $true (closed) on an ascending
+    # Sort-Object, so closed rows sink to the bottom. Type then Id give a
+    # stable, predictable order within each group. Mirrors the calculated-key
+    # shape of Sort-AzDevOpsByDateDesc so the sort intent lives in one helper.
+    param([Parameter(Mandatory)] $Items)
+
+    $closedStates = Get-AzDevOpsClosedStates
+
+    $sorted = $Items | Sort-Object `
+        @{ Expression = { $_.State -in $closedStates } }, `
+        @{ Expression = 'Type' }, `
+        @{ Expression = 'Id' }
+
+    return @($sorted)
+}
+
+
+function Get-AzDevOpsSprintItemPool {
+    # Private. Builds the deduped item pool the sprint views filter by
+    # iteration. The hierarchy cache is the primary source and the gate: when
+    # it is missing, Read-AzDevOpsHierarchyCache prints the standard sync hint
+    # and this returns $null so the caller aborts. Assigned-cache items are
+    # additive and only contribute Ids not already present (an assigned Story
+    # that is also in the hierarchy appears once); a missing assigned cache is
+    # a silent no-op - it is checked with Test-Path so its own reader's
+    # missing-cache hint never double-prints under the hierarchy one.
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return $null
+    }
+
+    $byId = [ordered]@{}
+    foreach ($item in $hierarchy) {
+        $byId[[string]$item.Id] = [PSCustomObject]@{
+            Id        = $item.Id
+            Type      = $item.Type
+            State     = $item.State
+            Title     = $item.Title
+            Iteration = $item.Iteration
+        }
+    }
+
+    $paths = Get-AzDevOpsCachePaths
+    if (Test-Path -LiteralPath $paths.Assigned) {
+        $assigned = Read-AzDevOpsAssignedCache
+
+        foreach ($item in @($assigned)) {
+            $key = [string]$item.Id
+            if (-not $byId.Contains($key)) {
+                $byId[$key] = [PSCustomObject]@{
+                    Id        = $item.Id
+                    Type      = $item.Type
+                    State     = $item.State
+                    Title     = $item.Title
+                    Iteration = $item.Iteration
+                }
+            }
+        }
+    }
+
+    $pool = @($byId.Values)
+    return $pool
+}
+
+
+function Resolve-AzDevOpsCurrentIteration {
+    # Private. Returns the cached iteration row whose StartDate <= today <=
+    # FinishDate - the same date-range test `az boards iteration team list
+    # --timeframe current` applies (Azure DevOps stores no "is current" flag;
+    # "current" is always derived from the sprint's start/finish dates). The
+    # returned row carries Path / StartDate / FinishDate. Returns $null when no
+    # dated iteration brackets today (e.g. a gap between sprints) so the caller
+    # can fall back to $env:AZ_ITERATION.
+    $rows = Read-AzDevOpsClassificationRows -Kind 'Iteration' -CommandName 'az-Show-CurrentSprint'
+    if ($null -eq $rows -or @($rows).Count -eq 0) {
+        return $null
+    }
+
+    $today = (Get-Date).Date
+
+    $match = $rows | Where-Object {
+        $_.StartDate -and $_.FinishDate -and
+        $_.StartDate.Date -le $today -and $today -le $_.FinishDate.Date
+    } | Select-Object -First 1
+
+    if ($null -eq $match) {
+        return $null
+    }
+
+    return $match
+}
+
+
+function Write-AzDevOpsCurrentSprintBanner {
+    # Prints the one-line "which sprint am I looking at" banner for
+    # az-Show-CurrentSprint. When the iteration was resolved from dated cache
+    # rows, shows the sprint window; when it came from the $env:AZ_ITERATION
+    # fallback ($Current is $null), says so.
+    param(
+        $Current,
+        [Parameter(Mandatory)] [string] $IterationPath
+    )
+
+    $arrow = "$([char]0x2192)"   # rightwards arrow
+
+    if ($null -ne $Current -and $Current.StartDate -and $Current.FinishDate) {
+        $start  = Format-AzDevOpsClassificationDate -Date $Current.StartDate
+        $finish = Format-AzDevOpsClassificationDate -Date $Current.FinishDate
+        Write-Host "Current sprint: $IterationPath ($start $arrow $finish)" -ForegroundColor Cyan
+        return
+    }
+
+    Write-Host "Current sprint: $IterationPath (from `$env:AZ_ITERATION)" -ForegroundColor Cyan
+}
+
+
+function Show-AzDevOpsSprintGrid {
+    # Private. Shared body for az-Show-ItemsBySprint and az-Show-CurrentSprint:
+    # pull the deduped pool, filter to $IterationPath (exact match - nested
+    # child iterations are out of scope for v1, matching how the other views
+    # treat iteration), sort open-first/closed-last, render via the shared
+    # Show-AzDevOpsRows (Out-ConsoleGridView, Format-Table fallback), and
+    # dispatch the selection through Invoke-AzDevOpsRowAction. $Label is the
+    # sprint name shown in the grid title and the empty-state hint.
+    param(
+        [Parameter(Mandatory)] [string] $IterationPath,
+        [Parameter(Mandatory)] [string] $Label
+    )
+
+    $pool = Get-AzDevOpsSprintItemPool
+    if ($null -eq $pool) {
+        return
+    }
+
+    $inSprint = @($pool | Where-Object { $_.Iteration -eq $IterationPath })
+
+    if ($inSprint.Count -eq 0) {
+        Write-Host "(no items in $Label)" -ForegroundColor Yellow
+        return
+    }
+
+    $sorted = Sort-AzDevOpsByClosedLast -Items $inSprint
+
+    $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration)
+    $title = "Sprint $Label - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+function az-Show-ItemsBySprint {
+    [CmdletBinding()]
+    param(
+        [string] $Iteration
+    )
+
+    $iterationPath = if ($Iteration) {
+        $Iteration
+    } else {
+        Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+
+    if (-not $iterationPath) {
+        Write-Host "(no iteration selected - nothing to show)" -ForegroundColor Yellow
+        return
+    }
+
+    # The iteration picker path (Get-AzDevOpsClassificationPaths) prints no
+    # stale banner, so surface it here to match the other az-Show-* views.
+    Write-AzDevOpsStaleBanner
+
+    Show-AzDevOpsSprintGrid -IterationPath $iterationPath -Label $iterationPath
+}
+
+
+function az-Show-CurrentSprint {
+    [CmdletBinding()]
+    param()
+
+    # Resolve-AzDevOpsCurrentIteration reads the iteration cache via
+    # Read-AzDevOpsClassificationRows, which already emits the stale banner -
+    # so this view does not print a second one.
+    $current = Resolve-AzDevOpsCurrentIteration
+
+    $iterationPath = if ($null -ne $current) {
+        $current.Path
+    } else {
+        $env:AZ_ITERATION
+    }
+
+    if (-not $iterationPath) {
+        Write-Host "No current sprint: no iteration brackets today and `$env:AZ_ITERATION is unset." -ForegroundColor Yellow
+        Write-Host "  Run az-Sync-AzDevOpsCache to refresh iterations, or set `$env:AZ_ITERATION to a sprint path." -ForegroundColor Yellow
+        return
+    }
+
+    Write-AzDevOpsCurrentSprintBanner -Current $current -IterationPath $iterationPath
+
+    Show-AzDevOpsSprintGrid -IterationPath $iterationPath -Label $iterationPath
+}

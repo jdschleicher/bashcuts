@@ -43,6 +43,8 @@ flowchart LR
         Board["az-Show-Board"]
         Epics["az-Show-Epics"]
         Orphans["az-Show-Orphans"]
+        CurSprint["az-Show-CurrentSprint"]
+        BySprint["az-Show-ItemsBySprint"]
         ShowAreas["az-Show-Areas"]
         ShowIters["az-Show-Iterations"]
         GetAreas["az-Get-AzDevOpsAreas"]
@@ -119,6 +121,12 @@ flowchart LR
     Board --> HierJson
     Epics --> HierJson
     Orphans --> HierJson
+    CurSprint --> HierJson
+    CurSprint --> AssignedJson
+    CurSprint --> IterJson
+    BySprint --> HierJson
+    BySprint --> AssignedJson
+    BySprint --> IterJson
     Find --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
@@ -519,7 +527,7 @@ DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrap
 
 ## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
-Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, description via `Read-AzDevOpsUserStoryDescription`, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
 
 ```mermaid
 flowchart TD
@@ -538,7 +546,8 @@ flowchart TD
     Loop[Story loop iteration N] --> ReadTitle["Read-Host 'Story title (Enter to finish batch)'"]
     ReadTitle --> EmptyTitle{empty?}
     EmptyTitle -- yes --> Summary
-    EmptyTitle -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
+    EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
+    ReadDesc --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
     ReadAC --> ReadPrio["Read-AzDevOpsPriority -Previous $previousPriority<br/>(Enter reuses last answer)"]
     ReadPrio --> ReadSP["Read-AzDevOpsStoryPoints -Previous $previousStoryPoints"]
     ReadSP --> Create["Invoke-AzDevOpsWorkItemCreate<br/>+ Invoke-AzDevOpsParentLink"]
@@ -690,6 +699,8 @@ graph LR
     Board(["az-Show-Board"]):::pub
     Epics(["az-Show-Epics"]):::pub
     Orphans(["az-Show-Orphans"]):::pub
+    CurSprint(["az-Show-CurrentSprint"]):::pub
+    BySprint(["az-Show-ItemsBySprint"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
     ShowIters(["az-Show-Iterations"]):::pub
     GetAreas(["az-Get-AzDevOpsAreas"]):::pub
@@ -881,6 +892,13 @@ graph LR
     %% Show-Features cache source + empty-state hint
     FeatSrc[Read-AzDevOpsFeaturesSource]:::priv
     NoFeatHint[Write-AzDevOpsNoFeaturesHint]:::priv
+
+    %% Sprint views helpers (azdevops_views.ps1)
+    SprintGrid[Show-AzDevOpsSprintGrid]:::priv
+    SprintPool[Get-AzDevOpsSprintItemPool]:::priv
+    SprintCur[Resolve-AzDevOpsCurrentIteration]:::priv
+    SprintBanner[Write-AzDevOpsCurrentSprintBanner]:::priv
+    SprintSort[Sort-AzDevOpsByClosedLast]:::priv
 
     %% az-New-Task picker
     PStory[Read-AzDevOpsStoryPick]:::priv
@@ -1093,6 +1111,22 @@ graph LR
     Orphans --> TitleCol
     Orphans --> ShowRows
 
+    %% Sprint views — both delegate the pool→filter→sort→render→dispatch body to SprintGrid
+    CurSprint --> SprintCur --> ReadRows
+    SprintCur --> FmtDate
+    CurSprint --> SprintBanner
+    CurSprint --> SprintGrid
+    BySprint --> PKind
+    BySprint --> Stale
+    BySprint --> SprintGrid
+    SprintGrid --> SprintPool
+    SprintPool --> ReadH
+    SprintPool --> ReadA
+    SprintGrid --> SprintSort --> Closed
+    SprintGrid --> TitleCol
+    SprintGrid --> ShowRows
+    SprintGrid --> RowAction
+
     %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
     Board --> RowAction
@@ -1212,6 +1246,7 @@ graph LR
     NewSB --> ReadH
     NewSB --> ParentTest
     NewSB --> ResIA
+    NewSB --> USDesc
     NewSB --> AC
     NewSB --> Pri
     NewSB --> Pts

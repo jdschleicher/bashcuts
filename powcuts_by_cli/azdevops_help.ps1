@@ -268,6 +268,34 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @(125)
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Show-ItemsBySprint'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 12
+        Purpose       = 'Pick a sprint (same iteration picker as the create flow), then list that sprint items (hierarchy + assigned, deduped) with closed items sorted last; select a row to open it or create a child'
+        Args          = '[-Iteration <path>]'
+        Example       = 'az-Show-ItemsBySprint'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(150)
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Show-CurrentSprint'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 13
+        Purpose       = 'Resolve the active sprint from the cached iteration dates (today within Start..Finish) and list its items with closed items sorted last; falls back to $env:AZ_ITERATION when no iteration brackets today'
+        Args          = '(none)'
+        Example       = 'az-Show-CurrentSprint'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(150)
+    },
+
     # --- Create ------------------------------------------------------------
 
     [PSCustomObject]@{
