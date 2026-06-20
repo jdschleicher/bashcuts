@@ -511,7 +511,7 @@ DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrap
 
 ## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
-Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, description via `Read-AzDevOpsUserStoryDescription`, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
 
 ```mermaid
 flowchart TD
@@ -530,7 +530,8 @@ flowchart TD
     Loop[Story loop iteration N] --> ReadTitle["Read-Host 'Story title (Enter to finish batch)'"]
     ReadTitle --> EmptyTitle{empty?}
     EmptyTitle -- yes --> Summary
-    EmptyTitle -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
+    EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
+    ReadDesc --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
     ReadAC --> ReadPrio["Read-AzDevOpsPriority -Previous $previousPriority<br/>(Enter reuses last answer)"]
     ReadPrio --> ReadSP["Read-AzDevOpsStoryPoints -Previous $previousStoryPoints"]
     ReadSP --> Create["Invoke-AzDevOpsWorkItemCreate<br/>+ Invoke-AzDevOpsParentLink"]
@@ -1199,6 +1200,7 @@ graph LR
     NewSB --> ReadH
     NewSB --> ParentTest
     NewSB --> ResIA
+    NewSB --> USDesc
     NewSB --> AC
     NewSB --> Pri
     NewSB --> Pts
