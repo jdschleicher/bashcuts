@@ -103,7 +103,7 @@ $script:AzDevOpsHelpCatalog = @(
         File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'Onboarding'
         Order         = 4
-        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
+        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, activity, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
         Args          = '(none)'
         Example       = 'az-Sync-AzDevOpsCache'
         RunsBefore    = 'az-Show-Tree (or any DailyRead function)'
@@ -255,10 +255,24 @@ $script:AzDevOpsHelpCatalog = @(
     },
 
     [PSCustomObject]@{
-        Name          = 'az-Show-ItemsBySprint'
+        Name          = 'az-Show-RecentActivity'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
         Order         = 11
+        Purpose       = 'Merged grid of non-closed work items you posted on or were tagged in, newest first; Reason column flags Posted / Tagged / Both. Select a row to open it or create a child'
+        Args          = '[-State <states>]'
+        Example       = 'az-Show-RecentActivity'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(149)
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Show-ItemsBySprint'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 12
         Purpose       = 'Pick a sprint (same iteration picker as the create flow), then list that sprint items (hierarchy + assigned, deduped) with closed items sorted last; select a row to open it or create a child'
         Args          = '[-Iteration <path>]'
         Example       = 'az-Show-ItemsBySprint'
@@ -272,7 +286,7 @@ $script:AzDevOpsHelpCatalog = @(
         Name          = 'az-Show-CurrentSprint'
         File          = 'powcuts_by_cli/azdevops_views.ps1'
         Phase         = 'DailyRead'
-        Order         = 12
+        Order         = 13
         Purpose       = 'Resolve the active sprint from the cached iteration dates (today within Start..Finish) and list its items with closed items sorted last; falls back to $env:AZ_ITERATION when no iteration brackets today'
         Args          = '(none)'
         Example       = 'az-Show-CurrentSprint'

@@ -38,6 +38,7 @@ flowchart LR
         OpenA["az-Open-Assigned"]
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-Mention"]
+        RecentActivity["az-Show-RecentActivity"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
         Epics["az-Show-Epics"]
@@ -70,6 +71,7 @@ flowchart LR
     subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
         AssignedJson["assigned.json"]
         MentionsJson["mentions.json"]
+        ActivityJson["activity.json"]
         HierJson["hierarchy.json"]
         IterJson["iterations.json"]
         AreasJson["areas.json"]
@@ -104,6 +106,7 @@ flowchart LR
     Sync --> AzBoards
     Sync --> AssignedJson
     Sync --> MentionsJson
+    Sync --> ActivityJson
     Sync --> HierJson
     Sync --> IterJson
     Sync --> AreasJson
@@ -115,6 +118,8 @@ flowchart LR
     GetM --> MentionsJson
     GetM -.exclude assigned ids.-> AssignedJson
     OpenM --> MentionsJson
+    RecentActivity --> ActivityJson
+    RecentActivity --> MentionsJson
     Tree --> HierJson
     Board --> HierJson
     Epics --> HierJson
@@ -250,14 +255,14 @@ Skipped on purpose: `Test-AzDevOpsExtensionInstalled` and `Test-AzDevOpsLoggedIn
 
 ## 4. `az-Sync-AzDevOpsCache` — dataset fan-out
 
-Five datasets, one orchestrator. Each dataset descriptor declares its `Fetch` scriptblock, `Counter`, and target file path; `Invoke-AzDevOpsAzDataset` is the single sync helper that runs them all (per the CLAUDE.md extract-repeated-branches rule).
+Six datasets, one orchestrator. Each dataset descriptor declares its `Fetch` scriptblock, `Counter`, and target file path; `Invoke-AzDevOpsAzDataset` is the single sync helper that runs them all (per the CLAUDE.md extract-repeated-branches rule).
 
 ```mermaid
 flowchart TD
     Entry([az-Sync-AzDevOpsCache]) --> Auth{az-Test-AzDevOpsAuth}
     Auth -- false --> AbortAuth([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Init["Initialize-AzDevOpsCacheDir<br/>(creates dir)"]
-    Init --> Datasets["Get-AzDevOpsSyncDatasets<br/>builds 5 descriptors"]
+    Init --> Datasets["Get-AzDevOpsSyncDatasets<br/>builds 6 descriptors"]
 
     Datasets --> Loop{foreach dataset}
 
@@ -281,10 +286,11 @@ flowchart TD
     Summary --> Log["Write-AzDevOpsSyncLog 'sync complete'"]
     Log --> Banner["print Cache: <dir><br/>+ partial-failure banner if any"]
 
-    subgraph Datasets5["Five datasets (descriptors)"]
+    subgraph Datasets5["Six datasets (descriptors)"]
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
+        DA["activity<br/>WIQL System.ChangedBy = @Me"]
         D3["hierarchy<br/>Invoke-AzDevOpsHierarchyQueries<br/>(reads ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql,<br/>substitutes {{AZ_AREA}}, fires one WIQL per tier,<br/>merges into Epic + Feature + Story flat + System.Parent)"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
@@ -349,6 +355,8 @@ flowchart LR
 ```
 
 `az-Open-Mention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
+
+`az-Show-RecentActivity` is a third cache consumer in the same family: it reads **both** `activity.json` (posted/touched, `System.ChangedBy = @Me`) and `mentions.json` (tagged), unions them through `Merge-AzDevOpsActivityRows` (dedupe by Id, tag each row `Posted`/`Tagged`/`Both`), then reuses the same `Select-AzDevOpsActiveItems` → `Sort-AzDevOpsByDateDesc` (newest-first by `ChangedDate`) → `Show-AzDevOpsRows` → `Invoke-AzDevOpsRowAction` last mile.
 
 ---
 
@@ -685,6 +693,7 @@ graph LR
     OpenA(["az-Open-Assigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-Mention"]):::pub
+    RecentAct(["az-Show-RecentActivity"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
     Epics(["az-Show-Epics"]):::pub
@@ -830,9 +839,12 @@ graph LR
     ReadJson[Read-AzDevOpsJsonCache]:::priv
     ConvA[ConvertFrom-AzDevOpsAssignedItem]:::priv
     ConvM[ConvertFrom-AzDevOpsMentionItem]:::priv
+    ConvAct[ConvertFrom-AzDevOpsActivityItem]:::priv
     ConvH[ConvertFrom-AzDevOpsHierarchyItem]:::priv
     ReadA[Read-AzDevOpsAssignedCache]:::priv
     ReadM[Read-AzDevOpsMentionsCache]:::priv
+    ReadAct[Read-AzDevOpsActivityCache]:::priv
+    MergeAct[Merge-AzDevOpsActivityRows]:::priv
     ReadH[Read-AzDevOpsHierarchyCache]:::priv
     ReadHForProj[Read-AzDevOpsHierarchyCacheForProject]:::priv
 
@@ -1068,6 +1080,17 @@ graph LR
     OpenM --> ReadM
     OpenM --> Find
     OpenM --> OpenUrl
+
+    RecentAct --> ReadAct
+    RecentAct --> ReadM
+    RecentAct --> Stale
+    RecentAct --> MergeAct
+    RecentAct --> SelAct
+    RecentAct --> Sort
+    RecentAct --> TitleCol
+    RecentAct --> ShowRows
+    RecentAct --> RowAction
+    ReadAct --> ReadJson --> ConvAct
 
     Tree --> ReadH
     Tree --> Stale

@@ -79,6 +79,7 @@ function Get-AzDevOpsSyncDatasets {
     # each WIQL sequentially and merges results into hierarchy.json.
     $assignedWiql = Get-AzDevOpsWiql -Name 'assigned'
     $mentionsWiql = Get-AzDevOpsWiql -Name 'mentions'
+    $activityWiql = Get-AzDevOpsWiql -Name 'activity'
 
     $rowCounter  = { param($parsed) @($parsed).Count }
     $treeCounter = { param($parsed) Measure-AzDevOpsClassificationNodes -Node $parsed }
@@ -98,6 +99,15 @@ function Get-AzDevOpsSyncDatasets {
             Label    = 'System.History Contains email (from mentions.wiql)'
             Path     = $Paths.Mentions
             Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $mentionsWiql }.GetNewClosure()
+            Counter  = $rowCounter
+            RowLabel = 'rows'
+            AsArray  = $true
+        },
+        @{
+            Name     = 'activity'
+            Label    = 'System.ChangedBy = @Me (from activity.wiql)'
+            Path     = $Paths.Activity
+            Fetch    = { Invoke-AzDevOpsBoardsQuery -Wiql $activityWiql }.GetNewClosure()
             Counter  = $rowCounter
             RowLabel = 'rows'
             AsArray  = $true
