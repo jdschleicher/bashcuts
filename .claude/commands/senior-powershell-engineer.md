@@ -181,6 +181,22 @@ git diff main...HEAD -- 'powcuts_by_cli/*.ps1' 'powcuts_home.ps1' \
 
 ---
 
+## Check 11 — `@()` Around a Typed Collection [HIGH]
+
+Wrapping an already-built `[System.Collections.Generic.List[object]]` (or any typed collection) in the `@()` array-subexpression converts it to a **fixed-size `[object[]]`**. A later `.Add()` on that result throws `Collection was of a fixed size` / `does not contain a method named 'Add'` at runtime. This footgun keeps getting reintroduced — flag it.
+
+```bash
+git diff main...HEAD -- 'powcuts_by_cli/*.ps1' \
+  | grep "^+" | grep -v "^+++" \
+  | grep -nE '=\s*@\(\$[A-Za-z_][A-Za-z0-9_]*\)\s*$|return\s+@\(\$[A-Za-z_][A-Za-z0-9_]*\)\s*$' || true
+```
+
+For each hit, check what the wrapped variable is. **Flag** as **[HIGH]** when it's a `List`/typed collection the function built up with `.Add()` (look for a nearby `New-Object System.Collections.Generic.List` or `[List[...]]::new()`): the `@()` is a redundant fixed-size conversion. Suggested fix — return/pass the `List` directly (the binder coerces a `List` into an `[object[]]` parameter, and PowerShell unrolls it on output just like an array); cast `[object[]]$var` only when a downstream `[object[]]` parameter genuinely demands an array.
+
+**Do not flag** the legitimate uses of `@()`: normalizing an *unknown* return (scalar / `$null` / array) to an array — `$roster = @(Get-AzDevOpsTeam)` — or producing an empty array (`return @()`). The smell is specifically `@($localList)` on a collection the same function just constructed.
+
+---
+
 ## Output Format
 
 ```
