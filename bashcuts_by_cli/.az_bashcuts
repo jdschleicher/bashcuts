@@ -32,6 +32,13 @@ az-query-my-items() {
     az boards query --output table --wiql "select [id],[State],[Work Item Type],[Title], [System.IterationPath], [System.AreaPath] from workitems where [system.assignedto] = '$AZ_USER_EMAIL'"
 }
 
+# Console table of every work item assigned to me (all types). PowerShell
+# parity: az-Show-Assigned. Delegates to az-query-my-items so the assigned
+# WIQL lives in one place.
+az-show-assigned() {
+    az-query-my-items
+}
+
 az-query-all-items-by-phrase() {
     echo "What phrase would you like to query?"
     read query_item
@@ -237,6 +244,15 @@ az-quick-open() {
 
 az-open-board() {
     start $AZ_BOARD_VIEW
+}
+
+# Open the Azure DevOps "Assigned to me" web view in the browser. PowerShell
+# parity: az-Open-Assigned.
+az-open-assigned() {
+    local assigned_url="${AZ_DEFAULT_ORG_URL}${AZ_PROJECT_URL_SAFE}/_workitems/assignedtome/"
+    echo "Opening Assigned to me view:"
+    echo "$assigned_url"
+    start "$assigned_url"
 }
 
 az-open-hierarchy() {
