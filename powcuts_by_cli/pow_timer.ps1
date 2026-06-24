@@ -1020,6 +1020,10 @@ function Show-WpfTimerDebrief {
     # via these knobs, all defaulting to the timer's wording so the timer call
     # site is unchanged:
     #   -PrimaryLabel / -SecondaryLabel - the two field labels.
+    #   -OpenLabel                      - the open-item button's caption, shown
+    #                                     only when -OpenAction is supplied
+    #                                     (unplanned work passes "Open in Azure
+    #                                     DevOps"; the timer keeps the default).
     #   -WindowTitle / -HeaderText      - the window title and the form heading
     #                                     (HeaderText overrides the interrupted/
     #                                     complete default when supplied).
@@ -1048,6 +1052,7 @@ function Show-WpfTimerDebrief {
         [Parameter(Mandatory)] [scriptblock] $SubmitAction,
         [AllowEmptyCollection()] [object[]]  $TeamRoster = @(),
         [scriptblock] $OpenAction,
+        [string] $OpenLabel      = 'Open work item',
         [scriptblock] $CloseAction,
         [string] $WindowTitle    = 'Timer Debrief',
         [string] $HeaderText     = '',
@@ -1142,7 +1147,7 @@ function Show-WpfTimerDebrief {
         Visibility          = [System.Windows.Visibility]::Collapsed
     }
     $btnOpenItem = New-Object System.Windows.Controls.Button -Property @{
-        Content    = 'Open work item'
+        Content    = $OpenLabel
         Width      = 130
         Height     = 24
         Background = $brushes.Button
