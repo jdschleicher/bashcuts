@@ -1406,7 +1406,7 @@ function Show-WpfTimerDebrief {
     $btnPost.Add_Click({
         $debriefText = $debriefBox.Text
         $nextText    = $nextBox.Text
-        $mentions    = @($Script:WpfDebriefMentions)
+        $mentions    = $Script:WpfDebriefMentions
 
         $btnPost.IsEnabled      = $false
         $statusText.Foreground  = $brushes.White
