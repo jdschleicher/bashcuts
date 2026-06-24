@@ -616,6 +616,8 @@ Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. 
 
 The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
 
+The debrief itself mirrors the Pomodoro timer: the captured items flush to the Task description up front (so nothing is lost on cancel), then on Windows `Invoke-UnplannedDebriefWpf` collects notes, the future-opportunity, and teammate tags through the **same themed WPF form the timer uses** (`Show-WpfTimerDebrief`, re-labelled for firefighting, with a read-only captured-items review list); macOS/Linux falls back to `Invoke-UnplannedDebriefConsole`'s terminal prompts. Both paths share `Write-UnplannedPostVerdict` and the `New-UnplannedFutureStory` create-story tail.
+
 ```mermaid
 flowchart TD
     Start([az-Start-UnplannedWork]) --> Gate{Test-AzDevOpsCreateGate}
@@ -647,15 +649,19 @@ flowchart TD
     Fallback --> Done
     Task -- ok --> Debrief[Invoke-UnplannedDebrief]
 
-    Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
-    FlushDesc --> AskFuture{future-feature opportunity?}
-    AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
-    AskFuture -- no --> Tag
-    MaybeStory --> Tag
-    Tag["Select-AzDevOpsMention<br/>typed tag field → ConvertFrom-AzDevOpsMentionInput<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
+    Debrief --> FlushDesc["Save-UnplannedItemsToTask<br/>→ Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
+    FlushDesc --> DebriefPlat{Test-WpfIsWindows?}
+
+    DebriefPlat -- Windows --> WpfForm["Invoke-UnplannedDebriefWpf<br/>Show-WpfTimerDebrief (shared timer form)<br/>notes + future opportunity + items review<br/>+ in-form tag box (Get-AzDevOpsTeam roster)"]
+    WpfForm --> PostComment["SubmitAction: Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+
+    DebriefPlat -- macOS/Linux --> ConsoleDebrief["Invoke-UnplannedDebriefConsole<br/>Read-Host notes + future-opportunity prompt"]
+    ConsoleDebrief --> Tag["Select-AzDevOpsMention<br/>typed tag field → ConvertFrom-AzDevOpsMentionInput<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
     Tag --> PostComment
-    PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
-    PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
+
+    PostComment --> Verdict["Write-UnplannedPostVerdict<br/>(Get-TimerResultExitCode)"]
+    Verdict --> FutureStory["(opt) New-UnplannedFutureStory<br/>→ az-New-AzDevOpsUserStory"]
+    FutureStory --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
@@ -733,6 +739,11 @@ graph LR
     NewUWTask[New-UnplannedWorkTask]:::priv
     UWFallback[Show-UnplannedCapturedItemsFallback]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
+    InvUWDebriefWpf[Invoke-UnplannedDebriefWpf]:::priv
+    InvUWDebriefConsole[Invoke-UnplannedDebriefConsole]:::priv
+    UWSaveItems[Save-UnplannedItemsToTask]:::priv
+    UWPostVerdict[Write-UnplannedPostVerdict]:::priv
+    UWFutureStory[New-UnplannedFutureStory]:::priv
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
@@ -1279,10 +1290,17 @@ graph LR
     StartUW --> UWBalloon
     StartUW --> WpfStopwatch
     StartUW --> InvUWDebrief
-    InvUWDebrief --> SetField
-    InvUWDebrief --> AddDisc
-    InvUWDebrief --> NewS
+    InvUWDebrief --> UWSaveItems --> SetField
+    InvUWDebrief --> InvUWDebriefWpf
+    InvUWDebrief --> InvUWDebriefConsole
     InvUWDebrief --> UWLedger
+    InvUWDebriefWpf --> AddDisc
+    InvUWDebriefWpf --> UWPostVerdict
+    InvUWDebriefWpf --> UWFutureStory
+    InvUWDebriefConsole --> AddDisc
+    InvUWDebriefConsole --> UWPostVerdict
+    InvUWDebriefConsole --> UWFutureStory
+    UWFutureStory --> NewS
     NewUWDebrief --> AddDisc
     NewUWDebrief --> UWLedger
 
@@ -1297,9 +1315,11 @@ graph LR
     UWRosterSync --> UWResolve --> Identity --> AzJson
     UWResolve --> UWMemberRec
     UWRosterSync --> UWTeamSave
-    InvUWDebrief --> UWMentionPick
+    InvUWDebriefConsole --> UWMentionPick
     NewUWDebrief --> UWMentionPick
-    InvUWDebrief --> UWMentionLine
+    InvUWDebriefWpf --> UWGetTeam
+    InvUWDebriefWpf --> UWMentionLine
+    InvUWDebriefConsole --> UWMentionLine
     NewUWDebrief --> UWMentionLine
     UWMentionPick --> UWGetTeam
     UWMentionPick --> UWMentionInput

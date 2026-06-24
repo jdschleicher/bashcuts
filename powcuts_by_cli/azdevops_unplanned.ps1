@@ -12,7 +12,11 @@
 #                              Esc/Q to stop and debrief. A reminder balloon
 #                              pops every -ReminderMinutes until you stop. On
 #                              stop the captured items flush to the Task
-#                              description and a debrief comment is posted.
+#                              description and a debrief comment is posted - on
+#                              Windows via the same themed WPF debrief form the
+#                              Pomodoro timer uses (Show-WpfTimerDebrief),
+#                              re-labelled for firefighting; on macOS/Linux via
+#                              the terminal debrief.
 #   New-UnplannedWorkDebrief - read the day's ledger, total the time across all
 #                              firefights, and post a roll-up comment on the
 #                              daily story.
@@ -572,14 +576,177 @@ function Show-UnplannedCapturedItemsFallback {
 }
 
 
+function Save-UnplannedItemsToTask {
+    # Flush the captured items to the Task description. Done up-front, before the
+    # debrief is collected, so the firefight log survives even if the user
+    # cancels the debrief form without posting a comment. A failed update is
+    # surfaced but non-fatal — the debrief still proceeds.
+    param(
+        [Parameter(Mandatory)] [int]    $TaskId,
+        [Parameter(Mandatory)] [string] $Title,
+        [object[]] $Items
+    )
+
+    $descriptionBody = Format-UnplannedItemsDescription -TaskTitle $Title -Items @($Items)
+
+    Write-Host "Updating Task #$TaskId description with captured items..." -ForegroundColor Cyan
+    $descResult = Set-AzDevOpsWorkItemField -Id $TaskId -Fields @("System.Description=$descriptionBody")
+    if ($descResult.ExitCode -ne 0) {
+        Write-Host "  Could not update description: $($descResult.Error)" -ForegroundColor Yellow
+    }
+}
+
+
+function Write-UnplannedPostVerdict {
+    # Shared post-comment verdict for both debrief paths: a green check + view
+    # hint on success, a red line on failure. Reads the AddComment envelope's
+    # outcome through the timer's Get-TimerResultExitCode so the two features
+    # interpret "missing ExitCode means success" the same way.
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)] [int] $TaskId
+    )
+
+    $iconCheck = $script:UnplannedIconCheck
+    $exitCode  = Get-TimerResultExitCode -Result $Result
+
+    if ($exitCode -eq 0) {
+        Write-Host "$iconCheck Debrief posted on Task #$TaskId." -ForegroundColor Green
+        Write-Host "   View: az-Open-WorkItemById $TaskId" -ForegroundColor DarkGray
+    } else {
+        Write-Host "Debrief comment failed: $($Result.Error)" -ForegroundColor Red
+    }
+}
+
+
+function New-UnplannedFutureStory {
+    # Terminal tail shared by both debrief paths: when the user captured a
+    # prevent-this-firefight opportunity, offer to spin it into a user story via
+    # az-New-AzDevOpsUserStory. Blank text is a no-op. Kept out of the WPF form
+    # deliberately so story creation stays an interactive terminal flow.
+    param([AllowEmptyString()] [string] $FutureText)
+
+    if (-not $FutureText) {
+        return
+    }
+
+    if (-not (Read-UnplannedYesNo -Prompt 'Create a user story for that opportunity now?')) {
+        return
+    }
+
+    if (Get-Command az-New-AzDevOpsUserStory -ErrorAction SilentlyContinue) {
+        az-New-AzDevOpsUserStory -Title $FutureText | Out-Null
+    }
+}
+
+
+function Invoke-UnplannedDebriefConsole {
+    # macOS / Linux debrief path: terminal prompts for the debrief notes and the
+    # optional future-opportunity, the console mention picker, then post + verdict.
+    # The captured items are already on the Task description (flushed by the
+    # dispatcher), so this only gathers notes and posts the comment.
+    param(
+        [Parameter(Mandatory)] [int] $TaskId,
+        [Parameter(Mandatory)] [int] $ElapsedMinutes,
+        [object[]] $Items
+    )
+
+    $itemList = @($Items)
+
+    $iconMemo = $script:UnplannedIconMemo
+    $debrief  = Read-Host "$iconMemo Debrief notes for this firefight"
+
+    $futureFeature = ''
+    if (Read-UnplannedYesNo -Prompt 'Is there an opportunity for a new feature / user story to prevent this firefight in future?') {
+        $futureFeature = Read-Host '  Describe the opportunity (one line)'
+    }
+
+    $mentions = Select-AzDevOpsMention
+
+    $commentBody = Format-UnplannedDebriefComment `
+        -ElapsedMinutes $ElapsedMinutes `
+        -ItemCount      $itemList.Count `
+        -Debrief        $debrief `
+        -FutureFeature  $futureFeature `
+        -Mentions       $mentions
+
+    Write-Host ""
+    Write-Host "Posting debrief comment to Task #$TaskId..." -ForegroundColor Cyan
+    $commentResult = Add-AzDevOpsDiscussionComment -Id $TaskId -Body $commentBody
+    Write-UnplannedPostVerdict -Result $commentResult -TaskId $TaskId
+
+    New-UnplannedFutureStory -FutureText $futureFeature
+}
+
+
+function Invoke-UnplannedDebriefWpf {
+    # Windows debrief path: the same themed WPF form the Pomodoro timer uses
+    # (Show-WpfTimerDebrief), re-labelled for firefighting. The form carries the
+    # debrief notes + future-opportunity fields, a read-only review list of the
+    # captured items, and the in-form tag-teammates box (replacing the console
+    # mention picker). Its SubmitAction composes + posts the debrief comment under
+    # the form's spinner; the future-opportunity → create-story prompt runs in the
+    # terminal tail after the form closes, fed by the form's captured text.
+    param(
+        [Parameter(Mandatory)] [int] $TaskId,
+        [Parameter(Mandatory)] [int] $ElapsedMinutes,
+        [object[]] $Items
+    )
+
+    $itemList   = @($Items)
+    $teamRoster = @(Get-AzDevOpsTeam)
+
+    $submitAction = {
+        param(
+            [string]   $DebriefText,
+            [string]   $FutureText,
+            [object[]] $Mentions
+        )
+
+        $commentBody = Format-UnplannedDebriefComment `
+            -ElapsedMinutes $ElapsedMinutes `
+            -ItemCount      $itemList.Count `
+            -Debrief        $DebriefText `
+            -FutureFeature  $FutureText `
+            -Mentions       $Mentions
+
+        $posted = Add-AzDevOpsDiscussionComment -Id $TaskId -Body $commentBody
+        return $posted
+    }.GetNewClosure()
+
+    $header         = "Unplanned session complete — $ElapsedMinutes min, $($itemList.Count) item(s)"
+    $primaryLabel   = 'Debrief notes for this firefight'
+    $secondaryLabel = 'Future opportunity (optional) — a feature/user story to prevent this firefight?'
+
+    $debriefResult = Show-WpfTimerDebrief `
+        -Interrupted    $false `
+        -SubmitAction   $submitAction `
+        -TeamRoster     $teamRoster `
+        -WindowTitle    'Unplanned Work Debrief' `
+        -HeaderText     $header `
+        -PrimaryLabel   $primaryLabel `
+        -SecondaryLabel $secondaryLabel `
+        -Items          $itemList `
+        -NoRestart
+
+    if (-not $debriefResult.PostResult) {
+        Write-Host "No debrief posted - captured items were saved to the Task description." -ForegroundColor DarkGray
+        return
+    }
+
+    Write-UnplannedPostVerdict -Result $debriefResult.PostResult -TaskId $TaskId
+
+    New-UnplannedFutureStory -FutureText $debriefResult.SecondaryText
+}
+
+
 function Invoke-UnplannedDebrief {
     # Stop-of-session tail, split out of az-Start-UnplannedWork so the orchestrator
-    # reads as gate -> story -> task -> loop -> debrief. Flushes the captured
-    # items to the Task description, prompts for debrief notes + an optional
-    # future-feature opportunity (offering to create a user story for it via
-    # az-New-AzDevOpsUserStory), posts the debrief comment, and records the
-    # session in the day's ledger. Elapsed minutes come from $StartTime so the
-    # recorded time is accurate regardless of the on-screen counter.
+    # reads as gate -> story -> task -> loop -> debrief. Computes the elapsed
+    # minutes from $StartTime (accurate regardless of the on-screen counter),
+    # flushes the captured items to the Task description, then dispatches to the
+    # shared WPF debrief form on Windows or the terminal debrief elsewhere, and
+    # records the session in the day's ledger.
     param(
         [Parameter(Mandatory)] [int]      $TaskId,
         [Parameter(Mandatory)] [int]      $StoryId,
@@ -600,44 +767,12 @@ function Invoke-UnplannedDebrief {
     Write-Host "$iconCheck Unplanned session complete - $elapsedMinutes min, $($itemList.Count) item(s)." -ForegroundColor Green
     Write-Host ""
 
-    $descriptionBody = Format-UnplannedItemsDescription -TaskTitle $Title -Items $itemList
-    Write-Host "Updating Task #$TaskId description with captured items..." -ForegroundColor Cyan
-    $descResult = Set-AzDevOpsWorkItemField -Id $TaskId -Fields @("System.Description=$descriptionBody")
-    if ($descResult.ExitCode -ne 0) {
-        Write-Host "  Could not update description: $($descResult.Error)" -ForegroundColor Yellow
-    }
+    Save-UnplannedItemsToTask -TaskId $TaskId -Title $Title -Items $itemList
 
-    $iconMemo = $script:UnplannedIconMemo
-    $debrief = Read-Host "$iconMemo Debrief notes for this firefight"
-
-    $futureFeature = ''
-    if (Read-UnplannedYesNo -Prompt 'Is there an opportunity for a new feature / user story to prevent this firefight in future?') {
-        $futureFeature = Read-Host '  Describe the opportunity (one line)'
-
-        if ($futureFeature -and (Read-UnplannedYesNo -Prompt '  Create that user story now?')) {
-            if (Get-Command az-New-AzDevOpsUserStory -ErrorAction SilentlyContinue) {
-                az-New-AzDevOpsUserStory -Title $futureFeature | Out-Null
-            }
-        }
-    }
-
-    $mentions = Select-AzDevOpsMention
-
-    $commentBody = Format-UnplannedDebriefComment `
-        -ElapsedMinutes $elapsedMinutes `
-        -ItemCount      $itemList.Count `
-        -Debrief        $debrief `
-        -FutureFeature  $futureFeature `
-        -Mentions       $mentions
-
-    Write-Host ""
-    Write-Host "Posting debrief comment to Task #$TaskId..." -ForegroundColor Cyan
-    $commentResult = Add-AzDevOpsDiscussionComment -Id $TaskId -Body $commentBody
-    if ($commentResult.ExitCode -eq 0) {
-        Write-Host "$iconCheck Debrief posted on Task #$TaskId." -ForegroundColor Green
-        Write-Host "   View: az-Open-WorkItemById $TaskId" -ForegroundColor DarkGray
+    if (Test-WpfIsWindows) {
+        Invoke-UnplannedDebriefWpf -TaskId $TaskId -ElapsedMinutes $elapsedMinutes -Items $itemList
     } else {
-        Write-Host "Debrief comment failed: $($commentResult.Error)" -ForegroundColor Red
+        Invoke-UnplannedDebriefConsole -TaskId $TaskId -ElapsedMinutes $elapsedMinutes -Items $itemList
     }
 
     Add-UnplannedLedgerEntry -StoryId $StoryId -TaskId $TaskId -Title $Title -Minutes $elapsedMinutes -ItemCount $itemList.Count
