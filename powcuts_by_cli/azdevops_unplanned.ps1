@@ -173,10 +173,10 @@ function New-UnplannedWorkStory {
         $Progress = New-WpfProgressWindow -Disabled
     }
 
-    & $Progress.Suspend()
+    & $Progress.Suspend
     $featureId = Read-UnplannedParentFeature
     $resolved  = Resolve-AzDevOpsIterationArea -Type 'USER_STORY'
-    & $Progress.Resume()
+    & $Progress.Resume
 
     if (-not $resolved.Ok) {
         return 0
@@ -841,7 +841,7 @@ function Invoke-UnplannedDebrief {
     & $Progress.SetStatus 'Saving captured items...'
     Save-UnplannedItemsToTask -TaskId $TaskId -Title $Title -Items $itemList
 
-    & $Progress.Stop()
+    & $Progress.Stop
 
     if (Test-WpfIsWindows) {
         Invoke-UnplannedDebriefWpf -TaskId $TaskId -ElapsedMinutes $elapsedMinutes -Items $itemList
@@ -1215,7 +1215,7 @@ function az-Start-UnplannedWork {
             Invoke-UnplannedDebrief -TaskId $taskId -StoryId $storyId -Title $Title -StartTime $startTime -Items $items -Progress $progress
         }
         finally {
-            & $progress.Stop()
+            & $progress.Stop
         }
     }
     finally {
