@@ -999,26 +999,44 @@ function New-TimerOpenScript {
 
 function Show-WpfTimerDebrief {
     # Windows-only themed debrief form the countdown overlay morphs into. Two
-    # multiline fields (Debrief + Next) share the timer's dark/blue theme. On
-    # Post the form disables the button, shows a spinner, and runs -SubmitAction
-    # (which composes + posts the comment and returns the { Json, Error,
-    # ExitCode } envelope). The "Start another session?" choice is revealed ONLY
-    # after a successful post (ExitCode 0); a failed post keeps the form open
-    # with the error so the user can retry. The "Start another?" choice offers
-    # "Same item" (reuse the work item just debriefed), "Pick another" (return
-    # to the picker), and "Done". When -CloseAction is supplied, a "Work
+    # multiline fields (Debrief + Next by default) share the timer's dark/blue
+    # theme. On Post the form disables the button, shows a spinner, and runs
+    # -SubmitAction (which composes + posts the comment and returns the { Json,
+    # Error, ExitCode } envelope). The "Start another session?" choice is
+    # revealed ONLY after a successful post (ExitCode 0); a failed post keeps the
+    # form open with the error so the user can retry. The "Start another?" choice
+    # offers "Same item" (reuse the work item just debriefed), "Pick another"
+    # (return to the picker), and "Done". When -CloseAction is supplied, a "Work
     # complete — resolve this story" checkbox renders above the Post button;
     # when ticked, a successful comment post is followed by an invocation of
     # CloseAction and its outcome is reflected in the status line. Returns
-    # { Cancelled; NextAction; PostResult; CloseRequested; CloseResult } for the
-    # orchestrator, where NextAction is 'Done' / 'SameItem' / 'NewItem'.
+    # { Cancelled; NextAction; PostResult; CloseRequested; CloseResult;
+    # PrimaryText; SecondaryText } for the orchestrator, where NextAction is
+    # 'Done' / 'SameItem' / 'NewItem' and Primary/SecondaryText are the two
+    # field values captured at a successful post (so a caller can reuse e.g. the
+    # secondary text after the form closes).
+    #
+    # The form is shared with the unplanned-work debrief (azdevops_unplanned.ps1)
+    # via these knobs, all defaulting to the timer's wording so the timer call
+    # site is unchanged:
+    #   -PrimaryLabel / -SecondaryLabel - the two field labels.
+    #   -WindowTitle / -HeaderText      - the window title and the form heading
+    #                                     (HeaderText overrides the interrupted/
+    #                                     complete default when supplied).
+    #   -Items                          - timestamped session items rendered in a
+    #                                     read-only review list above the tag
+    #                                     field; hidden when empty (the timer
+    #                                     logs none).
+    #   -NoRestart                      - hide the "Same item" / "Pick another"
+    #                                     buttons and relabel "Done" to "Close"
+    #                                     for one-and-done flows (unplanned work).
     #
     # -TeamRoster, when non-empty, renders a "Tag teammates" field above the Post
     # button: a blank textbox you type a name/email into; a live suggestion list
     # under it filters the roster, and clicking a suggestion adds that teammate
     # to a "Tagged:" line (click the line to clear). The selected records are
     # passed to -SubmitAction as its THIRD argument, so SubmitAction's signature
-    # is param($DebriefText, $NextText, $Mentions). An empty roster hides the
+    # is param($PrimaryText, $SecondaryText, $Mentions). An empty roster hides the
     # field entirely and SubmitAction receives an empty mention set.
     #
     # The az post is synchronous on the dispatcher thread, so the spinner can't
@@ -1030,7 +1048,13 @@ function Show-WpfTimerDebrief {
         [Parameter(Mandatory)] [scriptblock] $SubmitAction,
         [AllowEmptyCollection()] [object[]]  $TeamRoster = @(),
         [scriptblock] $OpenAction,
-        [scriptblock] $CloseAction
+        [scriptblock] $CloseAction,
+        [string] $WindowTitle    = 'Timer Debrief',
+        [string] $HeaderText     = '',
+        [string] $PrimaryLabel   = 'Debrief — what did you accomplish?',
+        [string] $SecondaryLabel = 'Next — what''s the next step?',
+        [AllowEmptyCollection()] [object[]] $Items = @(),
+        [switch] $NoRestart
     )
 
     Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
@@ -1042,6 +1066,16 @@ function Show-WpfTimerDebrief {
     $Script:WpfDebriefPostResult     = $null
     $Script:WpfDebriefCloseRequested = $false
     $Script:WpfDebriefCloseResult    = $null
+    $Script:WpfDebriefPrimaryText    = ''
+    $Script:WpfDebriefSecondaryText  = ''
+
+    # Trailing prompt on the post-success status line. The one-and-done unplanned
+    # flow (-NoRestart) drops the "Start another session?" invitation.
+    $startAnotherSuffix = if ($NoRestart) {
+        ''
+    } else {
+        ' Start another session?'
+    }
 
     # Backing state for the tag-teammates field: the records picked so far, and
     # the roster records parallel to the visible suggestion list (so a click maps
@@ -1059,7 +1093,7 @@ function Show-WpfTimerDebrief {
     # ---- Window + container ----
 
     $mainWin = New-Object System.Windows.Window -Property @{
-        Title                 = 'Timer Debrief'
+        Title                 = $WindowTitle
         SizeToContent         = 'WidthAndHeight'
         WindowStyle           = 'None'
         AllowsTransparency    = $true
@@ -1081,14 +1115,16 @@ function Show-WpfTimerDebrief {
 
     # ---- Title (drag handle) ----
 
-    $headerText = if ($Interrupted) {
+    $resolvedHeaderText = if ($HeaderText) {
+        $HeaderText
+    } elseif ($Interrupted) {
         'Session interrupted — debrief'
     } else {
         'Session complete — debrief'
     }
 
     $titleLabel = New-Object System.Windows.Controls.TextBlock -Property @{
-        Text                = $headerText
+        Text                = $resolvedHeaderText
         FontSize            = 15
         FontWeight          = 'Bold'
         Foreground          = $brushes.White
@@ -1122,7 +1158,7 @@ function Show-WpfTimerDebrief {
     # ---- Debrief field ----
 
     $debriefLabel = New-Object System.Windows.Controls.TextBlock -Property @{
-        Text       = 'Debrief — what did you accomplish?'
+        Text       = $PrimaryLabel
         FontSize   = 11
         Foreground = $brushes.Hint
         Margin     = '0,0,0,3'
@@ -1145,7 +1181,7 @@ function Show-WpfTimerDebrief {
     # ---- Next field ----
 
     $nextLabel = New-Object System.Windows.Controls.TextBlock -Property @{
-        Text       = 'Next — what''s the next step?'
+        Text       = $SecondaryLabel
         FontSize   = 11
         Foreground = $brushes.Hint
         Margin     = '0,0,0,3'
@@ -1164,6 +1200,38 @@ function Show-WpfTimerDebrief {
         Margin                      = '0,0,0,12'
     }
     $vbox.Children.Add($nextBox) | Out-Null
+
+    # ---- Captured-items review (read-only; only when the session logged items) ----
+
+    $sessionItems = @($Items)
+
+    $itemsLabel = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text       = "Captured items ($($sessionItems.Count))"
+        FontSize   = 11
+        Foreground = $brushes.Hint
+        Margin     = '0,0,0,3'
+        Visibility = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($itemsLabel) | Out-Null
+
+    $itemsList = New-Object System.Windows.Controls.ListBox -Property @{
+        Background  = $brushes.Bg
+        Foreground  = $brushes.White
+        BorderBrush = $brushes.Stroke
+        MaxHeight   = 96
+        Margin      = '0,0,0,12'
+        Visibility  = [System.Windows.Visibility]::Collapsed
+    }
+    $vbox.Children.Add($itemsList) | Out-Null
+
+    if ($sessionItems.Count -gt 0) {
+        foreach ($entry in $sessionItems) {
+            $itemsList.Items.Add("[$($entry.Time)] $($entry.Text)") | Out-Null
+        }
+
+        $itemsLabel.Visibility = [System.Windows.Visibility]::Visible
+        $itemsList.Visibility  = [System.Windows.Visibility]::Visible
+    }
 
     # ---- Tag-teammates field (only when a synced roster is supplied) ----
 
@@ -1509,8 +1577,10 @@ function Show-WpfTimerDebrief {
         $exitCode = Get-TimerResultExitCode -Result $postResult
 
         if ($exitCode -eq 0) {
-            $Script:WpfDebriefPostResult = $postResult
-            $Script:WpfDebriefOutcome    = 'Posted'
+            $Script:WpfDebriefPostResult    = $postResult
+            $Script:WpfDebriefOutcome       = 'Posted'
+            $Script:WpfDebriefPrimaryText   = $debriefText
+            $Script:WpfDebriefSecondaryText = $nextText
 
             # Notes are now committed to the item — lock them so they can't be
             # edited, but keep them readable and selectable (IsReadOnly, not IsEnabled).
@@ -1540,13 +1610,13 @@ function Show-WpfTimerDebrief {
 
                 $closeExit = Get-TimerResultExitCode -Result $closeResult
                 if ($closeExit -eq 0) {
-                    $statusText.Text = "Posted + Resolved (State=$script:TimerCloseState). Start another session?"
+                    $statusText.Text = "Posted + Resolved (State=$script:TimerCloseState).$startAnotherSuffix"
                 } else {
                     $statusText.Foreground = $brushes.DarkRed
-                    $statusText.Text       = "Posted; resolve failed. Start another session?"
+                    $statusText.Text       = "Posted; resolve failed.$startAnotherSuffix"
                 }
             } else {
-                $statusText.Text = 'Posted. Start another session?'
+                $statusText.Text = "Posted.$startAnotherSuffix"
             }
 
             $postPanel.Visibility = [System.Windows.Visibility]::Collapsed
@@ -1580,6 +1650,16 @@ function Show-WpfTimerDebrief {
         $mainWin.Close()
     })
 
+    # For a one-and-done flow there's no item to loop back to, so the only
+    # post-success affordance is closing the form — hide the restart choices and
+    # relabel "Done" accordingly. NextAction stays 'Done', so the orchestrator's
+    # restart resolver short-circuits.
+    if ($NoRestart) {
+        $btnSameItem.Visibility = [System.Windows.Visibility]::Collapsed
+        $btnNewItem.Visibility  = [System.Windows.Visibility]::Collapsed
+        $btnDone.Content        = 'Close'
+    }
+
     # ---- Show ----
 
     $debriefBox.Focus() | Out-Null
@@ -1593,6 +1673,8 @@ function Show-WpfTimerDebrief {
         PostResult     = $Script:WpfDebriefPostResult
         CloseRequested = $Script:WpfDebriefCloseRequested
         CloseResult    = $Script:WpfDebriefCloseResult
+        PrimaryText    = $Script:WpfDebriefPrimaryText
+        SecondaryText  = $Script:WpfDebriefSecondaryText
     }
     return $result
 }

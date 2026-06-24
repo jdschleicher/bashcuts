@@ -736,8 +736,8 @@ az-Sync-AzDevOpsTeam
 
 Once a roster is cached, each debrief gives you a **"Tag teammates" field** — there's no yes/no prompt to get past:
 
-- **On Windows** (the Pomodoro timer's debrief form) it's a blank text box above the **Post** button. Start typing a name or email and a small list of matching teammates appears underneath; click one to add it. Added people show on a **"Tagged: …"** line (click that line to clear). Leave the box empty to tag nobody.
-- **On macOS/Linux and in the unplanned-work debriefs** it's a single blank prompt — `Tag teammates (; or , separated names/emails, blank = none)`. Type one or more teammates (or just press Enter to skip).
+- **On Windows** (the Pomodoro timer's debrief form, and the per-firefight `az-Start-UnplannedWork` stop, which reuses the same WPF form) it's a blank text box above the **Post** button. Start typing a name or email and a small list of matching teammates appears underneath; click one to add it. Added people show on a **"Tagged: …"** line (click that line to clear). Leave the box empty to tag nobody.
+- **On macOS/Linux** it's a single blank prompt — `Tag teammates (; or , separated names/emails, blank = none)`. Type one or more teammates (or just press Enter to skip).
 
 Either way the people you pick are added to the posted comment as real `@`-mentions, so they're notified. Typed entries resolve against the cached roster first and fall back to a live identity lookup, so a name that's slightly outside your synced team still works. Tagging is always optional, and if you've never run `az-Sync-AzDevOpsTeam` the field doesn't appear at all.
 
