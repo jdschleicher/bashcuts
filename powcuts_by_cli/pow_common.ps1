@@ -425,3 +425,151 @@ function New-WpfSpinnerControl {
     }
     return $result
 }
+
+
+function New-WpfProgressController {
+    # Private - the no-op controller returned off Windows / when WPF can't load
+    # / when a caller asks for a disabled progress window. Every member is a
+    # do-nothing scriptblock so call sites drive the real and stub controllers
+    # identically; the feature's own Write-Host lines stay the non-Windows
+    # feedback. Unapproved-verb-free (New is approved); treated as private.
+    $result = [PSCustomObject]@{
+        SetStatus = { param([string] $Text) }
+        Suspend   = { }
+        Resume    = { }
+        Stop      = { }
+    }
+    return $result
+}
+
+
+function New-WpfProgressWindow {
+    # Lightweight non-modal WPF progress window: a spinner glyph beside a status
+    # line, themed to match the timer / unplanned forms. Built for a synchronous
+    # script that runs a chain of slow calls and wants to show which step it's on
+    # - the az-boards chain az-Start-UnplannedWork runs at session stop. Returns
+    # a controller object whose scriptblock members drive it:
+    #   SetStatus <text> - repaint the status line. Forces a Render-priority
+    #                      dispatch so the new text paints before the next
+    #                      synchronous call blocks the UI thread (same trick the
+    #                      debrief form's "Posting..." overlay uses - the window
+    #                      is non-modal so there's no message pump to animate the
+    #                      spinner during a blocking call; the changing status
+    #                      text is the real progress signal).
+    #   Suspend / Resume - hide / re-show the window around an interactive
+    #                      terminal prompt, so a topmost window doesn't sit over a
+    #                      console picker (mirrors the stopwatch's hide/show-
+    #                      around-"Create New Story" pattern).
+    #   Stop             - stop the spinner and close the window; idempotent, so
+    #                      a caller can close early and a finally can close again.
+    # Off Windows, when -Disabled is set, or when PresentationFramework can't be
+    # loaded, returns the no-op controller so callers never branch on platform.
+    param(
+        [string] $Title         = 'Working',
+        [string] $InitialStatus = 'Working...',
+        [switch] $Disabled
+    )
+
+    if ($Disabled -or -not (Test-WpfIsWindows)) {
+        $stub = New-WpfProgressController
+        return $stub
+    }
+
+    try {
+        Add-Type -AssemblyName PresentationFramework, WindowsBase, PresentationCore
+    }
+    catch {
+        $stub = New-WpfProgressController
+        return $stub
+    }
+
+    $brushes = New-WpfBrushSet -ProgressColor $script:WpfColorProgressUnplanned
+
+    $win = New-Object System.Windows.Window -Property @{
+        Title                 = $Title
+        SizeToContent         = 'WidthAndHeight'
+        WindowStyle           = 'None'
+        AllowsTransparency    = $true
+        Background            = $brushes.Clear
+        Topmost               = $true
+        WindowStartupLocation = 'CenterScreen'
+    }
+
+    $border = New-Object System.Windows.Controls.Border -Property @{
+        Background      = $brushes.Bg
+        BorderBrush     = $brushes.Stroke
+        BorderThickness = 2
+        CornerRadius    = 10
+        Padding         = '20,16'
+    }
+
+    $row = New-Object System.Windows.Controls.StackPanel -Property @{
+        Orientation         = 'Horizontal'
+        HorizontalAlignment = 'Center'
+        VerticalAlignment   = 'Center'
+    }
+
+    $spinnerRightMargin = New-Object System.Windows.Thickness(0, 0, 10, 0)
+    $spinner = New-WpfSpinnerControl -Brushes $brushes -FontSize 20
+    $spinner.Text.Margin = $spinnerRightMargin
+    $row.Children.Add($spinner.Text) | Out-Null
+
+    $statusText = New-Object System.Windows.Controls.TextBlock -Property @{
+        Text              = $InitialStatus
+        FontSize          = 13
+        Foreground        = $brushes.White
+        VerticalAlignment = 'Center'
+        TextWrapping      = 'Wrap'
+        MaxWidth          = 300
+    }
+    $row.Children.Add($statusText) | Out-Null
+
+    $border.Child = $row
+    $win.Content  = $border
+
+    # Flush the dispatcher to Render priority so a status change paints before the
+    # next synchronous call blocks this (UI) thread - the window has no message
+    # pump of its own (it's shown non-modally, not via ShowDialog).
+    $forceRender = {
+        $win.Dispatcher.Invoke(
+            [action]{},
+            [System.Windows.Threading.DispatcherPriority]::Render
+        )
+    }.GetNewClosure()
+
+    $win.Show()
+    $spinner.Timer.Start()
+    & $forceRender
+
+    $stopped = [ref] $false
+
+    $controller = [PSCustomObject]@{
+        SetStatus = {
+            param([string] $Text)
+
+            $statusText.Text = $Text
+            & $forceRender
+        }.GetNewClosure()
+
+        Suspend = {
+            $win.Hide()
+        }.GetNewClosure()
+
+        Resume = {
+            $win.Show()
+            & $forceRender
+        }.GetNewClosure()
+
+        Stop = {
+            if ($stopped.Value) {
+                return
+            }
+
+            $stopped.Value = $true
+            $spinner.Timer.Stop()
+            $win.Close()
+        }.GetNewClosure()
+    }
+
+    return $controller
+}
