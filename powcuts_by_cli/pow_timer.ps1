@@ -1414,9 +1414,34 @@ function Show-WpfTimerDebrief {
         }
     }
 
+    # Commit the highlighted suggestion: add it to the chosen mentions, reset the
+    # filter field + list, repaint the "Tagged:" line, and return focus to the
+    # tag box so the next teammate can be typed straight away. Driven explicitly
+    # by a click / Space / Enter (NOT SelectionChanged) so arrow-key navigation
+    # can move the highlight without each pass-over tagging a teammate.
+    $commitTagSuggestion = {
+        $index = $tagSuggestList.SelectedIndex
+        if ($index -lt 0 -or $index -ge $Script:WpfDebriefSuggestions.Count) {
+            return
+        }
+
+        $member = $Script:WpfDebriefSuggestions[$index]
+        $Script:WpfDebriefMentions.Add($member)
+
+        $Script:WpfDebriefSuggestions.Clear()
+        $tagBox.Text = ''
+        $tagSuggestList.Items.Clear()
+        $tagSuggestList.Visibility = [System.Windows.Visibility]::Collapsed
+
+        & $refreshTagChosen
+
+        $tagBox.Focus() | Out-Null
+    }
+
     $tagBox.Add_TextChanged({
         $needle = $tagBox.Text.Trim().ToLowerInvariant()
         if (-not $needle) {
+            $Script:WpfDebriefSuggestions.Clear()
             $tagSuggestList.Items.Clear()
             $tagSuggestList.Visibility = [System.Windows.Visibility]::Collapsed
             return
@@ -1445,25 +1470,80 @@ function Show-WpfTimerDebrief {
         }
     })
 
-    $tagSuggestList.Add_SelectionChanged({
-        # The bounds guard is load-bearing, not defensive: clearing $tagBox.Text
-        # and the Items below re-fires TextChanged + SelectionChanged from inside
-        # this handler with SelectedIndex = -1, so the guard turns each re-entry
-        # into a safe no-op (without it, the empty re-entry would index past the
-        # suggestion list). Keep it.
-        $index = $tagSuggestList.SelectedIndex
-        if ($index -lt 0 -or $index -ge $Script:WpfDebriefSuggestions.Count) {
+    # Tab out of the filter box drops focus INTO the suggestion list (highlighting
+    # the first match) instead of advancing to the next form control, so the user
+    # can arrow through matches and Space/Enter to pick. Only plain Tab while the
+    # list is showing matches is intercepted; Shift+Tab and a hidden list fall
+    # through to default focus traversal.
+    $tagBox.Add_PreviewKeyDown({
+        $e = $args[1]
+        if ($e.Key -ne [System.Windows.Input.Key]::Tab) {
             return
         }
 
-        $member = $Script:WpfDebriefSuggestions[$index]
-        $Script:WpfDebriefMentions.Add($member)
+        $shiftHeld = ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Shift) -ne 0
+        if ($shiftHeld) {
+            return
+        }
 
-        $tagBox.Text = ''
-        $tagSuggestList.Items.Clear()
-        $tagSuggestList.Visibility = [System.Windows.Visibility]::Collapsed
+        if ($tagSuggestList.Visibility -ne [System.Windows.Visibility]::Visible -or $tagSuggestList.Items.Count -eq 0) {
+            return
+        }
 
-        & $refreshTagChosen
+        if ($tagSuggestList.SelectedIndex -lt 0) {
+            $tagSuggestList.SelectedIndex = 0
+        }
+
+        $tagSuggestList.UpdateLayout()
+        $firstItem = $tagSuggestList.ItemContainerGenerator.ContainerFromIndex($tagSuggestList.SelectedIndex)
+        if ($firstItem) {
+            $firstItem.Focus() | Out-Null
+        } else {
+            $tagSuggestList.Focus() | Out-Null
+        }
+
+        $e.Handled = $true
+    })
+
+    # In the suggestion list: Up/Down move the highlight (native ListBox handling);
+    # Space and Enter commit the highlighted teammate; Escape / Shift+Tab return
+    # to the filter box. Committing lives in $commitTagSuggestion (a click does
+    # the same via MouseLeftButtonUp below) so selection is never auto-tagged just
+    # by arrowing over an item.
+    $tagSuggestList.Add_PreviewKeyDown({
+        $e   = $args[1]
+        $key = $e.Key
+
+        if ($key -eq [System.Windows.Input.Key]::Space -or $key -eq [System.Windows.Input.Key]::Enter) {
+            & $commitTagSuggestion
+            $e.Handled = $true
+            return
+        }
+
+        if ($key -eq [System.Windows.Input.Key]::Escape -or $key -eq [System.Windows.Input.Key]::Tab) {
+            $tagBox.Focus() | Out-Null
+            $e.Handled = $true
+            return
+        }
+    })
+
+    # A single mouse click selects the item (sets SelectedIndex) and bubbles up to
+    # here, committing it - preserving the pre-keyboard click-to-tag behavior. The
+    # hit-test walks up from the clicked element to confirm a ListBoxItem was hit,
+    # so a click in the list's empty chrome doesn't commit the standing highlight.
+    $tagSuggestList.Add_MouseLeftButtonUp({
+        $e   = $args[1]
+        $node = $e.OriginalSource
+
+        while ($null -ne $node -and $node -isnot [System.Windows.Controls.ListBoxItem]) {
+            $node = [System.Windows.Media.VisualTreeHelper]::GetParent($node)
+        }
+
+        if ($null -eq $node) {
+            return
+        }
+
+        & $commitTagSuggestion
     })
 
     $tagChosenText.Add_MouseLeftButtonUp({
@@ -1474,7 +1554,7 @@ function Show-WpfTimerDebrief {
     $btnPost.Add_Click({
         $debriefText = $debriefBox.Text
         $nextText    = $nextBox.Text
-        $mentions    = @($Script:WpfDebriefMentions)
+        $mentions    = $Script:WpfDebriefMentions
 
         $btnPost.IsEnabled      = $false
         $statusText.Foreground  = $brushes.White
