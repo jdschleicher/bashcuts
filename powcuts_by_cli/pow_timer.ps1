@@ -1452,13 +1452,7 @@ function Show-WpfTimerDebrief {
             return
         }
 
-        if ($key -eq [System.Windows.Input.Key]::Escape) {
-            $tagBox.Focus() | Out-Null
-            $e.Handled = $true
-            return
-        }
-
-        if ($key -eq [System.Windows.Input.Key]::Tab) {
+        if ($key -eq [System.Windows.Input.Key]::Escape -or $key -eq [System.Windows.Input.Key]::Tab) {
             $tagBox.Focus() | Out-Null
             $e.Handled = $true
             return
@@ -1466,8 +1460,21 @@ function Show-WpfTimerDebrief {
     })
 
     # A single mouse click selects the item (sets SelectedIndex) and bubbles up to
-    # here, committing it - preserving the pre-keyboard click-to-tag behavior.
+    # here, committing it - preserving the pre-keyboard click-to-tag behavior. The
+    # hit-test walks up from the clicked element to confirm a ListBoxItem was hit,
+    # so a click in the list's empty chrome doesn't commit the standing highlight.
     $tagSuggestList.Add_MouseLeftButtonUp({
+        $e   = $args[1]
+        $node = $e.OriginalSource
+
+        while ($null -ne $node -and $node -isnot [System.Windows.Controls.ListBoxItem]) {
+            $node = [System.Windows.Media.VisualTreeHelper]::GetParent($node)
+        }
+
+        if ($null -eq $node) {
+            return
+        }
+
         & $commitTagSuggestion
     })
 
