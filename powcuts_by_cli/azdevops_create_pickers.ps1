@@ -143,8 +143,10 @@ function Read-AzDevOpsFeatureDescription {
     # Business Value - each under a bold HTML heading so they render as bold
     # headings in the AzDO Description field (which stores HTML). Mirrors
     # Read-AzDevOpsUserStoryDescription: each clause is required (re-prompts
-    # until non-empty) and the two are joined with '<br/><br/>' so they render
-    # on separate lines: "<b>Summary</b> <text>" / "<b>Business Value</b> <text>".
+    # until non-empty). Within a section the heading sits on its own line above
+    # its text (joined with '<br/>'), and the two sections are separated by a
+    # blank line ('<br/><br/>'), so the Description renders as:
+    #   "<b>Summary</b>" / "<text>" / "" / "<b>Business Value</b>" / "<text>".
     $summaryHeading       = '<b>Summary</b>'
     $businessValueHeading = '<b>Business Value</b>'
 
@@ -158,11 +160,12 @@ function Read-AzDevOpsFeatureDescription {
         $businessValue = (Read-Host 'Business Value').Trim()
     }
 
-    $clauseBreak = '<br/><br/>'
+    $headingBreak = '<br/>'
+    $clauseBreak  = '<br/><br/>'
 
     $clauses = @(
-        "$summaryHeading $summary"
-        "$businessValueHeading $businessValue"
+        "$summaryHeading$headingBreak$summary"
+        "$businessValueHeading$headingBreak$businessValue"
     )
 
     $description = $clauses -join $clauseBreak
