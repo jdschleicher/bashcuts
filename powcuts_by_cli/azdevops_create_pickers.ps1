@@ -79,27 +79,39 @@ function Read-AzDevOpsStoryPoints {
 
 
 function Read-AzDevOpsAcceptanceCriteria {
-    # One initial AC, then loop on Y/N. Joins additional ACs with '<br/><br/>'
-    # so they render as separate lines in the work-item editor. The existing
-    # az-create-userstory used `until ($resp -eq 'n')` which loops forever on
-    # any non-'n' reply (empty Enter, 'yes', 'q'); this version exits on
-    # anything that isn't an affirmative yes/y.
-    $first = Read-Host 'Acceptance criterion #1'
+    # Reads acceptance criteria one per line: prompt repeatedly and capture
+    # every non-empty entry as its own AC, stopping on the first blank line.
+    # This replaces an earlier 'More AC? (Y/N)' gate that discarded any reply
+    # which wasn't 'y'/'yes' - so typing a real criterion at that prompt (a
+    # natural thing to do, and one that usually contains a '/', which is just
+    # literal text to Read-Host) ended the loop and silently dropped the entry.
+    # A blank-to-finish loop can never lose an entered criterion. Collected ACs
+    # join with '<br/><br/>' so they render on separate lines in the work-item
+    # editor.
     $dash = '-'
     $break = '<br/><br/>'
-    $ac = "$dash $first"
 
+    $criteria = [System.Collections.Generic.List[string]]::new()
+
+    $index = 1
     while ($true) {
-        $resp = Read-Host 'More AC? (Y/N)'
-        if ($resp -notmatch '^(y|yes)$') {
+        $prompt = if ($index -eq 1) {
+            'Acceptance criterion #1'
+        } else {
+            "Acceptance criterion #$index (blank to finish)"
+        }
+
+        $entry = Read-Host $prompt
+        if (-not $entry) {
             break
         }
 
-        $next = Read-Host 'Enter additional AC'
-        $ac = "$ac $break $dash $next"
+        $criteria.Add($entry)
+        $index++
     }
 
-    return $ac
+    $formatted = ($criteria | ForEach-Object { "$dash $_" }) -join " $break "
+    return $formatted
 }
 
 
