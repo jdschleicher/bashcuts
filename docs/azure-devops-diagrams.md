@@ -422,10 +422,17 @@ flowchart TD
     Hier -- ok --> Title{Title param?}
 
     Title -- no --> ReadTitle["Read-Host 'title'"]
-    Title -- yes --> Desc{Description param?}
+    Title -- yes --> Iter{Iteration param?}
     ReadTitle --> TitleEmpty{empty?}
     TitleEmpty -- yes --> Abort4([abort])
-    TitleEmpty -- no --> Desc
+    TitleEmpty -- no --> Iter
+
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Iter -- yes --> Area{Area param?}
+    PickIter --> Area
+    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Area -- yes --> Desc{Description param?}
+    PickArea --> Desc
 
     Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
@@ -440,14 +447,8 @@ flowchart TD
     AC -- yes --> Feat{FeatureId >=0?}
     ReadAC --> Feat
     Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
-    Feat -- yes --> Iter{Iteration param?}
-    PickFeat --> Iter
-    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
-    Iter -- yes --> Area{Area param?}
-    PickIter --> Area
-    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
-    Area -- yes --> Create
-    PickArea --> Create
+    Feat -- yes --> Create
+    PickFeat --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
     Create --> CreateOk{Ok?}
@@ -482,8 +483,14 @@ flowchart TD
     Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
     Hier --> Title{Title param?}
     Title -- no --> ReadTitle["Read-Host 'title'"]
-    Title -- yes --> Desc{Description param?}
-    ReadTitle --> Desc
+    Title -- yes --> Iter{Iteration param?}
+    ReadTitle --> Iter
+    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
+    Iter -- yes --> Area{Area param?}
+    PickIter --> Area
+    Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
+    Area -- yes --> Desc{Description param?}
+    PickArea --> Desc
     Desc -- no --> ReadDesc["Read-AzDevOpsFeatureDescription<br/>(Summary + Business Value prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
@@ -491,14 +498,8 @@ flowchart TD
     Prio -- yes --> Epic{ParentEpicId >= 0?}
     ReadPrio --> Epic
     Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
-    Epic -- yes --> Iter{Iteration param?}
-    PickEpic --> Iter
-    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
-    Iter -- yes --> Area{Area param?}
-    PickIter --> Area
-    Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
-    Area -- yes --> Create
-    PickArea --> Create
+    Epic -- yes --> Create
+    PickEpic --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate -Type 'Feature'<br/>(StoryPoints field omitted)"]
     Create --> CreateOk{Ok?}
