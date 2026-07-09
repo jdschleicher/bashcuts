@@ -296,6 +296,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @(150)
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Find-AzDevOpsItem'
+        File          = 'powcuts_by_cli/azdevops_find.ps1'
+        Phase         = 'DailyRead'
+        Order         = 14
+        Purpose       = 'Flat fuzzy search across every cached work item (no Epic-first drill-down); ranks the hits and pipes them into the grid picker to open in browser or create a child'
+        Args          = '[-Query <text>] [-Type <types>] [-IncludeClosed]'
+        Example       = 'az-Find-AzDevOpsItem login'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
     # --- Create ------------------------------------------------------------
 
     [PSCustomObject]@{

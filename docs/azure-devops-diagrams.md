@@ -50,6 +50,7 @@ flowchart LR
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
+        FindItem["az-Find-AzDevOpsItem"]
         FindArea["az-Find-AzDevOpsArea"]
         FindIter["az-Find-AzDevOpsIteration"]
         FindProj["az-Find-AzDevOpsProject"]
@@ -128,6 +129,7 @@ flowchart LR
     BySprint --> AssignedJson
     BySprint --> IterJson
     Find --> HierJson
+    FindItem --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
 
@@ -719,6 +721,7 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
+    FindItem(["az-Find-AzDevOpsItem"]):::pub
     OpenHWiql(["az-Open-HierarchyWiqls"]):::pub
     ShowFeats(["az-Show-Features"]):::pub
 
@@ -887,6 +890,10 @@ graph LR
     GridPick[Read-AzDevOpsGridPick]:::priv
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
     ActionRow[New-AzDevOpsActionRow]:::priv
+
+    %% Flat fuzzy search helpers (azdevops_find.ps1)
+    FuzzyMatch[Get-AzDevOpsFuzzyMatches]:::priv
+    FuzzyScore[Get-AzDevOpsFuzzyScore]:::priv
 
     %% Interactive post-selection row actions (azdevops_views.ps1 + azdevops_classification.ps1)
     RowAction[Invoke-AzDevOpsRowAction]:::priv
@@ -1124,6 +1131,15 @@ graph LR
     Orphans --> AreaMatch
     Orphans --> TitleCol
     Orphans --> ShowRows
+
+    FindItem --> ReadH
+    FindItem --> Stale
+    FindItem --> Closed
+    FindItem --> FuzzyMatch --> FuzzyScore
+    FindItem --> TitleCol
+    FindItem --> GridAvail
+    FindItem --> ShowRows
+    FindItem --> RowAction
 
     %% Sprint views — both delegate the pool→filter→sort→render→dispatch body to SprintGrid
     CurSprint --> SprintCur --> ReadRows
