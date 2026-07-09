@@ -615,9 +615,9 @@ Private helpers:
 
 Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
-The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
+The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. On the **first** creation of the day, `New-UnplannedWorkStory` runs `Read-UnplannedParentFeature` to pick a parent Feature (orphan-safe — a skipped/failed pick leaves the story parentless rather than blocking the session) and links it with `Invoke-AzDevOpsParentLink`; cached/existing stories skip the prompt. On Windows the whole at-stop `az boards` chain runs under a lightweight `New-WpfProgressWindow` spinner whose status names the step in flight (finding story → creating Task → saving items); off Windows it's a no-op stub and the per-step `Write-Host` lines stay the feedback. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
 
-The debrief itself mirrors the Pomodoro timer: the captured items flush to the Task description up front (so nothing is lost on cancel), then on Windows `Invoke-UnplannedDebriefWpf` collects notes, the future-opportunity, and teammate tags through the **same themed WPF form the timer uses** (`Show-WpfTimerDebrief`, re-labelled for firefighting, with a read-only captured-items review list); macOS/Linux falls back to `Invoke-UnplannedDebriefConsole`'s terminal prompts. Both paths share `Write-UnplannedPostVerdict` and the `New-UnplannedFutureStory` create-story tail.
+The debrief itself mirrors the Pomodoro timer: the captured items flush to the Task description up front (so nothing is lost on cancel), then on Windows `Invoke-UnplannedDebriefWpf` collects notes, the future-opportunity, and teammate tags through the **same themed WPF form the timer uses** (`Show-WpfTimerDebrief`, re-labelled for firefighting). The form passes no `-Items` — the captured items are already on the Task description, so the read-only review list is omitted — and passes an `-OpenAction` so an **"Open in Azure DevOps"** button opens the just-created Task; macOS/Linux falls back to `Invoke-UnplannedDebriefConsole`'s terminal prompts. Both paths share `Write-UnplannedPostVerdict` and the `New-UnplannedFutureStory` create-story tail.
 
 ```mermaid
 flowchart TD
@@ -640,7 +640,7 @@ flowchart TD
     CacheCheck -- hit --> HaveStory[daily story id]
     CacheCheck -- miss --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
     Find -- found --> SaveStory["Save-UnplannedCachedStoryId"]
-    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>Read-UnplannedParentFeature (pick parent Feature,<br/>orphan-safe) → Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)<br/>→ Invoke-AzDevOpsParentLink"]
     NewStory --> SaveStory
     SaveStory --> HaveStory
 
@@ -653,7 +653,7 @@ flowchart TD
     Debrief --> FlushDesc["Save-UnplannedItemsToTask<br/>→ Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
     FlushDesc --> DebriefPlat{Test-WpfIsWindows?}
 
-    DebriefPlat -- Windows --> WpfForm["Invoke-UnplannedDebriefWpf<br/>Show-WpfTimerDebrief (shared timer form)<br/>notes + future opportunity + items review<br/>+ in-form tag box (Get-AzDevOpsTeam roster)"]
+    DebriefPlat -- Windows --> WpfForm["Invoke-UnplannedDebriefWpf<br/>Show-WpfTimerDebrief (shared timer form)<br/>notes + future opportunity + 'Open in Azure DevOps'<br/>+ in-form tag box (Get-AzDevOpsTeam roster)"]
     WpfForm --> PostComment["SubmitAction: Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
 
     DebriefPlat -- macOS/Linux --> ConsoleDebrief["Invoke-UnplannedDebriefConsole<br/>Read-Host notes + future-opportunity prompt"]
@@ -737,6 +737,8 @@ graph LR
     UWStoryCachePath[Get-UnplannedStoryCachePath]:::priv
     FindUW[Find-UnplannedWorkStoryId]:::priv
     NewUWStory[New-UnplannedWorkStory]:::priv
+    UWParentFeat[Read-UnplannedParentFeature]:::priv
+    UWProgress[New-WpfProgressWindow]:::priv
     NewUWTask[New-UnplannedWorkTask]:::priv
     UWFallback[Show-UnplannedCapturedItemsFallback]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
@@ -1280,6 +1282,8 @@ graph LR
     UWGetCachedStory --> UWJsonRead
     GetDaily --> FindUW --> Boards
     GetDaily --> NewUWStory --> InvCreate
+    NewUWStory --> UWParentFeat --> PFeat
+    NewUWStory --> InvLink
     GetDaily --> UWSaveCachedStory
     UWSaveCachedStory --> UWStoryCachePath
     UWSaveCachedStory --> UWJsonSave
@@ -1290,6 +1294,7 @@ graph LR
     StartUW --> UWFallback
     StartUW --> UWBalloon
     StartUW --> WpfStopwatch
+    StartUW --> UWProgress
     StartUW --> InvUWDebrief
     InvUWDebrief --> UWSaveItems --> SetField
     InvUWDebrief --> InvUWDebriefWpf
