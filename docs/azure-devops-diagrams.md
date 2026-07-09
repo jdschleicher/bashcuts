@@ -51,6 +51,7 @@ flowchart LR
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
+        FindText["az-Find-AzDevOpsText"]
         FindItem["az-Find-AzDevOpsItem"]
         FindArea["az-Find-AzDevOpsArea"]
         FindIter["az-Find-AzDevOpsIteration"]
@@ -134,6 +135,7 @@ flowchart LR
     BySprint --> AssignedJson
     BySprint --> IterJson
     Find --> HierJson
+    FindText --> HierJson
     FindItem --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
@@ -732,6 +734,7 @@ graph LR
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
+    FindText(["az-Find-AzDevOpsText"]):::pub
     FindItem(["az-Find-AzDevOpsItem"]):::pub
     OpenHWiql(["az-Open-HierarchyWiqls"]):::pub
     ShowFeats(["az-Show-Features"]):::pub
@@ -870,6 +873,7 @@ graph LR
     ConvM[ConvertFrom-AzDevOpsMentionItem]:::priv
     ConvAct[ConvertFrom-AzDevOpsActivityItem]:::priv
     ConvH[ConvertFrom-AzDevOpsHierarchyItem]:::priv
+    HtmlText[ConvertFrom-AzDevOpsHtmlText]:::priv
     ReadA[Read-AzDevOpsAssignedCache]:::priv
     ReadM[Read-AzDevOpsMentionsCache]:::priv
     ReadAct[Read-AzDevOpsActivityCache]:::priv
@@ -896,6 +900,12 @@ graph LR
     Icon[Get-AzDevOpsTreeIcon]:::priv
     NodeFmt[Format-AzDevOpsTreeNode]:::priv
     TreeRows[Get-AzDevOpsTreeRows]:::priv
+
+    %% Free-text search helpers (azdevops_find.ps1)
+    Visible[Get-AzDevOpsVisibleItems]:::priv
+    TextMatch[Select-AzDevOpsTextMatches]:::priv
+    TextSnip[Format-AzDevOpsTextSnippet]:::priv
+    NoDescTip[Write-AzDevOpsNoDescriptionTip]:::priv
 
     %% Grid presentation helpers (Out-ConsoleGridView)
     GridAvail[Test-AzDevOpsGridAvailable]:::priv
@@ -1101,6 +1111,7 @@ graph LR
     ReadM --> ConvM --> MentDN
     ReadH --> ReadJson
     ReadH --> ConvH
+    ConvH --> HtmlText
 
     GetA --> Rows
     ShowA --> Rows
@@ -1264,10 +1275,22 @@ graph LR
 
     Find --> ReadH
     Find --> Stale
-    Find --> Closed
+    Find --> Visible
     Find --> GridAvail
     Find --> ActionRow
     Find --> OpenUrl
+
+    FindText --> ReadH
+    FindText --> Stale
+    FindText --> NoDescTip
+    FindText --> Visible
+    Visible --> Closed
+    FindText --> TextMatch
+    FindText --> TextSnip
+    FindText --> TitleCol
+    FindText --> WiPfx
+    FindText --> ShowRows
+    FindText --> RowAction
 
     NewS --> CGate
     NewS --> ReadH

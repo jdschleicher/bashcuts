@@ -870,6 +870,30 @@ $script:AzDevOpsRequirementTypes = @(
 )
 
 
+function ConvertFrom-AzDevOpsHtmlText {
+    # Azure DevOps stores System.Description (and other rich-text fields) as
+    # HTML. For cache search + grid display we want plain text, so turn block
+    # boundaries (</p>, </div>, <br>, ...) into spaces, strip the remaining
+    # tags, decode HTML entities, and collapse runs of whitespace. Best-effort
+    # display/search normalization - not a full HTML parser.
+    param([string] $Html)
+
+    if ([string]::IsNullOrWhiteSpace($Html)) {
+        return ''
+    }
+
+    $blockBreakPattern = '(?i)</(p|div|li|tr|h[1-6])>|<br\s*/?>'
+    $tagPattern        = '<[^>]+>'
+
+    $spaced  = $Html -replace $blockBreakPattern, ' '
+    $noTags  = $spaced -replace $tagPattern, ''
+    $decoded = [System.Net.WebUtility]::HtmlDecode($noTags)
+
+    $collapsed = ($decoded -replace '\s+', ' ').Trim()
+    return $collapsed
+}
+
+
 function ConvertFrom-AzDevOpsHierarchyItem {
     param([Parameter(Mandatory)] $Raw)
 
@@ -889,14 +913,17 @@ function ConvertFrom-AzDevOpsHierarchyItem {
         [int]$Raw.id
     }
 
+    $description = ConvertFrom-AzDevOpsHtmlText -Html $f.'System.Description'
+
     $item = [PSCustomObject]@{
-        Id        = $id
-        Type      = $f.'System.WorkItemType'
-        State     = $f.'System.State'
-        Title     = $f.'System.Title'
-        Iteration = $f.'System.IterationPath'
-        AreaPath  = $f.'System.AreaPath'
-        Parent    = $parent
+        Id          = $id
+        Type        = $f.'System.WorkItemType'
+        State       = $f.'System.State'
+        Title       = $f.'System.Title'
+        Iteration   = $f.'System.IterationPath'
+        AreaPath    = $f.'System.AreaPath'
+        Parent      = $parent
+        Description = $description
     }
     return $item
 }

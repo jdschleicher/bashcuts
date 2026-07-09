@@ -197,15 +197,15 @@ $script:AzDevOpsAreaToken      = '{{AZ_AREA}}'
 $script:AzDevOpsUserEmailToken = '{{AZ_USER_EMAIL}}'
 
 $script:AzDevOpsDefaultEpicsWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory'
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent], [System.Description] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.EpicCategory'
 "@
 
 $script:AzDevOpsDefaultFeaturesWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory'
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent], [System.Description] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.FeatureCategory'
 "@
 
 $script:AzDevOpsDefaultUserStoriesWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.AreaPath], [System.Parent], [System.Description] From WorkItems Where [System.AreaPath] UNDER '{{AZ_AREA}}' AND [System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory'
 "@
 
 $script:AzDevOpsDefaultAssignedWiql = @"
