@@ -103,7 +103,7 @@ $script:AzDevOpsHelpCatalog = @(
         File          = 'powcuts_by_cli/azdevops_sync.ps1'
         Phase         = 'Onboarding'
         Order         = 4
-        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
+        Purpose       = 'Build / refresh local JSON cache (assigned, mentions, activity, hierarchy, areas, iterations); also runs silently on shell open when the cache is stale'
         Args          = '(none)'
         Example       = 'az-Sync-AzDevOpsCache'
         RunsBefore    = 'az-Show-Tree (or any DailyRead function)'
@@ -266,6 +266,20 @@ $script:AzDevOpsHelpCatalog = @(
         RequiresSync  = 'Yes'
         DiagramAnchor = ''
         Issues        = @(125)
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Show-RecentActivity'
+        File          = 'powcuts_by_cli/azdevops_views.ps1'
+        Phase         = 'DailyRead'
+        Order         = 11
+        Purpose       = 'Merged grid of non-closed work items you posted on or were tagged in, newest first; Reason column flags Posted / Tagged / Both. Select a row to open it or create a child'
+        Args          = '[-State <states>]'
+        Example       = 'az-Show-RecentActivity'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(149)
     },
 
     [PSCustomObject]@{

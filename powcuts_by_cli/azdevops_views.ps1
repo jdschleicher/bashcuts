@@ -688,6 +688,157 @@ function az-Open-Mention {
 
 
 # ---------------------------------------------------------------------------
+# Recent-activity view (posted-or-tagged union)
+#
+# Public function:
+#   az-Show-RecentActivity - one selectable grid of the non-closed work items
+#                            the user has touched lately: items they posted on
+#                            (activity cache: System.ChangedBy = @Me) unioned
+#                            with items they were @-tagged in (mentions cache:
+#                            System.History contains their email). Rows are
+#                            deduped by Id and tagged with a Reason column -
+#                            'Posted', 'Tagged', or 'Both' - then sorted newest
+#                            first by ChangedDate. Selection flows through the
+#                            shared Invoke-AzDevOpsRowAction (open / create
+#                            child) like the other az-Show-* views.
+#
+# Reads activity.json + mentions.json from cache only (no `az` calls). Both are
+# rebuilt together by az-Sync-AzDevOpsCache, so in practice they exist or are
+# absent as a pair; each reader prints its own missing-cache hint, and the view
+# bails only when neither cache is present.
+# ---------------------------------------------------------------------------
+
+function ConvertFrom-AzDevOpsActivityItem {
+    param([Parameter(Mandatory)] $Raw)
+
+    $f = $Raw.fields
+
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    }
+    else {
+        [int]$Raw.id
+    }
+
+    $changedAt = if ($f.'System.ChangedDate') {
+        [datetime]$f.'System.ChangedDate'
+    }
+    else {
+        $null
+    }
+
+    return [PSCustomObject]@{
+        Id          = $id
+        Type        = $f.'System.WorkItemType'
+        State       = $f.'System.State'
+        Title       = $f.'System.Title'
+        ChangedDate = $changedAt
+    }
+}
+
+
+function Read-AzDevOpsActivityCache {
+    $paths = Get-AzDevOpsCachePaths
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Activity `
+        -Description 'activity' `
+        -Converter { param($r) ConvertFrom-AzDevOpsActivityItem -Raw $r }
+    return $items
+}
+
+
+function Merge-AzDevOpsActivityRows {
+    # Unions the activity ("I posted/touched it") and mentions ("I was tagged")
+    # cache rows into one row per work-item Id, tagging each with why it
+    # surfaced: 'Posted' (activity only), 'Tagged' (mentions only), or 'Both'.
+    # Mentions rows carry their System.ChangedDate in MentionedAt; both sources
+    # feed a single ChangedDate field so the caller sorts newest-first on one
+    # key. $null rows (an absent cache reads back as $null) are skipped.
+    #
+    # Keyed by the integer work-item Id in a plain hashtable (key-based [object]
+    # indexer) rather than [ordered] (whose [int] indexer is positional, not
+    # key lookup); the caller re-sorts by ChangedDate, so insertion order is
+    # irrelevant here.
+    param(
+        $Activity,
+        $Mentions
+    )
+
+    $reasonPosted = 'Posted'
+    $reasonTagged = 'Tagged'
+    $reasonBoth   = 'Both'
+
+    $byId = @{}
+
+    foreach ($item in @($Activity | Where-Object { $null -ne $_ })) {
+        $byId[$item.Id] = [PSCustomObject]@{
+            Id          = $item.Id
+            Type        = $item.Type
+            State       = $item.State
+            Title       = $item.Title
+            Reason      = $reasonPosted
+            ChangedDate = $item.ChangedDate
+        }
+    }
+
+    foreach ($item in @($Mentions | Where-Object { $null -ne $_ })) {
+        $existing = $byId[$item.Id]
+
+        if ($null -ne $existing) {
+            $existing.Reason = $reasonBoth
+            continue
+        }
+
+        $byId[$item.Id] = [PSCustomObject]@{
+            Id          = $item.Id
+            Type        = $item.Type
+            State       = $item.State
+            Title       = $item.Title
+            Reason      = $reasonTagged
+            ChangedDate = $item.MentionedAt
+        }
+    }
+
+    $merged = @($byId.Values)
+    return $merged
+}
+
+
+function az-Show-RecentActivity {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $activity = Read-AzDevOpsActivityCache
+    $mentions = Read-AzDevOpsMentionsCache
+
+    if ($null -eq $activity -and $null -eq $mentions) {
+        return
+    }
+
+    Write-AzDevOpsStaleBanner
+
+    $merged = Merge-AzDevOpsActivityRows -Activity $activity -Mentions $mentions
+
+    $filtered = @(Select-AzDevOpsActiveItems -Items $merged -State $State)
+    if ($filtered.Count -eq 0) {
+        Write-Host "(no open posted-or-tagged activity in cache)" -ForegroundColor Yellow
+        return
+    }
+
+    $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'ChangedDate'
+
+    $rows = @($sorted | Select-Object Id, Type, State, Reason, (Get-AzDevOpsTitleColumn), ChangedDate)
+
+    $title = "Recent activity - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+# ---------------------------------------------------------------------------
 # Hierarchy tree view
 #
 # Public functions:
