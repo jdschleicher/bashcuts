@@ -423,7 +423,7 @@ flowchart TD
     Hier -- null --> Abort3([abort: cache missing])
     Hier -- ok --> Title{Title param?}
 
-    Title -- no --> ReadTitle["Read-Host 'title'"]
+    Title -- no --> ReadTitle["Read-AzDevOpsTitle<br/>(caps at 255, warns near limit, offers truncate)"]
     Title -- yes --> Iter{Iteration param?}
     ReadTitle --> TitleEmpty{empty?}
     TitleEmpty -- yes --> Abort4([abort])
@@ -454,7 +454,9 @@ flowchart TD
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
     Create --> CreateOk{Ok?}
-    CreateOk -- no --> CreateFail([STEP FAILED])
+    CreateOk -- no --> Recover["Read-AzDevOpsCreateFieldEdit<br/>title-length → Read-AzDevOpsTitle;<br/>else field-edit menu<br/>(untouched fields preserved)"]
+    Recover -- resubmit --> Create
+    Recover -- cancel --> CreateFail([STEP FAILED])
     CreateOk -- yes --> Link{FeatureId > 0?}
     Link -- yes --> InvokeLink["Invoke-AzDevOpsParentLink<br/>→ Add-AzDevOpsWorkItemRelation<br/>→ az boards work-item relation add"]
     InvokeLink --> Open
@@ -484,7 +486,7 @@ flowchart TD
     Email -- no --> Abort2([abort])
     Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
     Hier --> Title{Title param?}
-    Title -- no --> ReadTitle["Read-Host 'title'"]
+    Title -- no --> ReadTitle["Read-AzDevOpsTitle<br/>(caps at 255, warns near limit, offers truncate)"]
     Title -- yes --> Iter{Iteration param?}
     ReadTitle --> Iter
     Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
@@ -546,7 +548,7 @@ flowchart TD
     PickIter --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>(skipped if -Area param)"]
     PickArea --> Loop
 
-    Loop[Story loop iteration N] --> ReadTitle["Read-Host 'Story title (Enter to finish batch)'"]
+    Loop[Story loop iteration N] --> ReadTitle["Read-AzDevOpsTitle<br/>'Story title (Enter to finish batch)'<br/>(caps at 255)"]
     ReadTitle --> EmptyTitle{empty?}
     EmptyTitle -- yes --> Summary
     EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
@@ -943,6 +945,15 @@ graph LR
     InvCreate[Invoke-AzDevOpsWorkItemCreate]:::priv
     InvLink[Invoke-AzDevOpsParentLink]:::priv
 
+    %% Title cap + create-failure recovery
+    Title[Read-AzDevOpsTitle]:::priv
+    CrEdit[Read-AzDevOpsCreateFieldEdit]:::priv
+    TitleErr[Test-AzDevOpsTitleLengthError]:::priv
+    EditFields[Get-AzDevOpsEditableFields]:::priv
+    FieldEd[Invoke-AzDevOpsFieldEditor]:::priv
+    FieldPrev[Format-AzDevOpsFieldPreview]:::priv
+    KeepOr[Get-AzDevOpsEnteredOrKept]:::priv
+
     %% Batch-creator helpers (az-New-AzDevOpsFeatureStories)
     ReuseHint[Get-AzDevOpsReuseHint]:::priv
     BatchCont[Read-AzDevOpsBatchContinue]:::priv
@@ -1289,6 +1300,23 @@ graph LR
     CrLink --> InvCreate --> NewWI --> AzJson
     CrLink --> InvLink --> AddRel --> AzJson
     CrLink --> AddHier --> WriteFile
+
+    %% Title cap + create-failure recovery fan-out
+    NewS --> Title
+    NewF --> Title
+    NewTask --> Title
+    NewSB --> Title
+    CrLink --> CrEdit
+    CrEdit --> TitleErr
+    CrEdit --> EditFields
+    CrEdit --> FieldPrev
+    CrEdit --> FieldEd
+    CrEdit --> Title
+    FieldEd --> Title
+    FieldEd --> Pri
+    FieldEd --> Pts
+    FieldEd --> AC
+    FieldEd --> KeepOr
 
     %% Unplanned work sessions
     StartUW --> CGate
