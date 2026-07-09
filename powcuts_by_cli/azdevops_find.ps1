@@ -1,9 +1,14 @@
 # ============================================================================
-# Azure DevOps — Interactive hierarchy drill-down
+# Azure DevOps — Interactive hierarchy drill-down + flat fuzzy search
 # ============================================================================
 # az-Find-AzDevOpsWorkItem walks Epic -> Feature -> requirement-tier in
 # Out-ConsoleGridView grids with a "Go Back" affordance at each tier and an
 # inline "Open in browser" action row.
+#
+# az-Find-AzDevOpsItem is the flat companion: it fuzzy-matches a typed query
+# against every cached work item (Epic, Feature, and requirement-tier alike -
+# no Epic-first drill-down), ranks the hits, and pipes them into the same
+# grid picker + post-selection dispatcher the az-Show-* views use.
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
@@ -183,5 +188,197 @@ function az-Find-AzDevOpsWorkItem {
             continue
         }
     }
+}
+
+
+# ---------------------------------------------------------------------------
+# Flat fuzzy search across every cached work item
+#
+# Public function:
+#   az-Find-AzDevOpsItem - fuzzy-match a query against all cached items (no
+#                          Epic-first drill-down), rank the hits, and pipe
+#                          them into the shared grid picker + post-selection
+#                          dispatcher (open in browser / create a child).
+#
+# Reads the same hierarchy.json cache az-Show-Tree / az-Find-AzDevOpsWorkItem
+# consume; never calls `az` directly. Match uses an fzf-style subsequence
+# scorer so "uslogin" finds "User Story: Login flow".
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsFuzzyScore {
+    # Subsequence fuzzy match (fzf-style). Returns an integer rank score when
+    # every character of $Query appears in $Text in order (case-insensitive),
+    # rewarding contiguous runs, word-boundary starts, and early first matches
+    # (a late single-char hit can score negative - that still counts as a match;
+    # the score only orders results). Returns $null when $Text is not a
+    # supersequence of $Query. Whitespace in $Query is ignored so "us login"
+    # still matches "User Story: login flow".
+    param(
+        [Parameter(Mandatory)] [string] $Query,
+        [Parameter(Mandatory)] [string] $Text
+    )
+
+    $needle = ($Query -replace '\s', '').ToLowerInvariant()
+    if ($needle.Length -eq 0) {
+        return 0
+    }
+
+    $haystack = $Text.ToLowerInvariant()
+
+    $matchBaseScore   = 4
+    $contiguousBonus  = 8
+    $wordStartBonus   = 6
+    $leadingPenalty   = 1
+    $maxLeadingOffset = 12
+    $wordBoundaryChars = @(' ', '-', '_', '.', '/', '\', ':', '[', ']', '(', ')')
+
+    $score     = 0
+    $textIndex = 0
+    $prevMatch = -2
+
+    foreach ($ch in $needle.ToCharArray()) {
+
+        $found = -1
+        for ($i = $textIndex; $i -lt $haystack.Length; $i++) {
+            if ($haystack[$i] -eq $ch) {
+                $found = $i
+                break
+            }
+        }
+
+        if ($found -lt 0) {
+            return $null
+        }
+
+        $score += $matchBaseScore
+
+        if ($found -eq ($prevMatch + 1)) {
+            $score += $contiguousBonus
+        }
+
+        $atWordStart = $found -eq 0 -or ($haystack[$found - 1] -in $wordBoundaryChars)
+        if ($atWordStart) {
+            $score += $wordStartBonus
+        }
+
+        if ($prevMatch -lt 0) {
+            $score -= [Math]::Min($found, $maxLeadingOffset) * $leadingPenalty
+        }
+
+        $prevMatch = $found
+        $textIndex = $found + 1
+    }
+
+    return $score
+}
+
+
+function Get-AzDevOpsFuzzyMatches {
+    # Scores every item in $Pool against $Query and returns the matching items
+    # ranked best-first (ties broken by newest id). Items whose "Id Type Title"
+    # is not a supersequence of the query are dropped. Returns an empty array
+    # when nothing matches.
+    param(
+        [Parameter(Mandatory)] $Pool,
+        [Parameter(Mandatory)] [string] $Query
+    )
+
+    $scored = foreach ($item in $Pool) {
+        $searchText = "$($item.Id) $($item.Type) $($item.Title)"
+        $score = Get-AzDevOpsFuzzyScore -Query $Query -Text $searchText
+
+        if ($null -ne $score) {
+            [PSCustomObject]@{
+                Item  = $item
+                Score = $score
+            }
+        }
+    }
+
+    $ranked = $scored | Sort-Object `
+    @{ Expression = 'Score'; Descending = $true }, `
+    @{ Expression = { $_.Item.Id }; Descending = $true }
+
+    $matches = @($ranked | ForEach-Object { $_.Item })
+    return $matches
+}
+
+
+function az-Find-AzDevOpsItem {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)] [string] $Query,
+        [string[]] $Type,
+        [switch] $IncludeClosed
+    )
+
+    $items = Read-AzDevOpsHierarchyCache
+    if ($null -eq $items) { return }
+
+    Write-AzDevOpsStaleBanner
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $pool = if ($IncludeClosed) {
+        $items
+    }
+    else {
+        $items | Where-Object { $_.State -notin $closedStates }
+    }
+
+    if ($Type) {
+        $pool = $pool | Where-Object { $_.Type -in $Type }
+    }
+
+    $pool = @($pool)
+    if ($pool.Count -eq 0) {
+        Write-Host "(no work items in the hierarchy cache match the current filter)" -ForegroundColor Yellow
+        return
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('Query') -or [string]::IsNullOrWhiteSpace($Query)) {
+        $Query = Read-Host "Fuzzy search work items (blank = list all)"
+    }
+
+    $trimmedQuery = if ($null -ne $Query) {
+        $Query.Trim()
+    }
+    else {
+        ''
+    }
+
+    if ($trimmedQuery.Length -gt 0) {
+        $matched = Get-AzDevOpsFuzzyMatches -Pool $pool -Query $trimmedQuery
+
+        if ($matched.Count -eq 0) {
+            Write-Host "No work items fuzzy-match '$trimmedQuery'. Try fewer / different characters, or -IncludeClosed." -ForegroundColor Yellow
+            return
+        }
+    }
+    else {
+        $matched = @($pool | Sort-Object Type, Id)
+    }
+
+    $maxResults = 100
+    if ($matched.Count -gt $maxResults) {
+        Write-Host "Showing top $maxResults of $($matched.Count) matches - narrow your query to see fewer." -ForegroundColor DarkGray
+        $matched = $matched[0..($maxResults - 1)]
+    }
+
+    $rows = @($matched | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AreaPath)
+
+    $titleBar = if ($trimmedQuery.Length -gt 0) {
+        "Fuzzy find '$trimmedQuery' - $($rows.Count) match(es)"
+    }
+    else {
+        "All work items - $($rows.Count)"
+    }
+
+    if (-not (Test-AzDevOpsGridAvailable)) {
+        $rows | Format-Table -AutoSize | Out-Host
+        return
+    }
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $titleBar -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
 }
 

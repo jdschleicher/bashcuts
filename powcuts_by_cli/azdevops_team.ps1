@@ -123,8 +123,7 @@ function Get-AzDevOpsTeamEnvRoster {
         }
     }
 
-    $result = @($roster)
-    return $result
+    return $roster
 }
 
 
@@ -314,9 +313,8 @@ function Sync-AzDevOpsTeam {
         }
     }
 
-    $roster = @($records)
-    Save-AzDevOpsTeamCache -Members $roster
-    return $roster
+    Save-AzDevOpsTeamCache -Members $records
+    return $records
 }
 
 
@@ -452,8 +450,7 @@ function ConvertFrom-AzDevOpsMentionInput {
         }
     }
 
-    $result = @($records)
-    return $result
+    return $records
 }
 
 

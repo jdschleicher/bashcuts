@@ -86,12 +86,13 @@ function Read-AzDevOpsGridPick {
 # Cache consumers - read-only commands that surface cached work items
 #
 # Public functions:
-#   az-Get-AzDevOpsAssigned   - table of work items assigned to me
-#   az-Open-Assigned  - open a single assigned item in the browser
+#   az-Get-AzDevOpsAssigned   - pickable grid of work items assigned to me
+#   az-Show-Assigned          - display-only grid of work items assigned to me
+#   az-Open-Assigned          - open the "Assigned to me" web view in the browser
 #   az-Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
 #   az-Open-Mention   - open a single mentioned item in the browser
 #
-# All four read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
+# The cache consumers read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
 #
@@ -429,6 +430,20 @@ function Get-AzDevOpsBoardsUrl {
 }
 
 
+function Get-AzDevOpsAssignedToMeUrl {
+    # Best-effort link to the project's "Assigned to me" work-items view - the
+    # web page listing every item currently assigned to you. Returns '' when az
+    # devops defaults are unset (same quiet contract as the other URL builders).
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
+        return ''
+    }
+
+    $url = "$base/_workitems/assignedtome/"
+    return $url
+}
+
+
 function az-Open-WorkItemById {
     # Open any work item in the browser by raw ID - no assigned/mentions cache
     # membership check. Sets $LASTEXITCODE = 1 and returns when the az devops
@@ -457,14 +472,20 @@ function Read-AzDevOpsAssignedCache {
 }
 
 
-function az-Get-AzDevOpsAssigned {
-    [CmdletBinding()]
+function Get-AzDevOpsAssignedRows {
+    # Shared projection for az-Get-AzDevOpsAssigned (pickable picker) and
+    # az-Show-Assigned (display-only view): read the assigned cache, warn when
+    # the cache is stale, drop closed states (or honor an explicit -State
+    # filter), sort newest-first, and return the table rows. Returns $null when
+    # the cache is missing so callers can bail without rendering an empty grid.
     param(
         [string[]] $State
     )
 
     $items = Read-AzDevOpsAssignedCache
-    if ($null -eq $items) { return }
+    if ($null -eq $items) {
+        return $null
+    }
 
     Write-AzDevOpsStaleBanner
 
@@ -472,6 +493,19 @@ function az-Get-AzDevOpsAssigned {
     $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
 
     $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    return $rows
+}
+
+
+function az-Get-AzDevOpsAssigned {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $rows = Get-AzDevOpsAssignedRows -State $State
+    if ($null -eq $rows) { return }
+
     $title = "Assigned to me - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -479,24 +513,37 @@ function az-Get-AzDevOpsAssigned {
 }
 
 
-function az-Open-Assigned {
+function az-Show-Assigned {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory, Position = 0)] [int] $Id
+        [string[]] $State
     )
 
-    $items = Read-AzDevOpsAssignedCache
-    if ($null -eq $items) { return }
+    $rows = Get-AzDevOpsAssignedRows -State $State
+    if ($null -eq $rows) { return }
 
-    $match = Find-AzDevOpsCachedWorkItem `
-        -Items       $items `
-        -Id          $Id `
-        -Description 'assigned-items' `
-        -ListCommand 'az-Get-AzDevOpsAssigned' `
-        -IncludeUrlFallback
-    if (-not $match) { return }
+    $title = "Assigned to me - $($rows.Count) items"
 
-    az-Open-WorkItemById -Id $Id
+    Show-AzDevOpsRows -Rows $rows -Title $title
+}
+
+
+function az-Open-Assigned {
+    # Open the Azure DevOps "Assigned to me" web view in the browser - the page
+    # listing every item currently assigned to you. To open a single work item
+    # by id instead, use az-Open-WorkItemById.
+    [CmdletBinding()]
+    param()
+
+    $url = Get-AzDevOpsAssignedToMeUrl
+    if (-not $url) {
+        Write-Host "az devops defaults not configured. Run: az devops configure --defaults organization=<url> project=<name>" -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    Write-Host "Opening $url" -ForegroundColor Cyan
+    Start-Process $url
 }
 
 
