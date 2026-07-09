@@ -317,12 +317,11 @@ function az-Find-AzDevOpsItem {
 
     Write-AzDevOpsStaleBanner
 
-    $closedStates = Get-AzDevOpsClosedStates
     $pool = if ($IncludeClosed) {
         $items
     }
     else {
-        $items | Where-Object { $_.State -notin $closedStates }
+        Select-AzDevOpsActiveItems -Items $items
     }
 
     if ($Type) {
@@ -381,4 +380,3 @@ function az-Find-AzDevOpsItem {
     $selected = Show-AzDevOpsRows -Rows $rows -Title $titleBar -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected
 }
-
