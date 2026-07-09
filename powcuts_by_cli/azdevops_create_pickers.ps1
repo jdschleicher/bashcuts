@@ -8,6 +8,15 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
+# Azure DevOps caps System.Title at 255 characters across the stock Agile /
+# Scrum / CMMI / Basic process templates. Read-AzDevOpsTitle enforces this cap
+# at entry so an over-length title is caught before the `az boards work-item
+# create` round-trip rather than after it. The warn threshold nudges the user
+# as they approach the limit.
+$script:AzDevOpsTitleMaxLength  = 255
+$script:AzDevOpsTitleWarnLength = 230
+
+
 function Get-AzDevOpsReuseHint {
     # Builds the " (Enter to reuse '<value>')" suffix used by batch-flow readers
     # that carry forward the prior loop's answer. Returns '' when Previous has
@@ -544,4 +553,272 @@ function Read-AzDevOpsKindPick {
 
     $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $envFallback
     return $picked
+}
+
+
+function Read-AzDevOpsTitle {
+    # Length-capped replacement for the raw `Read-Host '...title...'` every
+    # creator used to run. Rejects titles over $script:AzDevOpsTitleMaxLength
+    # and re-prompts, showing the running count and an "over by N" delta, and
+    # offers to auto-truncate to the cap with a preview of the result. A title
+    # within a warn band of the limit gets a heads-up but is accepted. Empty
+    # input returns '' unchanged so callers keep their existing semantics:
+    # az-New-AzDevOps* abort on an empty title, and the batch loop treats it as
+    # "finish". -PromptText carries the caller's exact wording so the UX reads
+    # identically to before.
+    param([string] $PromptText = 'What is the title?')
+
+    $max        = $script:AzDevOpsTitleMaxLength
+    $warnAt     = $script:AzDevOpsTitleWarnLength
+    $previewLen = 60
+    $ellipsis   = '...'
+
+    while ($true) {
+        $resp = Read-Host $PromptText
+        if (-not $resp) {
+            return ''
+        }
+
+        $length = $resp.Length
+        if ($length -le $max) {
+            if ($length -ge $warnAt) {
+                Write-Host ("  Heads up: title is {0}/{1} characters." -f $length, $max) -ForegroundColor Yellow
+            }
+
+            return $resp
+        }
+
+        $over = $length - $max
+        Write-Host ("  Title is {0}/{1} characters - over by {2}." -f $length, $max, $over) -ForegroundColor Yellow
+
+        $truncated = $resp.Substring(0, $max)
+        $preview = if ($truncated.Length -gt $previewLen) {
+            $truncated.Substring(0, $previewLen) + $ellipsis
+        } else {
+            $truncated
+        }
+
+        if (Read-AzDevOpsYesNo -Prompt "Truncate to $max chars? Result starts: '$preview'" -DefaultNo) {
+            return $truncated
+        }
+    }
+}
+
+
+function Test-AzDevOpsTitleLengthError {
+    # True when an `az boards work-item create` error text reads like a title
+    # length-limit rejection, so Read-AzDevOpsCreateFieldEdit can route straight
+    # to a title re-prompt. Azure DevOps phrases this several ways
+    # ("...Title... exceeds the maximum length", "LengthExceeded", etc.), so the
+    # test looks for a title mention alongside any length / exceed wording.
+    param([string] $ErrorText)
+
+    if (-not $ErrorText) {
+        return $false
+    }
+
+    $text = $ErrorText.ToLower()
+    $mentionsTitle  = $text -match 'title'
+    $mentionsLength = $text -match 'length|exceed|too long|maxlength|max length'
+
+    $isTitleLength = $mentionsTitle -and $mentionsLength
+    return $isTitleLength
+}
+
+
+function Get-AzDevOpsEditableFields {
+    # Returns the subset of the create-flow catalog whose keys are actually
+    # present in $CreateArgs, in a stable display order. Iteration / Area / Type
+    # / ExtraFields are intentionally excluded - they're picker- or
+    # schema-driven, not free-text fields the user re-enters to clear a create
+    # rejection.
+    param([Parameter(Mandatory)] [hashtable] $CreateArgs)
+
+    $catalog = @(
+        [PSCustomObject]@{ Key = 'Title';              Label = 'Title' }
+        [PSCustomObject]@{ Key = 'Priority';           Label = 'Priority' }
+        [PSCustomObject]@{ Key = 'StoryPoints';        Label = 'Story Points' }
+        [PSCustomObject]@{ Key = 'AcceptanceCriteria'; Label = 'Acceptance Criteria' }
+        [PSCustomObject]@{ Key = 'Description';        Label = 'Description' }
+        [PSCustomObject]@{ Key = 'Tags';               Label = 'Tags' }
+    )
+
+    $present = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $catalog) {
+        if ($CreateArgs.ContainsKey($entry.Key)) {
+            $present.Add($entry)
+        }
+    }
+
+    return $present
+}
+
+
+function Format-AzDevOpsFieldPreview {
+    # Renders a create-arg value for the edit menu: joins a tag array, collapses
+    # an empty / null value to '(none)', and truncates long text via the shared
+    # 80-char title truncator so the menu stays one line per field.
+    param([object] $Value)
+
+    if ($null -eq $Value) {
+        return '(none)'
+    }
+
+    $text = if ($Value -is [array]) {
+        ($Value | Where-Object { $_ } | ForEach-Object { [string]$_ }) -join '; '
+    } else {
+        [string]$Value
+    }
+
+    if (-not $text) {
+        return '(none)'
+    }
+
+    $preview = Format-AzDevOpsTruncatedTitle -Title $text
+    return $preview
+}
+
+
+function Get-AzDevOpsEnteredOrKept {
+    # "Enter to keep current" resolver for the free-text edit-menu fields:
+    # returns the freshly entered value when the user typed something, else the
+    # value already on the create args. Collapses the identical empty-check that
+    # the Title and Description editors would otherwise each spell out inline.
+    param(
+        [object] $Entered,
+        [object] $Current
+    )
+
+    $value = if ($Entered) {
+        $Entered
+    } else {
+        $Current
+    }
+
+    return $value
+}
+
+
+function Invoke-AzDevOpsFieldEditor {
+    # Re-prompts a single create field, reusing the same reader the creator used
+    # originally so validation stays identical. Empty input keeps the current
+    # value for the free-text fields (Title / Description / Tags); Priority and
+    # Story Points flow the current value through -Previous so Enter reuses it.
+    param(
+        [Parameter(Mandatory)] [string] $Key,
+        [object] $Current
+    )
+
+    switch ($Key) {
+        'Title' {
+            $entered = Read-AzDevOpsTitle -PromptText 'New title (Enter to keep current)'
+            $value = Get-AzDevOpsEnteredOrKept -Entered $entered -Current $Current
+            return $value
+        }
+
+        'Priority' {
+            $value = Read-AzDevOpsPriority -Previous ([int]$Current)
+            return $value
+        }
+
+        'StoryPoints' {
+            $value = Read-AzDevOpsStoryPoints -Previous ([int]$Current)
+            return $value
+        }
+
+        'AcceptanceCriteria' {
+            $value = Read-AzDevOpsAcceptanceCriteria
+            return $value
+        }
+
+        'Description' {
+            $entered = Read-Host 'New description (Enter to keep current)'
+            $value = Get-AzDevOpsEnteredOrKept -Entered $entered -Current $Current
+            return $value
+        }
+
+        'Tags' {
+            $entered = Read-Host 'New tags (semicolon-separated, Enter to keep current)'
+            $value = if ($entered) {
+                $parts = $entered -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                ,$parts
+            } else {
+                $Current
+            }
+
+            return $value
+        }
+
+        default {
+            return $Current
+        }
+    }
+}
+
+
+function Read-AzDevOpsCreateFieldEdit {
+    # Failure-recovery menu for Invoke-AzDevOpsCreateAndLink. Given the
+    # CreateArgs of a create that just failed, lets the user fix one or more
+    # fields and resubmit with everything else preserved verbatim, or cancel.
+    # Works on a copy of CreateArgs so a cancel leaves the caller's hashtable
+    # untouched. When the error reads like a title-length rejection the title
+    # reader runs once up front (the targeted path for the common case); the
+    # menu then still offers further edits, resubmit, or cancel.
+    #
+    # Returns { Retry = <bool>; CreateArgs = <hashtable> }: on Retry the caller
+    # re-runs the create with the returned args; on cancel the caller returns
+    # its standard failure result exactly as before this recovery step existed.
+    param(
+        [Parameter(Mandatory)] [hashtable] $CreateArgs,
+        [string] $ErrorText
+    )
+
+    $edited = @{}
+    foreach ($key in $CreateArgs.Keys) {
+        $edited[$key] = $CreateArgs[$key]
+    }
+
+    if (Test-AzDevOpsTitleLengthError -ErrorText $ErrorText) {
+        Write-Host ""
+        Write-Host "That title exceeds Azure DevOps' $($script:AzDevOpsTitleMaxLength)-character limit." -ForegroundColor Yellow
+        $fixedTitle = Read-AzDevOpsTitle -PromptText 'New title'
+        if ($fixedTitle) {
+            $edited['Title'] = $fixedTitle
+        }
+    }
+
+    $fields = Get-AzDevOpsEditableFields -CreateArgs $edited
+
+    while ($true) {
+        Write-Host ""
+        Write-Host "Edit a field and resubmit, or cancel:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $fields.Count; $i++) {
+            $field   = $fields[$i]
+            $preview = Format-AzDevOpsFieldPreview -Value $edited[$field.Key]
+            Write-Host ("  {0}. {1,-20}: {2}" -f ($i + 1), $field.Label, $preview)
+        }
+        Write-Host "  r. Resubmit with the values above"
+        Write-Host "  c. Cancel (abort create)"
+
+        $resp    = Read-Host 'Choose'
+        $trimmed = "$resp".Trim().ToLower()
+
+        if ($trimmed -eq 'c') {
+            return [PSCustomObject]@{ Retry = $false; CreateArgs = $edited }
+        }
+
+        if ($trimmed -eq 'r') {
+            return [PSCustomObject]@{ Retry = $true; CreateArgs = $edited }
+        }
+
+        $idx = 0
+        if (-not [int]::TryParse($trimmed, [ref]$idx) -or $idx -lt 1 -or $idx -gt $fields.Count) {
+            Write-Host "  Enter a field number, 'r' to resubmit, or 'c' to cancel." -ForegroundColor Yellow
+            continue
+        }
+
+        $chosen   = $fields[$idx - 1]
+        $newValue = Invoke-AzDevOpsFieldEditor -Key $chosen.Key -Current $edited[$chosen.Key]
+        $edited[$chosen.Key] = $newValue
+    }
 }
