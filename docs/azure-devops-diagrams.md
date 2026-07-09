@@ -1134,7 +1134,7 @@ graph LR
 
     FindItem --> ReadH
     FindItem --> Stale
-    FindItem --> Closed
+    FindItem --> SelAct
     FindItem --> FuzzyMatch --> FuzzyScore
     FindItem --> TitleCol
     FindItem --> GridAvail
