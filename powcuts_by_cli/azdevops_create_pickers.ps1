@@ -85,11 +85,14 @@ function Read-AzDevOpsAcceptanceCriteria {
     # which wasn't 'y'/'yes' - so typing a real criterion at that prompt (a
     # natural thing to do, and one that usually contains a '/', which is just
     # literal text to Read-Host) ended the loop and silently dropped the entry.
-    # A blank-to-finish loop can never lose an entered criterion. Collected ACs
-    # join with '<br/><br/>' so they render on separate lines in the work-item
-    # editor.
-    $dash = '-'
-    $break = '<br/><br/>'
+    # A blank-to-finish loop can never lose an entered criterion. Each collected
+    # AC renders on its own line prefixed with a ballot-box glyph so the
+    # AcceptanceCriteria field (which stores HTML) shows a checklist in the AzDO
+    # work-item UI rather than plain dashes. A leading glyph is used instead of a
+    # raw <input type="checkbox"> because the field's HTML sanitizer strips form
+    # elements.
+    $uncheckedBox = "$([char]0x2610)"   # ballot box (empty checkbox)
+    $break = '<br/>'
 
     $criteria = [System.Collections.Generic.List[string]]::new()
 
@@ -110,8 +113,8 @@ function Read-AzDevOpsAcceptanceCriteria {
         $index++
     }
 
-    $formatted = ($criteria | ForEach-Object { "$dash $_" }) -join " $break "
-    return $formatted
+    $checklist = ($criteria | ForEach-Object { "$uncheckedBox $_" }) -join $break
+    return $checklist
 }
 
 
@@ -120,7 +123,7 @@ function Read-AzDevOpsUserStoryDescription {
     # template. Each clause is required - re-prompts until a non-empty value
     # is entered - then joins them with HTML line breaks so each clause
     # renders on its own line in the AzDO Description field (which stores
-    # HTML): "As a <persona>" / "I want <outcome>" / "so that <benefit>".
+    # HTML): "As a <persona>" / "I want <outcome>" / "So that <benefit>".
     $persona = ''
     while (-not $persona) {
         $persona = (Read-Host 'As a ...').Trim()
@@ -133,7 +136,7 @@ function Read-AzDevOpsUserStoryDescription {
 
     $benefit = ''
     while (-not $benefit) {
-        $benefit = (Read-Host 'so that ...').Trim()
+        $benefit = (Read-Host 'So that ...').Trim()
     }
 
     $clauseBreak = '<br/><br/>'
@@ -141,7 +144,7 @@ function Read-AzDevOpsUserStoryDescription {
     $clauses = @(
         "As a $persona"
         "I want $outcome"
-        "so that $benefit"
+        "So that $benefit"
     )
 
     $description = $clauses -join $clauseBreak
