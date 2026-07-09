@@ -424,10 +424,26 @@ function Invoke-AzDevOpsCreateAndLink {
     Write-Host "Creating $ChildLabel..." -ForegroundColor Cyan
     $createResult = Invoke-AzDevOpsWorkItemCreate @CreateArgs
 
-    if (-not $createResult.Ok) {
+    # On failure, offer a fix-and-resubmit loop instead of discarding every
+    # captured field. Read-AzDevOpsCreateFieldEdit re-prompts the offending
+    # field (a title-length rejection routes straight to the capped title
+    # reader) and hands back the edited args; a cancel returns the same
+    # {Ok=$false} result callers already handle. Fields the user doesn't touch
+    # are resubmitted verbatim.
+    while (-not $createResult.Ok) {
         Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
         Write-Host "  $($createResult.Error)" -ForegroundColor Red
-        return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
+
+        $decision = Read-AzDevOpsCreateFieldEdit -CreateArgs $CreateArgs -ErrorText $createResult.Error
+        if (-not $decision.Retry) {
+            return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
+        }
+
+        $CreateArgs = $decision.CreateArgs
+
+        Write-Host ""
+        Write-Host "Resubmitting $ChildLabel..." -ForegroundColor Cyan
+        $createResult = Invoke-AzDevOpsWorkItemCreate @CreateArgs
     }
 
     $newId = $createResult.Id
@@ -542,7 +558,7 @@ function az-New-AzDevOpsUserStory {
     }
 
     if (-not $Title) {
-        $Title = Read-Host 'What is the title of the User Story?'
+        $Title = Read-AzDevOpsTitle -PromptText 'What is the title of the User Story?'
     }
     if (-not $Title) {
         Write-Host "Title is required - aborting." -ForegroundColor Red
@@ -645,7 +661,7 @@ function az-New-Task {
     }
 
     if (-not $Title) {
-        $Title = Read-Host 'What is the title of the Task?'
+        $Title = Read-AzDevOpsTitle -PromptText 'What is the title of the Task?'
     }
     if (-not $Title) {
         Write-Host "Title is required - aborting." -ForegroundColor Red
@@ -738,7 +754,7 @@ function az-New-AzDevOpsFeature {
     }
 
     if (-not $Title) {
-        $Title = Read-Host 'What is the title of the Feature?'
+        $Title = Read-AzDevOpsTitle -PromptText 'What is the title of the Feature?'
     }
     if (-not $Title) {
         Write-Host "Title is required - aborting." -ForegroundColor Red
@@ -837,7 +853,7 @@ function az-New-AzDevOpsEpic {
     }
 
     if (-not $Title) {
-        $Title = Read-Host 'What is the title of the Epic?'
+        $Title = Read-AzDevOpsTitle -PromptText 'What is the title of the Epic?'
     }
     if (-not $Title) {
         Write-Host "Title is required - aborting." -ForegroundColor Red
@@ -1001,7 +1017,7 @@ function az-New-AzDevOpsFeatureStories {
         Write-Host ""
         Write-Host ("--- Story #{0} ---" -f $iterationNumber) -ForegroundColor Cyan
 
-        $title = Read-Host 'Story title (Enter to finish batch)'
+        $title = Read-AzDevOpsTitle -PromptText 'Story title (Enter to finish batch)'
         if (-not $title) {
             break
         }
