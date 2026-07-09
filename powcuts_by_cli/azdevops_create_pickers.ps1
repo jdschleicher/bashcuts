@@ -679,6 +679,26 @@ function Format-AzDevOpsFieldPreview {
 }
 
 
+function Get-AzDevOpsEnteredOrKept {
+    # "Enter to keep current" resolver for the free-text edit-menu fields:
+    # returns the freshly entered value when the user typed something, else the
+    # value already on the create args. Collapses the identical empty-check that
+    # the Title and Description editors would otherwise each spell out inline.
+    param(
+        [object] $Entered,
+        [object] $Current
+    )
+
+    $value = if ($Entered) {
+        $Entered
+    } else {
+        $Current
+    }
+
+    return $value
+}
+
+
 function Invoke-AzDevOpsFieldEditor {
     # Re-prompts a single create field, reusing the same reader the creator used
     # originally so validation stays identical. Empty input keeps the current
@@ -692,12 +712,7 @@ function Invoke-AzDevOpsFieldEditor {
     switch ($Key) {
         'Title' {
             $entered = Read-AzDevOpsTitle -PromptText 'New title (Enter to keep current)'
-            $value = if ($entered) {
-                $entered
-            } else {
-                $Current
-            }
-
+            $value = Get-AzDevOpsEnteredOrKept -Entered $entered -Current $Current
             return $value
         }
 
@@ -718,12 +733,7 @@ function Invoke-AzDevOpsFieldEditor {
 
         'Description' {
             $entered = Read-Host 'New description (Enter to keep current)'
-            $value = if ($entered) {
-                $entered
-            } else {
-                $Current
-            }
-
+            $value = Get-AzDevOpsEnteredOrKept -Entered $entered -Current $Current
             return $value
         }
 
