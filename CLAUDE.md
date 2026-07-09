@@ -65,6 +65,22 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 - **alias vs function (bash)** — use `alias` only for fixed substitutions. The moment you need `$1`, `$2`, `$@`, `read`, conditionals, or anything multi-line, use a function. Aliases don't expand positional parameters the way callers expect.
 - **No `Write-Host` for data (PowerShell)** — `Write-Host` cannot be captured or piped. Use it only for user-facing status messages. For values the caller might want to consume, use `Write-Output`, plain expressions, or `return`.
 - **No in-script aliases (PowerShell)** — inside committed `.ps1` files prefer full cmdlet names (`Where-Object` over `?`, `ForEach-Object` over `%`, `Get-ChildItem` over `ls`/`gci`).
+- **Never re-wrap a typed collection in `@()` (PowerShell)** — once you've built a `[System.Collections.Generic.List[object]]` (or any typed collection), do **not** pass its result through the `@()` array-subexpression. `@()` forces the list into a **fixed-size `[object[]]`**, and the next `.Add()` on that result throws `Collection was of a fixed size` / `does not contain a method named 'Add'` at runtime — a footgun that keeps getting reintroduced. The `List` already exposes `.Count` and enumerates (and PowerShell unrolls it on output exactly like an array), so return it as-is. Only cast `[object[]]$records` when a downstream `[object[]]`-typed parameter genuinely needs an array — and even then the parameter binder usually coerces a `List` for you, so prefer passing the `List` directly. **Bad:**
+  ```powershell
+  $records = New-Object System.Collections.Generic.List[object]
+  # ... $records.Add(...) ...
+  $roster = @($records)          # now a fixed-size object[]; a later .Add() blows up
+  Save-AzDevOpsTeamCache -Members $roster
+  return $roster
+  ```
+  **Good:**
+  ```powershell
+  $records = New-Object System.Collections.Generic.List[object]
+  # ... $records.Add(...) ...
+  Save-AzDevOpsTeamCache -Members $records   # [object[]] param coerces the List
+  return $records
+  ```
+  Reserve `@(...)` for the cases it's actually meant for: normalizing an *unknown* return (scalar / `$null` / array) to an array so `.Count` and `foreach` are safe (`$roster = @(Get-AzDevOpsTeam)`), or producing an empty array (`return @()`). It is not a no-op finisher to slap on a `List` you already control.
 - **Quote variable expansions (bash)** — paths with spaces (`C:\Program Files`, `~/Library/Application Support`) break unquoted `$var`. The README explicitly warns about path-with-spaces; new code must respect that.
 - **macOS `start`** — `.bcut_home` aliases `start` to `open` on Darwin. Code that uses `start` to open files/URLs is fine; **don't redefine `start` and don't pass platform-specific flags** (e.g. Windows `start /B`, mac `open -a "App"`) without an OS conditional.
 - **No comments for self-evident code** — only comment where the logic is genuinely non-obvious.

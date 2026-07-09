@@ -86,12 +86,13 @@ function Read-AzDevOpsGridPick {
 # Cache consumers - read-only commands that surface cached work items
 #
 # Public functions:
-#   az-Get-AzDevOpsAssigned   - table of work items assigned to me
-#   az-Open-Assigned  - open a single assigned item in the browser
+#   az-Get-AzDevOpsAssigned   - pickable grid of work items assigned to me
+#   az-Show-Assigned          - display-only grid of work items assigned to me
+#   az-Open-Assigned          - open the "Assigned to me" web view in the browser
 #   az-Get-AzDevOpsMentions   - table of work items where I've been @-mentioned
 #   az-Open-Mention   - open a single mentioned item in the browser
 #
-# All four read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
+# The cache consumers read $HOME/.bashcuts-az-devops-app/cache/{assigned,mentions}.json
 # (built by az-Sync-AzDevOpsCache). They never call `az` directly - if the cache
 # is missing, they print a hint and bail.
 #
@@ -429,6 +430,20 @@ function Get-AzDevOpsBoardsUrl {
 }
 
 
+function Get-AzDevOpsAssignedToMeUrl {
+    # Best-effort link to the project's "Assigned to me" work-items view - the
+    # web page listing every item currently assigned to you. Returns '' when az
+    # devops defaults are unset (same quiet contract as the other URL builders).
+    $base = Get-AzDevOpsUrlBase
+    if (-not $base) {
+        return ''
+    }
+
+    $url = "$base/_workitems/assignedtome/"
+    return $url
+}
+
+
 function az-Open-WorkItemById {
     # Open any work item in the browser by raw ID - no assigned/mentions cache
     # membership check. Sets $LASTEXITCODE = 1 and returns when the az devops
@@ -457,14 +472,20 @@ function Read-AzDevOpsAssignedCache {
 }
 
 
-function az-Get-AzDevOpsAssigned {
-    [CmdletBinding()]
+function Get-AzDevOpsAssignedRows {
+    # Shared projection for az-Get-AzDevOpsAssigned (pickable picker) and
+    # az-Show-Assigned (display-only view): read the assigned cache, warn when
+    # the cache is stale, drop closed states (or honor an explicit -State
+    # filter), sort newest-first, and return the table rows. Returns $null when
+    # the cache is missing so callers can bail without rendering an empty grid.
     param(
         [string[]] $State
     )
 
     $items = Read-AzDevOpsAssignedCache
-    if ($null -eq $items) { return }
+    if ($null -eq $items) {
+        return $null
+    }
 
     Write-AzDevOpsStaleBanner
 
@@ -472,6 +493,19 @@ function az-Get-AzDevOpsAssigned {
     $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'AssignedAt'
 
     $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration, AssignedAt)
+    return $rows
+}
+
+
+function az-Get-AzDevOpsAssigned {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $rows = Get-AzDevOpsAssignedRows -State $State
+    if ($null -eq $rows) { return }
+
     $title = "Assigned to me - $($rows.Count) items"
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
@@ -479,24 +513,37 @@ function az-Get-AzDevOpsAssigned {
 }
 
 
-function az-Open-Assigned {
+function az-Show-Assigned {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory, Position = 0)] [int] $Id
+        [string[]] $State
     )
 
-    $items = Read-AzDevOpsAssignedCache
-    if ($null -eq $items) { return }
+    $rows = Get-AzDevOpsAssignedRows -State $State
+    if ($null -eq $rows) { return }
 
-    $match = Find-AzDevOpsCachedWorkItem `
-        -Items       $items `
-        -Id          $Id `
-        -Description 'assigned-items' `
-        -ListCommand 'az-Get-AzDevOpsAssigned' `
-        -IncludeUrlFallback
-    if (-not $match) { return }
+    $title = "Assigned to me - $($rows.Count) items"
 
-    az-Open-WorkItemById -Id $Id
+    Show-AzDevOpsRows -Rows $rows -Title $title
+}
+
+
+function az-Open-Assigned {
+    # Open the Azure DevOps "Assigned to me" web view in the browser - the page
+    # listing every item currently assigned to you. To open a single work item
+    # by id instead, use az-Open-WorkItemById.
+    [CmdletBinding()]
+    param()
+
+    $url = Get-AzDevOpsAssignedToMeUrl
+    if (-not $url) {
+        Write-Host "az devops defaults not configured. Run: az devops configure --defaults organization=<url> project=<name>" -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    Write-Host "Opening $url" -ForegroundColor Cyan
+    Start-Process $url
 }
 
 
@@ -637,6 +684,157 @@ function az-Open-Mention {
     if (-not $match) { return }
 
     az-Open-WorkItemById -Id $Id
+}
+
+
+# ---------------------------------------------------------------------------
+# Recent-activity view (posted-or-tagged union)
+#
+# Public function:
+#   az-Show-RecentActivity - one selectable grid of the non-closed work items
+#                            the user has touched lately: items they posted on
+#                            (activity cache: System.ChangedBy = @Me) unioned
+#                            with items they were @-tagged in (mentions cache:
+#                            System.History contains their email). Rows are
+#                            deduped by Id and tagged with a Reason column -
+#                            'Posted', 'Tagged', or 'Both' - then sorted newest
+#                            first by ChangedDate. Selection flows through the
+#                            shared Invoke-AzDevOpsRowAction (open / create
+#                            child) like the other az-Show-* views.
+#
+# Reads activity.json + mentions.json from cache only (no `az` calls). Both are
+# rebuilt together by az-Sync-AzDevOpsCache, so in practice they exist or are
+# absent as a pair; each reader prints its own missing-cache hint, and the view
+# bails only when neither cache is present.
+# ---------------------------------------------------------------------------
+
+function ConvertFrom-AzDevOpsActivityItem {
+    param([Parameter(Mandatory)] $Raw)
+
+    $f = $Raw.fields
+
+    $id = if ($f.'System.Id') {
+        [int]$f.'System.Id'
+    }
+    else {
+        [int]$Raw.id
+    }
+
+    $changedAt = if ($f.'System.ChangedDate') {
+        [datetime]$f.'System.ChangedDate'
+    }
+    else {
+        $null
+    }
+
+    return [PSCustomObject]@{
+        Id          = $id
+        Type        = $f.'System.WorkItemType'
+        State       = $f.'System.State'
+        Title       = $f.'System.Title'
+        ChangedDate = $changedAt
+    }
+}
+
+
+function Read-AzDevOpsActivityCache {
+    $paths = Get-AzDevOpsCachePaths
+    $items = Read-AzDevOpsJsonCache `
+        -Path        $paths.Activity `
+        -Description 'activity' `
+        -Converter { param($r) ConvertFrom-AzDevOpsActivityItem -Raw $r }
+    return $items
+}
+
+
+function Merge-AzDevOpsActivityRows {
+    # Unions the activity ("I posted/touched it") and mentions ("I was tagged")
+    # cache rows into one row per work-item Id, tagging each with why it
+    # surfaced: 'Posted' (activity only), 'Tagged' (mentions only), or 'Both'.
+    # Mentions rows carry their System.ChangedDate in MentionedAt; both sources
+    # feed a single ChangedDate field so the caller sorts newest-first on one
+    # key. $null rows (an absent cache reads back as $null) are skipped.
+    #
+    # Keyed by the integer work-item Id in a plain hashtable (key-based [object]
+    # indexer) rather than [ordered] (whose [int] indexer is positional, not
+    # key lookup); the caller re-sorts by ChangedDate, so insertion order is
+    # irrelevant here.
+    param(
+        $Activity,
+        $Mentions
+    )
+
+    $reasonPosted = 'Posted'
+    $reasonTagged = 'Tagged'
+    $reasonBoth   = 'Both'
+
+    $byId = @{}
+
+    foreach ($item in @($Activity | Where-Object { $null -ne $_ })) {
+        $byId[$item.Id] = [PSCustomObject]@{
+            Id          = $item.Id
+            Type        = $item.Type
+            State       = $item.State
+            Title       = $item.Title
+            Reason      = $reasonPosted
+            ChangedDate = $item.ChangedDate
+        }
+    }
+
+    foreach ($item in @($Mentions | Where-Object { $null -ne $_ })) {
+        $existing = $byId[$item.Id]
+
+        if ($null -ne $existing) {
+            $existing.Reason = $reasonBoth
+            continue
+        }
+
+        $byId[$item.Id] = [PSCustomObject]@{
+            Id          = $item.Id
+            Type        = $item.Type
+            State       = $item.State
+            Title       = $item.Title
+            Reason      = $reasonTagged
+            ChangedDate = $item.MentionedAt
+        }
+    }
+
+    $merged = @($byId.Values)
+    return $merged
+}
+
+
+function az-Show-RecentActivity {
+    [CmdletBinding()]
+    param(
+        [string[]] $State
+    )
+
+    $activity = Read-AzDevOpsActivityCache
+    $mentions = Read-AzDevOpsMentionsCache
+
+    if ($null -eq $activity -and $null -eq $mentions) {
+        return
+    }
+
+    Write-AzDevOpsStaleBanner
+
+    $merged = Merge-AzDevOpsActivityRows -Activity $activity -Mentions $mentions
+
+    $filtered = @(Select-AzDevOpsActiveItems -Items $merged -State $State)
+    if ($filtered.Count -eq 0) {
+        Write-Host "(no open posted-or-tagged activity in cache)" -ForegroundColor Yellow
+        return
+    }
+
+    $sorted = Sort-AzDevOpsByDateDesc -Items $filtered -Field 'ChangedDate'
+
+    $rows = @($sorted | Select-Object Id, Type, State, Reason, (Get-AzDevOpsTitleColumn), ChangedDate)
+
+    $title = "Recent activity - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
 }
 
 
@@ -1520,4 +1718,231 @@ function az-Show-Orphans {
 
     $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
     Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+# ---------------------------------------------------------------------------
+# Sprint views (cached items in one iteration)
+#
+# Public functions:
+#   az-Show-ItemsBySprint - pick a sprint (same iteration picker the create
+#                           flow uses), then list that sprint's items; pass
+#                           -Iteration <path> to skip the picker.
+#   az-Show-CurrentSprint - resolve the active sprint from the cached
+#                           iteration dates (today within Start..Finish, the
+#                           same rule `az boards iteration team list
+#                           --timeframe current` applies) and list its items;
+#                           falls back to $env:AZ_ITERATION when no dated
+#                           iteration brackets today.
+#
+# Both pull the union of hierarchy.json + assigned.json (deduped by Id) so a
+# Task or Bug assigned to you in the sprint shows alongside the Epic/Feature/
+# Story hierarchy, filter to the chosen IterationPath, and sort open items
+# first / closed items last (closed = Get-AzDevOpsClosedStates) so the work
+# that still needs doing sits at the top of the grid. Selection is dispatched
+# through the same Invoke-AzDevOpsRowAction the other az-Show-* views use.
+# ---------------------------------------------------------------------------
+
+function Sort-AzDevOpsByClosedLast {
+    # Open items first, closed items last. The primary key is closed-state
+    # membership: $false (open) sorts above $true (closed) on an ascending
+    # Sort-Object, so closed rows sink to the bottom. Type then Id give a
+    # stable, predictable order within each group. Mirrors the calculated-key
+    # shape of Sort-AzDevOpsByDateDesc so the sort intent lives in one helper.
+    param([Parameter(Mandatory)] $Items)
+
+    $closedStates = Get-AzDevOpsClosedStates
+
+    $sorted = $Items | Sort-Object `
+        @{ Expression = { $_.State -in $closedStates } }, `
+        @{ Expression = 'Type' }, `
+        @{ Expression = 'Id' }
+
+    return @($sorted)
+}
+
+
+function Get-AzDevOpsSprintItemPool {
+    # Private. Builds the deduped item pool the sprint views filter by
+    # iteration. The hierarchy cache is the primary source and the gate: when
+    # it is missing, Read-AzDevOpsHierarchyCache prints the standard sync hint
+    # and this returns $null so the caller aborts. Assigned-cache items are
+    # additive and only contribute Ids not already present (an assigned Story
+    # that is also in the hierarchy appears once); a missing assigned cache is
+    # a silent no-op - it is checked with Test-Path so its own reader's
+    # missing-cache hint never double-prints under the hierarchy one.
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    if ($null -eq $hierarchy) {
+        return $null
+    }
+
+    $byId = [ordered]@{}
+    foreach ($item in $hierarchy) {
+        $byId[[string]$item.Id] = [PSCustomObject]@{
+            Id        = $item.Id
+            Type      = $item.Type
+            State     = $item.State
+            Title     = $item.Title
+            Iteration = $item.Iteration
+        }
+    }
+
+    $paths = Get-AzDevOpsCachePaths
+    if (Test-Path -LiteralPath $paths.Assigned) {
+        $assigned = Read-AzDevOpsAssignedCache
+
+        foreach ($item in @($assigned)) {
+            $key = [string]$item.Id
+            if (-not $byId.Contains($key)) {
+                $byId[$key] = [PSCustomObject]@{
+                    Id        = $item.Id
+                    Type      = $item.Type
+                    State     = $item.State
+                    Title     = $item.Title
+                    Iteration = $item.Iteration
+                }
+            }
+        }
+    }
+
+    $pool = @($byId.Values)
+    return $pool
+}
+
+
+function Resolve-AzDevOpsCurrentIteration {
+    # Private. Returns the cached iteration row whose StartDate <= today <=
+    # FinishDate - the same date-range test `az boards iteration team list
+    # --timeframe current` applies (Azure DevOps stores no "is current" flag;
+    # "current" is always derived from the sprint's start/finish dates). The
+    # returned row carries Path / StartDate / FinishDate. Returns $null when no
+    # dated iteration brackets today (e.g. a gap between sprints) so the caller
+    # can fall back to $env:AZ_ITERATION.
+    $rows = Read-AzDevOpsClassificationRows -Kind 'Iteration' -CommandName 'az-Show-CurrentSprint'
+    if ($null -eq $rows -or @($rows).Count -eq 0) {
+        return $null
+    }
+
+    $today = (Get-Date).Date
+
+    $match = $rows | Where-Object {
+        $_.StartDate -and $_.FinishDate -and
+        $_.StartDate.Date -le $today -and $today -le $_.FinishDate.Date
+    } | Select-Object -First 1
+
+    if ($null -eq $match) {
+        return $null
+    }
+
+    return $match
+}
+
+
+function Write-AzDevOpsCurrentSprintBanner {
+    # Prints the one-line "which sprint am I looking at" banner for
+    # az-Show-CurrentSprint. When the iteration was resolved from dated cache
+    # rows, shows the sprint window; when it came from the $env:AZ_ITERATION
+    # fallback ($Current is $null), says so.
+    param(
+        $Current,
+        [Parameter(Mandatory)] [string] $IterationPath
+    )
+
+    $arrow = "$([char]0x2192)"   # rightwards arrow
+
+    if ($null -ne $Current -and $Current.StartDate -and $Current.FinishDate) {
+        $start  = Format-AzDevOpsClassificationDate -Date $Current.StartDate
+        $finish = Format-AzDevOpsClassificationDate -Date $Current.FinishDate
+        Write-Host "Current sprint: $IterationPath ($start $arrow $finish)" -ForegroundColor Cyan
+        return
+    }
+
+    Write-Host "Current sprint: $IterationPath (from `$env:AZ_ITERATION)" -ForegroundColor Cyan
+}
+
+
+function Show-AzDevOpsSprintGrid {
+    # Private. Shared body for az-Show-ItemsBySprint and az-Show-CurrentSprint:
+    # pull the deduped pool, filter to $IterationPath (exact match - nested
+    # child iterations are out of scope for v1, matching how the other views
+    # treat iteration), sort open-first/closed-last, render via the shared
+    # Show-AzDevOpsRows (Out-ConsoleGridView, Format-Table fallback), and
+    # dispatch the selection through Invoke-AzDevOpsRowAction. $Label is the
+    # sprint name shown in the grid title and the empty-state hint.
+    param(
+        [Parameter(Mandatory)] [string] $IterationPath,
+        [Parameter(Mandatory)] [string] $Label
+    )
+
+    $pool = Get-AzDevOpsSprintItemPool
+    if ($null -eq $pool) {
+        return
+    }
+
+    $inSprint = @($pool | Where-Object { $_.Iteration -eq $IterationPath })
+
+    if ($inSprint.Count -eq 0) {
+        Write-Host "(no items in $Label)" -ForegroundColor Yellow
+        return
+    }
+
+    $sorted = Sort-AzDevOpsByClosedLast -Items $inSprint
+
+    $rows = @($sorted | Select-Object Id, Type, State, (Get-AzDevOpsTitleColumn), Iteration)
+    $title = "Sprint $Label - $($rows.Count) items"
+
+    $selected = Show-AzDevOpsRows -Rows $rows -Title $title -PassThru
+    Invoke-AzDevOpsRowAction -Selected $selected
+}
+
+
+function az-Show-ItemsBySprint {
+    [CmdletBinding()]
+    param(
+        [string] $Iteration
+    )
+
+    $iterationPath = if ($Iteration) {
+        $Iteration
+    } else {
+        Read-AzDevOpsKindPick -Kind 'Iteration'
+    }
+
+    if (-not $iterationPath) {
+        Write-Host "(no iteration selected - nothing to show)" -ForegroundColor Yellow
+        return
+    }
+
+    # The iteration picker path (Get-AzDevOpsClassificationPaths) prints no
+    # stale banner, so surface it here to match the other az-Show-* views.
+    Write-AzDevOpsStaleBanner
+
+    Show-AzDevOpsSprintGrid -IterationPath $iterationPath -Label $iterationPath
+}
+
+
+function az-Show-CurrentSprint {
+    [CmdletBinding()]
+    param()
+
+    # Resolve-AzDevOpsCurrentIteration reads the iteration cache via
+    # Read-AzDevOpsClassificationRows, which already emits the stale banner -
+    # so this view does not print a second one.
+    $current = Resolve-AzDevOpsCurrentIteration
+
+    $iterationPath = if ($null -ne $current) {
+        $current.Path
+    } else {
+        $env:AZ_ITERATION
+    }
+
+    if (-not $iterationPath) {
+        Write-Host "No current sprint: no iteration brackets today and `$env:AZ_ITERATION is unset." -ForegroundColor Yellow
+        Write-Host "  Run az-Sync-AzDevOpsCache to refresh iterations, or set `$env:AZ_ITERATION to a sprint path." -ForegroundColor Yellow
+        return
+    }
+
+    Write-AzDevOpsCurrentSprintBanner -Current $current -IterationPath $iterationPath
+
+    Show-AzDevOpsSprintGrid -IterationPath $iterationPath -Label $iterationPath
 }

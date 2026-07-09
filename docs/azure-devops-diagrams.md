@@ -35,19 +35,24 @@ flowchart LR
         Status["az-Get-AzDevOpsCacheStatus"]
         BgSync["Start-AzDevOpsBackgroundSync<br/>(on-open, internal)"]
         GetA["az-Get-AzDevOpsAssigned"]
+        ShowA["az-Show-Assigned"]
         OpenA["az-Open-Assigned"]
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-Mention"]
+        RecentActivity["az-Show-RecentActivity"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
         Epics["az-Show-Epics"]
         Orphans["az-Show-Orphans"]
+        CurSprint["az-Show-CurrentSprint"]
+        BySprint["az-Show-ItemsBySprint"]
         ShowAreas["az-Show-Areas"]
         ShowIters["az-Show-Iterations"]
         GetAreas["az-Get-AzDevOpsAreas"]
         GetIters["az-Get-AzDevOpsIterations"]
         Find["az-Find-AzDevOpsWorkItem"]
         FindText["az-Find-AzDevOpsText"]
+        FindItem["az-Find-AzDevOpsItem"]
         FindArea["az-Find-AzDevOpsArea"]
         FindIter["az-Find-AzDevOpsIteration"]
         FindProj["az-Find-AzDevOpsProject"]
@@ -69,6 +74,7 @@ flowchart LR
     subgraph Cache["$HOME/.bashcuts-az-devops-app/cache/"]
         AssignedJson["assigned.json"]
         MentionsJson["mentions.json"]
+        ActivityJson["activity.json"]
         HierJson["hierarchy.json"]
         IterJson["iterations.json"]
         AreasJson["areas.json"]
@@ -103,6 +109,7 @@ flowchart LR
     Sync --> AzBoards
     Sync --> AssignedJson
     Sync --> MentionsJson
+    Sync --> ActivityJson
     Sync --> HierJson
     Sync --> IterJson
     Sync --> AreasJson
@@ -110,16 +117,26 @@ flowchart LR
     Sync --> SyncLog
 
     GetA --> AssignedJson
-    OpenA --> AssignedJson
+    ShowA --> AssignedJson
+    OpenA -.opens browser.-> AsgWeb(["Assigned to me<br/>web view"])
     GetM --> MentionsJson
     GetM -.exclude assigned ids.-> AssignedJson
     OpenM --> MentionsJson
+    RecentActivity --> ActivityJson
+    RecentActivity --> MentionsJson
     Tree --> HierJson
     Board --> HierJson
     Epics --> HierJson
     Orphans --> HierJson
+    CurSprint --> HierJson
+    CurSprint --> AssignedJson
+    CurSprint --> IterJson
+    BySprint --> HierJson
+    BySprint --> AssignedJson
+    BySprint --> IterJson
     Find --> HierJson
     FindText --> HierJson
+    FindItem --> HierJson
     ShowFeats --> HierJson
     Status --> LastSync
 
@@ -244,14 +261,14 @@ Skipped on purpose: `Test-AzDevOpsExtensionInstalled` and `Test-AzDevOpsLoggedIn
 
 ## 4. `az-Sync-AzDevOpsCache` — dataset fan-out
 
-Five datasets, one orchestrator. Each dataset descriptor declares its `Fetch` scriptblock, `Counter`, and target file path; `Invoke-AzDevOpsAzDataset` is the single sync helper that runs them all (per the CLAUDE.md extract-repeated-branches rule).
+Six datasets, one orchestrator. Each dataset descriptor declares its `Fetch` scriptblock, `Counter`, and target file path; `Invoke-AzDevOpsAzDataset` is the single sync helper that runs them all (per the CLAUDE.md extract-repeated-branches rule).
 
 ```mermaid
 flowchart TD
     Entry([az-Sync-AzDevOpsCache]) --> Auth{az-Test-AzDevOpsAuth}
     Auth -- false --> AbortAuth([abort: 'Run az-Connect-AzDevOps'])
     Auth -- true --> Init["Initialize-AzDevOpsCacheDir<br/>(creates dir)"]
-    Init --> Datasets["Get-AzDevOpsSyncDatasets<br/>builds 5 descriptors"]
+    Init --> Datasets["Get-AzDevOpsSyncDatasets<br/>builds 6 descriptors"]
 
     Datasets --> Loop{foreach dataset}
 
@@ -275,10 +292,11 @@ flowchart TD
     Summary --> Log["Write-AzDevOpsSyncLog 'sync complete'"]
     Log --> Banner["print Cache: <dir><br/>+ partial-failure banner if any"]
 
-    subgraph Datasets5["Five datasets (descriptors)"]
+    subgraph Datasets5["Six datasets (descriptors)"]
         direction LR
         D1["assigned<br/>WIQL System.AssignedTo = @Me"]
         D2["mentions<br/>WIQL System.History Contains '@email'"]
+        DA["activity<br/>WIQL System.ChangedBy = @Me"]
         D3["hierarchy<br/>Invoke-AzDevOpsHierarchyQueries<br/>(reads ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql,<br/>substitutes {{AZ_AREA}}, fires one WIQL per tier,<br/>merges into Epic + Feature + Story flat + System.Parent)"]
         D4["iterations<br/>Get-AzDevOpsClassificationList -Kind Iteration<br/>→ az boards iteration project list --depth 5"]
         D5["areas<br/>Get-AzDevOpsClassificationList -Kind Area<br/>→ az boards area project list --depth 5"]
@@ -293,56 +311,64 @@ Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`,
 
 ## 5. Cache consumers (`az-Get-AzDevOpsAssigned/Mentions` and `az-Open-Assigned/Mention`)
 
-The two parallel pairs share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads.
+The grid listings share private helpers (extracted under "Shared scaffolding" per CLAUDE.md). They never call `az` — purely cache reads. `az-Get-AzDevOpsAssigned` (pickable) and `az-Show-Assigned` (display-only) both enter through `Get-AzDevOpsAssignedRows`; only the final `Show-AzDevOpsRows` call differs (`-PassThru` vs display-only).
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant GetA as az-Get-AzDevOpsAssigned
+    participant GetA as az-Get-AzDevOpsAssigned / az-Show-Assigned
+    participant Rows as Get-AzDevOpsAssignedRows
     participant ReadA as Read-AzDevOpsAssignedCache
     participant ReadJ as Read-AzDevOpsJsonCache
     participant Conv as ConvertFrom-AzDevOpsAssignedItem
     participant Banner as Write-AzDevOpsStaleBanner
     participant Filter as Select-AzDevOpsActiveItems
     participant Sort as Sort-AzDevOpsByDateDesc
-    participant Title as Format-AzDevOpsTruncatedTitle
     participant Show as Show-AzDevOpsRows
     participant Cache as assigned.json
 
     User->>GetA: az-Get-AzDevOpsAssigned -State Active
-    GetA->>ReadA: ReadAssigned()
+    GetA->>Rows: Get-AzDevOpsAssignedRows -State Active
+    Rows->>ReadA: ReadAssigned()
     ReadA->>ReadJ: Read-AzDevOpsJsonCache(path, converter)
     ReadJ->>Cache: Get-Content -Raw
     Cache-->>ReadJ: JSON
     ReadJ->>Conv: per-row converter
     Conv-->>ReadJ: PSCustomObject[]
     ReadJ-->>ReadA: items
-    ReadA-->>GetA: items
-
-    GetA->>Banner: WARNING stale (if last-sync > 6h)
-    GetA->>Filter: filter by -State or active default
-    Filter-->>GetA: filtered[]
-    GetA->>Sort: newest-first by AssignedAt (or MentionedAt)
-    Sort-->>GetA: sorted[]
-    GetA->>Title: title-column projection
-    Title-->>GetA: rows
-    GetA->>Show: -PassThru (Out-ConsoleGridView<br/>or Format-Table fallback)
-    Show-->>User: selected rows / rendered table
+    ReadA-->>Rows: items
+    Rows->>Banner: WARNING stale (if last-sync > 6h)
+    Rows->>Filter: filter by -State or active default
+    Filter-->>Rows: filtered[]
+    Rows->>Sort: newest-first by AssignedAt
+    Sort-->>Rows: sorted[] (title-column projection applied)
+    Rows-->>GetA: rows
+    GetA->>Show: -PassThru (Get) / display-only (Show)<br/>Out-ConsoleGridView or Format-Table fallback
+    Show-->>User: selected rows (Get) / rendered grid (Show)
 ```
 
-Open-by-id flow re-uses the same cache + a different last-mile helper:
+`az-Open-Assigned` opens the project's "Assigned to me" web view — no id, no cache read:
 
 ```mermaid
 flowchart LR
-    A([az-Open-Assigned 12345]) --> RC[Read-AzDevOpsAssignedCache]
-    RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
-    Find -- miss --> Hint([print 'run az-Get-AzDevOpsAssigned' + LASTEXITCODE=1])
-    Find -- hit --> Open["az-Open-WorkItemById<br/>(env-var guard + URL build)"]
-    Open --> SP["Start-Process<br/>$env:AZ_DEVOPS_ORG/$env:AZ_PROJECT/_workitems/edit/12345"]
+    A([az-Open-Assigned]) --> URL["Get-AzDevOpsAssignedToMeUrl<br/>(Get-AzDevOpsUrlBase + /_workitems/assignedtome/)"]
+    URL -- unset defaults --> Hint([print 'az devops defaults not configured' + LASTEXITCODE=1])
+    URL -- ok --> SP["Start-Process<br/>$org/$project/_workitems/assignedtome/"]
 ```
 
-`az-Open-Mention` is structurally identical, just swaps `Read-AzDevOpsMentionsCache` and the `-Description 'mentions'` label.
+Opening a single item by id is handled by `az-Open-WorkItemById` (env-var guard + URL build → `Start-Process`). `az-Open-Mention` re-uses the same cache pattern, then delegates to it after its id lookup:
+
+```mermaid
+flowchart LR
+    A([az-Open-Mention 12345]) --> RC[Read-AzDevOpsMentionsCache]
+    RC --> Find["Find-AzDevOpsCachedWorkItem<br/>(id lookup + miss-hint)"]
+    Find -- miss --> Hint([print 'run az-Get-AzDevOpsMentions' + LASTEXITCODE=1])
+    Find -- hit --> Open["az-Open-WorkItemById<br/>(env-var guard + URL build)"]
+    Open --> SP["Start-Process<br/>.../_workitems/edit/12345"]
+```
+
+`az-Show-RecentActivity` is a third cache consumer in the same family: it reads **both** `activity.json` (posted/touched, `System.ChangedBy = @Me`) and `mentions.json` (tagged), unions them through `Merge-AzDevOpsActivityRows` (dedupe by Id, tag each row `Posted`/`Tagged`/`Both`), then reuses the same `Select-AzDevOpsActiveItems` → `Sort-AzDevOpsByDateDesc` (newest-first by `ChangedDate`) → `Show-AzDevOpsRows` → `Invoke-AzDevOpsRowAction` last mile.
 
 ---
 
@@ -408,10 +434,17 @@ flowchart TD
     Hier -- ok --> Title{Title param?}
 
     Title -- no --> ReadTitle["Read-Host 'title'"]
-    Title -- yes --> Desc{Description param?}
+    Title -- yes --> Iter{Iteration param?}
     ReadTitle --> TitleEmpty{empty?}
     TitleEmpty -- yes --> Abort4([abort])
-    TitleEmpty -- no --> Desc
+    TitleEmpty -- no --> Iter
+
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Iter -- yes --> Area{Area param?}
+    PickIter --> Area
+    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Area -- yes --> Desc{Description param?}
+    PickArea --> Desc
 
     Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
@@ -426,14 +459,8 @@ flowchart TD
     AC -- yes --> Feat{FeatureId >=0?}
     ReadAC --> Feat
     Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
-    Feat -- yes --> Iter{Iteration param?}
-    PickFeat --> Iter
-    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
-    Iter -- yes --> Area{Area param?}
-    PickIter --> Area
-    Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
-    Area -- yes --> Create
-    PickArea --> Create
+    Feat -- yes --> Create
+    PickFeat --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
     Create --> CreateOk{Ok?}
@@ -468,8 +495,14 @@ flowchart TD
     Email -- yes --> Hier[Read-AzDevOpsHierarchyCache]
     Hier --> Title{Title param?}
     Title -- no --> ReadTitle["Read-Host 'title'"]
-    Title -- yes --> Desc{Description param?}
-    ReadTitle --> Desc
+    Title -- yes --> Iter{Iteration param?}
+    ReadTitle --> Iter
+    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
+    Iter -- yes --> Area{Area param?}
+    PickIter --> Area
+    Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
+    Area -- yes --> Desc{Description param?}
+    PickArea --> Desc
     Desc -- no --> ReadDesc["Read-AzDevOpsFeatureDescription<br/>(Summary + Business Value prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
@@ -477,14 +510,8 @@ flowchart TD
     Prio -- yes --> Epic{ParentEpicId >= 0?}
     ReadPrio --> Epic
     Epic -- no --> PickEpic["Read-AzDevOpsEpicPick<br/>-> Read-AzDevOpsParentPick<br/>(active Epics from hierarchy.json)"]
-    Epic -- yes --> Iter{Iteration param?}
-    PickEpic --> Iter
-    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
-    Iter -- yes --> Area{Area param?}
-    PickIter --> Area
-    Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
-    Area -- yes --> Create
-    PickArea --> Create
+    Epic -- yes --> Create
+    PickEpic --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate -Type 'Feature'<br/>(StoryPoints field omitted)"]
     Create --> CreateOk{Ok?}
@@ -513,7 +540,7 @@ DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrap
 
 ## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
-Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, description via `Read-AzDevOpsUserStoryDescription`, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
 
 ```mermaid
 flowchart TD
@@ -532,7 +559,8 @@ flowchart TD
     Loop[Story loop iteration N] --> ReadTitle["Read-Host 'Story title (Enter to finish batch)'"]
     ReadTitle --> EmptyTitle{empty?}
     EmptyTitle -- yes --> Summary
-    EmptyTitle -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
+    EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
+    ReadDesc --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
     ReadAC --> ReadPrio["Read-AzDevOpsPriority -Previous $previousPriority<br/>(Enter reuses last answer)"]
     ReadPrio --> ReadSP["Read-AzDevOpsStoryPoints -Previous $previousStoryPoints"]
     ReadSP --> Create["Invoke-AzDevOpsWorkItemCreate<br/>+ Invoke-AzDevOpsParentLink"]
@@ -599,7 +627,9 @@ Private helpers:
 
 Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
-The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
+The session starts the instant you've named the firefight: the daily story and child Task are **created at the end** (debrief time), not up front, so a burning fire isn't blocked on `az boards` round-trips. The daily-story id is cached per day (`unplanned-story-YYYY-MM-DD.json`) so the next firefight grabs it with no WIQL lookup and no risk of duplicate daily stories. On the **first** creation of the day, `New-UnplannedWorkStory` runs `Read-UnplannedParentFeature` to pick a parent Feature (orphan-safe — a skipped/failed pick leaves the story parentless rather than blocking the session) and links it with `Invoke-AzDevOpsParentLink`; cached/existing stories skip the prompt. On Windows the whole at-stop `az boards` chain runs under a lightweight `New-WpfProgressWindow` spinner whose status names the step in flight (finding story → creating Task → saving items); off Windows it's a no-op stub and the per-step `Write-Host` lines stay the feedback. If the create fails after the session, `Show-UnplannedCapturedItemsFallback` prints the captured items so the work isn't lost.
+
+The debrief itself mirrors the Pomodoro timer: the captured items flush to the Task description up front (so nothing is lost on cancel), then on Windows `Invoke-UnplannedDebriefWpf` collects notes, the future-opportunity, and teammate tags through the **same themed WPF form the timer uses** (`Show-WpfTimerDebrief`, re-labelled for firefighting). The form passes no `-Items` — the captured items are already on the Task description, so the read-only review list is omitted — and passes an `-OpenAction` so an **"Open in Azure DevOps"** button opens the just-created Task; macOS/Linux falls back to `Invoke-UnplannedDebriefConsole`'s terminal prompts. Both paths share `Write-UnplannedPostVerdict` and the `New-UnplannedFutureStory` create-story tail.
 
 ```mermaid
 flowchart TD
@@ -622,7 +652,7 @@ flowchart TD
     CacheCheck -- hit --> HaveStory[daily story id]
     CacheCheck -- miss --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
     Find -- found --> SaveStory["Save-UnplannedCachedStoryId"]
-    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)"]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>Read-UnplannedParentFeature (pick parent Feature,<br/>orphan-safe) → Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)<br/>→ Invoke-AzDevOpsParentLink"]
     NewStory --> SaveStory
     SaveStory --> HaveStory
 
@@ -632,15 +662,19 @@ flowchart TD
     Fallback --> Done
     Task -- ok --> Debrief[Invoke-UnplannedDebrief]
 
-    Debrief --> FlushDesc["Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
-    FlushDesc --> AskFuture{future-feature opportunity?}
-    AskFuture -- yes --> MaybeStory["(opt) az-New-AzDevOpsUserStory"]
-    AskFuture -- no --> Tag
-    MaybeStory --> Tag
-    Tag["Select-AzDevOpsMention<br/>typed tag field → ConvertFrom-AzDevOpsMentionInput<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
+    Debrief --> FlushDesc["Save-UnplannedItemsToTask<br/>→ Format-UnplannedItemsDescription<br/>→ Set-AzDevOpsWorkItemField<br/>→ az boards work-item update (System.Description)"]
+    FlushDesc --> DebriefPlat{Test-WpfIsWindows?}
+
+    DebriefPlat -- Windows --> WpfForm["Invoke-UnplannedDebriefWpf<br/>Show-WpfTimerDebrief (shared timer form)<br/>notes + future opportunity + 'Open in Azure DevOps'<br/>+ in-form tag box (Get-AzDevOpsTeam roster)"]
+    WpfForm --> PostComment["SubmitAction: Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
+
+    DebriefPlat -- macOS/Linux --> ConsoleDebrief["Invoke-UnplannedDebriefConsole<br/>Read-Host notes + future-opportunity prompt"]
+    ConsoleDebrief --> Tag["Select-AzDevOpsMention<br/>typed tag field → ConvertFrom-AzDevOpsMentionInput<br/>→ Format-AzDevOpsMentionAnchor (data-vss-mention)"]
     Tag --> PostComment
-    PostComment["Format-UnplannedDebriefComment<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment<br/>→ az boards work-item update (--discussion)"]
-    PostComment --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
+
+    PostComment --> Verdict["Write-UnplannedPostVerdict<br/>(Get-TimerResultExitCode)"]
+    Verdict --> FutureStory["(opt) New-UnplannedFutureStory<br/>→ az-New-AzDevOpsUserStory"]
+    FutureStory --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
     DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
@@ -676,13 +710,17 @@ graph LR
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
+    ShowA(["az-Show-Assigned"]):::pub
     OpenA(["az-Open-Assigned"]):::pub
     GetM(["az-Get-AzDevOpsMentions"]):::pub
     OpenM(["az-Open-Mention"]):::pub
+    RecentAct(["az-Show-RecentActivity"]):::pub
     Tree(["az-Show-Tree"]):::pub
     Board(["az-Show-Board"]):::pub
     Epics(["az-Show-Epics"]):::pub
     Orphans(["az-Show-Orphans"]):::pub
+    CurSprint(["az-Show-CurrentSprint"]):::pub
+    BySprint(["az-Show-ItemsBySprint"]):::pub
     ShowAreas(["az-Show-Areas"]):::pub
     ShowIters(["az-Show-Iterations"]):::pub
     GetAreas(["az-Get-AzDevOpsAreas"]):::pub
@@ -695,6 +733,7 @@ graph LR
     NewTask(["az-New-Task"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
     FindText(["az-Find-AzDevOpsText"]):::pub
+    FindItem(["az-Find-AzDevOpsItem"]):::pub
     OpenHWiql(["az-Open-HierarchyWiqls"]):::pub
     ShowFeats(["az-Show-Features"]):::pub
 
@@ -713,9 +752,16 @@ graph LR
     UWStoryCachePath[Get-UnplannedStoryCachePath]:::priv
     FindUW[Find-UnplannedWorkStoryId]:::priv
     NewUWStory[New-UnplannedWorkStory]:::priv
+    UWParentFeat[Read-UnplannedParentFeature]:::priv
+    UWProgress[New-WpfProgressWindow]:::priv
     NewUWTask[New-UnplannedWorkTask]:::priv
     UWFallback[Show-UnplannedCapturedItemsFallback]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
+    InvUWDebriefWpf[Invoke-UnplannedDebriefWpf]:::priv
+    InvUWDebriefConsole[Invoke-UnplannedDebriefConsole]:::priv
+    UWSaveItems[Save-UnplannedItemsToTask]:::priv
+    UWPostVerdict[Write-UnplannedPostVerdict]:::priv
+    UWFutureStory[New-UnplannedFutureStory]:::priv
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
@@ -823,10 +869,13 @@ graph LR
     ReadJson[Read-AzDevOpsJsonCache]:::priv
     ConvA[ConvertFrom-AzDevOpsAssignedItem]:::priv
     ConvM[ConvertFrom-AzDevOpsMentionItem]:::priv
+    ConvAct[ConvertFrom-AzDevOpsActivityItem]:::priv
     ConvH[ConvertFrom-AzDevOpsHierarchyItem]:::priv
     HtmlText[ConvertFrom-AzDevOpsHtmlText]:::priv
     ReadA[Read-AzDevOpsAssignedCache]:::priv
     ReadM[Read-AzDevOpsMentionsCache]:::priv
+    ReadAct[Read-AzDevOpsActivityCache]:::priv
+    MergeAct[Merge-AzDevOpsActivityRows]:::priv
     ReadH[Read-AzDevOpsHierarchyCache]:::priv
     ReadHForProj[Read-AzDevOpsHierarchyCacheForProject]:::priv
 
@@ -834,6 +883,7 @@ graph LR
     Closed[Get-AzDevOpsClosedStates]:::priv
     Stale[Write-AzDevOpsStaleBanner]:::priv
     SelAct[Select-AzDevOpsActiveItems]:::priv
+    Rows[Get-AzDevOpsAssignedRows]:::priv
     Sort[Sort-AzDevOpsByDateDesc]:::priv
     Trunc[Format-AzDevOpsTruncatedTitle]:::priv
     TitleCol[Get-AzDevOpsTitleColumn]:::priv
@@ -863,6 +913,10 @@ graph LR
     StatusRows[Get-AzDevOpsCacheStatusRows]:::priv
     ActionRow[New-AzDevOpsActionRow]:::priv
 
+    %% Flat fuzzy search helpers (azdevops_find.ps1)
+    FuzzyMatch[Get-AzDevOpsFuzzyMatches]:::priv
+    FuzzyScore[Get-AzDevOpsFuzzyScore]:::priv
+
     %% Interactive post-selection row actions (azdevops_views.ps1 + azdevops_classification.ps1)
     RowAction[Invoke-AzDevOpsRowAction]:::priv
     OpenAllSel[Invoke-AzDevOpsOpenAllSelected]:::priv
@@ -876,10 +930,18 @@ graph LR
     %% URL builders (shared base)
     UrlBase[Get-AzDevOpsUrlBase]:::priv
     BoardsUrl[Get-AzDevOpsBoardsUrl]:::priv
+    AsgUrl[Get-AzDevOpsAssignedToMeUrl]:::priv
 
     %% Show-Features cache source + empty-state hint
     FeatSrc[Read-AzDevOpsFeaturesSource]:::priv
     NoFeatHint[Write-AzDevOpsNoFeaturesHint]:::priv
+
+    %% Sprint views helpers (azdevops_views.ps1)
+    SprintGrid[Show-AzDevOpsSprintGrid]:::priv
+    SprintPool[Get-AzDevOpsSprintItemPool]:::priv
+    SprintCur[Resolve-AzDevOpsCurrentIteration]:::priv
+    SprintBanner[Write-AzDevOpsCurrentSprintBanner]:::priv
+    SprintSort[Sort-AzDevOpsByClosedLast]:::priv
 
     %% az-New-Task picker
     PStory[Read-AzDevOpsStoryPick]:::priv
@@ -1040,15 +1102,17 @@ graph LR
     ReadH --> ConvH
     ConvH --> HtmlText
 
-    GetA --> ReadA
-    GetA --> Stale --> Age
-    GetA --> SelAct --> Closed
-    GetA --> Sort
-    GetA --> TitleCol --> Trunc
+    GetA --> Rows
+    ShowA --> Rows
+    Rows --> ReadA
+    Rows --> Stale --> Age
+    Rows --> SelAct --> Closed
+    Rows --> Sort
+    Rows --> TitleCol --> Trunc
     GetA --> ShowRows
-    OpenA --> ReadA
-    OpenA --> Find
-    OpenA --> OpenUrl --> WiUrl --> WiPfx
+    ShowA --> ShowRows
+    OpenA --> AsgUrl --> UrlBase
+    OpenUrl --> WiUrl --> WiPfx
     OpenUrl --> Az
     Find --> WiUrl
 
@@ -1062,6 +1126,17 @@ graph LR
     OpenM --> ReadM
     OpenM --> Find
     OpenM --> OpenUrl
+
+    RecentAct --> ReadAct
+    RecentAct --> ReadM
+    RecentAct --> Stale
+    RecentAct --> MergeAct
+    RecentAct --> SelAct
+    RecentAct --> Sort
+    RecentAct --> TitleCol
+    RecentAct --> ShowRows
+    RecentAct --> RowAction
+    ReadAct --> ReadJson --> ConvAct
 
     Tree --> ReadH
     Tree --> Stale
@@ -1090,6 +1165,31 @@ graph LR
     Orphans --> AreaMatch
     Orphans --> TitleCol
     Orphans --> ShowRows
+
+    FindItem --> ReadH
+    FindItem --> Stale
+    FindItem --> SelAct
+    FindItem --> FuzzyMatch --> FuzzyScore
+    FindItem --> TitleCol
+    FindItem --> GridAvail
+    FindItem --> ShowRows
+    FindItem --> RowAction
+
+    %% Sprint views — both delegate the pool→filter→sort→render→dispatch body to SprintGrid
+    CurSprint --> SprintCur --> ReadRows
+    SprintCur --> FmtDate
+    CurSprint --> SprintBanner
+    CurSprint --> SprintGrid
+    BySprint --> PKind
+    BySprint --> Stale
+    BySprint --> SprintGrid
+    SprintGrid --> SprintPool
+    SprintPool --> ReadH
+    SprintPool --> ReadA
+    SprintGrid --> SprintSort --> Closed
+    SprintGrid --> TitleCol
+    SprintGrid --> ShowRows
+    SprintGrid --> RowAction
 
     %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
@@ -1222,6 +1322,7 @@ graph LR
     NewSB --> ReadH
     NewSB --> ParentTest
     NewSB --> ResIA
+    NewSB --> USDesc
     NewSB --> AC
     NewSB --> Pri
     NewSB --> Pts
@@ -1243,6 +1344,8 @@ graph LR
     UWGetCachedStory --> UWJsonRead
     GetDaily --> FindUW --> Boards
     GetDaily --> NewUWStory --> InvCreate
+    NewUWStory --> UWParentFeat --> PFeat
+    NewUWStory --> InvLink
     GetDaily --> UWSaveCachedStory
     UWSaveCachedStory --> UWStoryCachePath
     UWSaveCachedStory --> UWJsonSave
@@ -1253,11 +1356,19 @@ graph LR
     StartUW --> UWFallback
     StartUW --> UWBalloon
     StartUW --> WpfStopwatch
+    StartUW --> UWProgress
     StartUW --> InvUWDebrief
-    InvUWDebrief --> SetField
-    InvUWDebrief --> AddDisc
-    InvUWDebrief --> NewS
+    InvUWDebrief --> UWSaveItems --> SetField
+    InvUWDebrief --> InvUWDebriefWpf
+    InvUWDebrief --> InvUWDebriefConsole
     InvUWDebrief --> UWLedger
+    InvUWDebriefWpf --> AddDisc
+    InvUWDebriefWpf --> UWPostVerdict
+    InvUWDebriefWpf --> UWFutureStory
+    InvUWDebriefConsole --> AddDisc
+    InvUWDebriefConsole --> UWPostVerdict
+    InvUWDebriefConsole --> UWFutureStory
+    UWFutureStory --> NewS
     NewUWDebrief --> AddDisc
     NewUWDebrief --> UWLedger
 
@@ -1272,9 +1383,11 @@ graph LR
     UWRosterSync --> UWResolve --> Identity --> AzJson
     UWResolve --> UWMemberRec
     UWRosterSync --> UWTeamSave
-    InvUWDebrief --> UWMentionPick
+    InvUWDebriefConsole --> UWMentionPick
     NewUWDebrief --> UWMentionPick
-    InvUWDebrief --> UWMentionLine
+    InvUWDebriefWpf --> UWGetTeam
+    InvUWDebriefWpf --> UWMentionLine
+    InvUWDebriefConsole --> UWMentionLine
     NewUWDebrief --> UWMentionLine
     UWMentionPick --> UWGetTeam
     UWMentionPick --> UWMentionInput

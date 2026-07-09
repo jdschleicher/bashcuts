@@ -28,6 +28,9 @@ function Get-AzDevOpsAppRoot {
 #   mentions.json   - items where the user's email (or '@') appears in
 #                     [System.History] (best-effort - WIQL has no first-class
 #                     "@-mention" predicate)
+#   activity.json   - items where [System.ChangedBy] = @Me (best-effort proxy
+#                     for "work items I posted/commented on" - WIQL has no
+#                     first-class "I authored a revision" predicate)
 #   hierarchy.json  - WorkItemLinks tree of Epic/Feature/User Story rows
 #                     in the configured project (parent->child Hierarchy-Forward)
 #   last-sync.json  - { Timestamp (round-trip), Counts: {dataset: rows} }
@@ -62,6 +65,7 @@ function Get-AzDevOpsCachePathsForSlug {
         Dir        = $cacheDir
         Assigned   = Join-Path $cacheDir 'assigned.json'
         Mentions   = Join-Path $cacheDir 'mentions.json'
+        Activity   = Join-Path $cacheDir 'activity.json'
         Hierarchy  = Join-Path $cacheDir 'hierarchy.json'
         Iterations = Join-Path $cacheDir 'iterations.json'
         Areas      = Join-Path $cacheDir 'areas.json'
@@ -212,6 +216,10 @@ $script:AzDevOpsDefaultMentionsWiql = @"
 Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '{{AZ_USER_EMAIL}}'
 "@
 
+$script:AzDevOpsDefaultActivityWiql = @"
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.ChangedBy] = @Me
+"@
+
 
 function Get-AzDevOpsConfigPaths {
     $configDir  = Join-Path (Get-AzDevOpsAppRoot) 'config'
@@ -225,6 +233,7 @@ function Get-AzDevOpsConfigPaths {
         UserStoriesQuery = Join-Path $queriesDir 'user-stories.wiql'
         AssignedQuery    = Join-Path $queriesDir 'assigned.wiql'
         MentionsQuery    = Join-Path $queriesDir 'mentions.wiql'
+        ActivityQuery    = Join-Path $queriesDir 'activity.wiql'
     }
 }
 
@@ -262,6 +271,11 @@ function Get-AzDevOpsQueryDefaults {
             Name    = 'mentions'
             Path    = $paths.MentionsQuery
             Default = $script:AzDevOpsDefaultMentionsWiql
+        },
+        [PSCustomObject]@{
+            Name    = 'activity'
+            Path    = $paths.ActivityQuery
+            Default = $script:AzDevOpsDefaultActivityWiql
         }
     )
 
@@ -318,7 +332,7 @@ function Get-AzDevOpsWiql {
     #   {{AZ_USER_EMAIL}} - "@$env:AZ_USER_EMAIL" when set, otherwise "@" fallback
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('epics', 'features', 'user-stories', 'assigned', 'mentions')]
+        [ValidateSet('epics', 'features', 'user-stories', 'assigned', 'mentions', 'activity')]
         [string] $Name
     )
 

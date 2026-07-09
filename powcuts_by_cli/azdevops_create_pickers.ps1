@@ -79,27 +79,42 @@ function Read-AzDevOpsStoryPoints {
 
 
 function Read-AzDevOpsAcceptanceCriteria {
-    # One initial AC, then loop on Y/N. Joins additional ACs with '<br/><br/>'
-    # so they render as separate lines in the work-item editor. The existing
-    # az-create-userstory used `until ($resp -eq 'n')` which loops forever on
-    # any non-'n' reply (empty Enter, 'yes', 'q'); this version exits on
-    # anything that isn't an affirmative yes/y.
-    $first = Read-Host 'Acceptance criterion #1'
-    $dash = '-'
-    $break = '<br/><br/>'
-    $ac = "$dash $first"
+    # Reads acceptance criteria one per line: prompt repeatedly and capture
+    # every non-empty entry as its own AC, stopping on the first blank line.
+    # This replaces an earlier 'More AC? (Y/N)' gate that discarded any reply
+    # which wasn't 'y'/'yes' - so typing a real criterion at that prompt (a
+    # natural thing to do, and one that usually contains a '/', which is just
+    # literal text to Read-Host) ended the loop and silently dropped the entry.
+    # A blank-to-finish loop can never lose an entered criterion. Each collected
+    # AC renders on its own line prefixed with a ballot-box glyph so the
+    # AcceptanceCriteria field (which stores HTML) shows a checklist in the AzDO
+    # work-item UI rather than plain dashes. A leading glyph is used instead of a
+    # raw <input type="checkbox"> because the field's HTML sanitizer strips form
+    # elements.
+    $uncheckedBox = "$([char]0x2610)"   # ballot box (empty checkbox)
+    $break = '<br/>'
 
+    $criteria = [System.Collections.Generic.List[string]]::new()
+
+    $index = 1
     while ($true) {
-        $resp = Read-Host 'More AC? (Y/N)'
-        if ($resp -notmatch '^(y|yes)$') {
+        $prompt = if ($index -eq 1) {
+            'Acceptance criterion #1'
+        } else {
+            "Acceptance criterion #$index (blank to finish)"
+        }
+
+        $entry = Read-Host $prompt
+        if (-not $entry) {
             break
         }
 
-        $next = Read-Host 'Enter additional AC'
-        $ac = "$ac $break $dash $next"
+        $criteria.Add($entry)
+        $index++
     }
 
-    return $ac
+    $checklist = ($criteria | ForEach-Object { "$uncheckedBox $_" }) -join $break
+    return $checklist
 }
 
 
@@ -108,7 +123,7 @@ function Read-AzDevOpsUserStoryDescription {
     # template. Each clause is required - re-prompts until a non-empty value
     # is entered - then joins them with HTML line breaks so each clause
     # renders on its own line in the AzDO Description field (which stores
-    # HTML): "As a <persona>" / "I want <outcome>" / "so that <benefit>".
+    # HTML): "As a <persona>" / "I want <outcome>" / "So that <benefit>".
     $persona = ''
     while (-not $persona) {
         $persona = (Read-Host 'As a ...').Trim()
@@ -121,7 +136,7 @@ function Read-AzDevOpsUserStoryDescription {
 
     $benefit = ''
     while (-not $benefit) {
-        $benefit = (Read-Host 'so that ...').Trim()
+        $benefit = (Read-Host 'So that ...').Trim()
     }
 
     $clauseBreak = '<br/><br/>'
@@ -129,7 +144,7 @@ function Read-AzDevOpsUserStoryDescription {
     $clauses = @(
         "As a $persona"
         "I want $outcome"
-        "so that $benefit"
+        "So that $benefit"
     )
 
     $description = $clauses -join $clauseBreak
@@ -143,8 +158,10 @@ function Read-AzDevOpsFeatureDescription {
     # Business Value - each under a bold HTML heading so they render as bold
     # headings in the AzDO Description field (which stores HTML). Mirrors
     # Read-AzDevOpsUserStoryDescription: each clause is required (re-prompts
-    # until non-empty) and the two are joined with '<br/><br/>' so they render
-    # on separate lines: "<b>Summary</b> <text>" / "<b>Business Value</b> <text>".
+    # until non-empty). Within a section the heading sits on its own line above
+    # its text (joined with '<br/>'), and the two sections are separated by a
+    # blank line ('<br/><br/>'), so the Description renders as:
+    #   "<b>Summary</b>" / "<text>" / "" / "<b>Business Value</b>" / "<text>".
     $summaryHeading       = '<b>Summary</b>'
     $businessValueHeading = '<b>Business Value</b>'
 
@@ -158,11 +175,12 @@ function Read-AzDevOpsFeatureDescription {
         $businessValue = (Read-Host 'Business Value').Trim()
     }
 
-    $clauseBreak = '<br/><br/>'
+    $headingBreak = '<br/>'
+    $clauseBreak  = '<br/><br/>'
 
     $clauses = @(
-        "$summaryHeading $summary"
-        "$businessValueHeading $businessValue"
+        "$summaryHeading$headingBreak$summary"
+        "$businessValueHeading$headingBreak$businessValue"
     )
 
     $description = $clauses -join $clauseBreak

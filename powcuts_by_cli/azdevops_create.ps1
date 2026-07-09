@@ -549,6 +549,13 @@ function az-New-AzDevOpsUserStory {
         return
     }
 
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
     if (-not $PSBoundParameters.ContainsKey('Description')) {
         $Description = Read-AzDevOpsUserStoryDescription
     }
@@ -574,13 +581,6 @@ function az-New-AzDevOpsUserStory {
             }
         }
     }
-
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
-    if (-not $resolved.Ok) {
-        return
-    }
-    $Iteration = $resolved.Iteration
-    $Area = $resolved.Area
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
     $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
@@ -652,6 +652,13 @@ function az-New-Task {
         return
     }
 
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'TASK'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
     if (-not $PSBoundParameters.ContainsKey('Description')) {
         $Description = Read-Host 'What is the description?'
     }
@@ -663,13 +670,6 @@ function az-New-Task {
     if ($ParentStoryId -lt 0) {
         $ParentStoryId = Read-AzDevOpsStoryPick -Hierarchy $hierarchy -ChildType 'TASK'
     }
-
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'TASK'
-    if (-not $resolved.Ok) {
-        return
-    }
-    $Iteration = $resolved.Iteration
-    $Area = $resolved.Area
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'TASK'
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'TASK'
@@ -745,6 +745,13 @@ function az-New-AzDevOpsFeature {
         return
     }
 
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'FEATURE'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
     if (-not $PSBoundParameters.ContainsKey('Description')) {
         $Description = Read-AzDevOpsFeatureDescription
     }
@@ -762,13 +769,6 @@ function az-New-AzDevOpsFeature {
             }
         }
     }
-
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'FEATURE'
-    if (-not $resolved.Ok) {
-        return
-    }
-    $Iteration = $resolved.Iteration
-    $Area = $resolved.Area
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
@@ -844,6 +844,13 @@ function az-New-AzDevOpsEpic {
         return
     }
 
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'EPIC'
+    if (-not $resolved.Ok) {
+        return
+    }
+    $Iteration = $resolved.Iteration
+    $Area = $resolved.Area
+
     if (-not $PSBoundParameters.ContainsKey('Description')) {
         $Description = Read-Host 'What is the description?'
     }
@@ -851,13 +858,6 @@ function az-New-AzDevOpsEpic {
     if ($Priority -lt 1 -or $Priority -gt 4) {
         $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'EPIC'
     }
-
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'EPIC'
-    if (-not $resolved.Ok) {
-        return
-    }
-    $Iteration = $resolved.Iteration
-    $Area = $resolved.Area
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'EPIC'
     $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC'
@@ -939,7 +939,8 @@ function Test-AzDevOpsParentIsFeature {
 function az-New-AzDevOpsFeatureStories {
     # Batch-create child User Stories under an existing Feature. Captures
     # parent / area / iteration ONCE up front; loops per-story prompts for
-    # title, AC, priority (Enter to reuse last), story points (same). At the
+    # title, description (As a / I want / so that), AC, priority (Enter to
+    # reuse last), story points (same). At the
     # end of each story prompts "Add another story? (y/N/c)" - 'c' re-picks
     # area / iteration without exiting the loop. Empty title at the top of
     # any iteration aborts the batch cleanly.
@@ -1005,6 +1006,7 @@ function az-New-AzDevOpsFeatureStories {
             break
         }
 
+        $description = Read-AzDevOpsUserStoryDescription
         $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
         $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
         $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints
@@ -1012,7 +1014,7 @@ function az-New-AzDevOpsFeatureStories {
 
         $createArgs = @{
             Title              = $title
-            Description        = ''
+            Description        = $description
             Priority           = $priority
             StoryPoints        = $storyPoints
             AcceptanceCriteria = $acceptanceCriteria
