@@ -240,6 +240,28 @@ dx-retrieve-one() {
 
 }
 
+dx-retrieve-by-metadata-and-alias() {
+
+    echo "What is the alias/username of the org retrieving from? (-o | --target-org)"
+    read -r ALIAS
+    [ -z "$ALIAS" ] && { echo "Error: Org alias cannot be empty."; return 1; }
+
+    # Prompt for the metadata type only
+    echo "What is the metadata type you are retrieving? (e.g., Flow, ApexClass)"
+    read -r METADATA_TYPE
+    [ -z "$METADATA_TYPE" ] && { echo "Error: Metadata type cannot be empty."; return 1; }
+
+    echo "----------------------------------------"
+    echo "Running: sf project retrieve start --metadata \"$METADATA_TYPE\" --target-org $ALIAS --ignore-conflicts"
+    echo "----------------------------------------"
+
+    # Execute and time the Salesforce CLI command with conflicts ignored
+    time sf project retrieve start \
+                                --metadata "$METADATA_TYPE" \
+                                --target-org "$ALIAS" \
+                                --ignore-conflicts
+}
+
 dx-retrieve-one-api-override() {
 
     echo "What is the alias/username of the org retrieving from \(-u \| --targetusername\)?"
