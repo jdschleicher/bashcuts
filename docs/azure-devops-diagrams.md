@@ -1025,6 +1025,13 @@ graph LR
     SprintCur[Resolve-AzDevOpsCurrentIteration]:::priv
     SprintBanner[Write-AzDevOpsCurrentSprintBanner]:::priv
     SprintSort[Sort-AzDevOpsByClosedLast]:::priv
+    SelIterRow[Select-AzDevOpsCurrentIterationRow]:::priv
+
+    %% Outlook day-view section (azdevops_views.ps1) — cache-only today-slice
+    DaySection[Show-AzDevOpsDaySection]:::priv
+    DayRows[Get-AzDevOpsDayViewRows]:::priv
+    CurCache[Resolve-AzDevOpsCurrentIterationFromCache]:::priv
+    DaySort[Sort-AzDevOpsByPriority]:::priv
 
     %% az-New-Task picker
     PStory[Read-AzDevOpsStoryPick]:::priv
@@ -1293,6 +1300,24 @@ graph LR
     SprintGrid --> TitleCol
     SprintGrid --> ShowRows
     SprintGrid --> RowAction
+
+    %% Current-iteration bracket test extracted into SelIterRow (shared by
+    %% the live-capable Resolve and the cache-only Resolve...FromCache)
+    SprintCur --> SelIterRow
+
+    %% Outlook day-view section — cache-only today-slice registered into
+    %% ol-Show-OutlookDay (no live az fetch, no auth prompt)
+    DaySection --> Paths
+    DaySection --> Stale
+    DaySection --> DayRows
+    DayRows --> ReadA
+    DayRows --> SelAct
+    DayRows --> CurCache
+    DayRows --> DaySort
+    DayRows --> TitleCol
+    CurCache --> ReadCls
+    CurCache --> ClsRows
+    CurCache --> SelIterRow
 
     %% Post-selection row actions (shared by Tree / Board / Features / Orphans)
     Tree --> RowAction
