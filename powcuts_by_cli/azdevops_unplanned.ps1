@@ -471,11 +471,12 @@ function Format-UnplannedItemsDescription {
         $lines += '(no items captured)'
     } else {
         foreach ($entry in $Items) {
-            $lines += "$bullet [$($entry.Time)] $($entry.Text)"
+            $itemText = ConvertTo-AzDevOpsHtmlLineBreak -Text $entry.Text
+            $lines += "$bullet [$($entry.Time)] $itemText"
         }
     }
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
@@ -502,13 +503,13 @@ function Format-UnplannedDebriefComment {
 
     if ($Debrief) {
         $lines += "$iconMemo Debrief:"
-        $lines += $Debrief
+        $lines += ConvertTo-AzDevOpsHtmlLineBreak -Text $Debrief
         $lines += ''
     }
 
     if ($FutureFeature) {
         $lines += "$iconRocket Future opportunity:"
-        $lines += $FutureFeature
+        $lines += ConvertTo-AzDevOpsHtmlLineBreak -Text $FutureFeature
         $lines += ''
     }
 
@@ -520,7 +521,7 @@ function Format-UnplannedDebriefComment {
 
     $lines += '<em>via bashcuts az-Start-UnplannedWork</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
@@ -601,7 +602,7 @@ function Format-UnplannedDailyDebrief {
     $lines += ''
     $lines += '<em>via bashcuts New-UnplannedWorkDebrief</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 

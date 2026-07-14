@@ -839,15 +839,18 @@ function Format-TimerCommentBody {
         "$iconCheck Pomodoro complete — $totalDisplay"
     }
 
+    $debriefBody = ConvertTo-AzDevOpsHtmlLineBreak -Text $Debrief
+    $nextBody    = ConvertTo-AzDevOpsHtmlLineBreak -Text $Next
+
     $lines = @(
         $header,
         "<em>$timestamp</em>",
         '',
         "$iconMemo Debrief:",
-        $Debrief,
+        $debriefBody,
         '',
         "$iconRocket Next:",
-        $Next,
+        $nextBody,
         ''
     )
 
@@ -866,7 +869,7 @@ function Format-TimerCommentBody {
 
     $lines += '<em>via bashcuts Start-TimerSession</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
