@@ -476,7 +476,7 @@ function Format-UnplannedItemsDescription {
         }
     }
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
@@ -521,7 +521,7 @@ function Format-UnplannedDebriefComment {
 
     $lines += '<em>via bashcuts az-Start-UnplannedWork</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
@@ -602,7 +602,7 @@ function Format-UnplannedDailyDebrief {
     $lines += ''
     $lines += '<em>via bashcuts New-UnplannedWorkDebrief</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 

@@ -869,7 +869,7 @@ function Format-TimerCommentBody {
 
     $lines += '<em>via bashcuts Start-TimerSession</em>'
 
-    $body = $lines -join '<br/>'
+    $body = $lines -join $script:AzDevOpsHtmlLineBreak
     return $body
 }
 
