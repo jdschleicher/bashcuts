@@ -264,27 +264,39 @@ function Resolve-AzDevOpsTypeTags {
 
 
 function Resolve-AzDevOpsTypeRequiredFields {
-    # Returns a hashtable of <RefName> = <value or 'prompt'> for the given
-    # type, or an empty hashtable. Callers walk the entries and, for each
-    # 'prompt' value, Read-Host for input; literal values pass through to
-    # `az boards work-item create --fields ...`.
+    # Returns a hashtable of <RefName> = <spec> for the given type, merging two
+    # sources so both the JSON config and the ProjectMap feed the same reader:
+    #   1. field-templates.json (Get-AzDevOpsFieldTemplateForType) - lower
+    #      precedence, machine-wide extra fields per type.
+    #   2. $global:AzDevOpsProjectMap[...].Types..RequiredFields - higher
+    #      precedence, overriding the JSON entry for any field it names.
+    # Each <spec> is either the literal 'prompt' string, a literal passthrough
+    # value, or a hashtable @{ Mode = 'grid'|'prompt'; Options = @(...) }.
+    # Read-AzDevOpsRequiredFields walks the result and resolves each spec.
     param([Parameter(Mandatory)] [string] $Type)
 
+    $merged = @{}
+
+    if (Get-Command Get-AzDevOpsFieldTemplateForType -ErrorAction SilentlyContinue) {
+        $fromJson = Get-AzDevOpsFieldTemplateForType -Type $Type
+        if ($fromJson -is [hashtable]) {
+            foreach ($refName in $fromJson.Keys) {
+                $merged[$refName] = $fromJson[$refName]
+            }
+        }
+    }
+
     $typeConfig = Get-AzDevOpsTypeConfig -Type $Type
-    if ($null -eq $typeConfig) {
-        return @{}
+    if ($null -ne $typeConfig -and $typeConfig.ContainsKey('RequiredFields')) {
+        $fields = $typeConfig['RequiredFields']
+        if ($fields -is [hashtable]) {
+            foreach ($refName in $fields.Keys) {
+                $merged[$refName] = $fields[$refName]
+            }
+        }
     }
 
-    if (-not $typeConfig.ContainsKey('RequiredFields')) {
-        return @{}
-    }
-
-    $fields = $typeConfig['RequiredFields']
-    if ($null -eq $fields -or $fields -isnot [hashtable]) {
-        return @{}
-    }
-
-    return $fields
+    return $merged
 }
 
 

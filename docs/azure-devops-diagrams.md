@@ -205,7 +205,7 @@ flowchart TD
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles"]
+    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles<br/>+ field-templates.json / .example.json via Initialize-AzDevOpsFieldTemplates"]
     S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
@@ -462,8 +462,11 @@ flowchart TD
     AC -- yes --> Feat{FeatureId >=0?}
     ReadAC --> Feat
     Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
-    Feat -- yes --> Create
-    PickFeat --> Create
+    Feat -- yes --> ReqF
+    PickFeat --> ReqF
+
+    ReqF["Read-AzDevOpsRequiredFields<br/>(field-templates.json + ProjectMap RequiredFields, merged)<br/>grid → Read-AzDevOpsFieldGridValue → Read-AzDevOpsGridPick;<br/>prompt → Read-Host; literal → passthrough"]
+    ReqF --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
     Create --> CreateOk{Ok?}
@@ -895,6 +898,13 @@ graph LR
     QNames[Get-AzDevOpsHierarchyQueryNames]:::priv
     InvHier[Invoke-AzDevOpsHierarchyQueries]:::priv
     MkDir[New-AzDevOpsDirectoryIfMissing]:::priv
+
+    %% Field templates (azdevops_paths.ps1)
+    FTInit[Initialize-AzDevOpsFieldTemplates]:::priv
+    FTGet[Get-AzDevOpsFieldTemplates]:::priv
+    FTForType[Get-AzDevOpsFieldTemplateForType]:::priv
+    FTSpec[ConvertTo-AzDevOpsFieldSpec]:::priv
+    ReqGrid[Read-AzDevOpsFieldGridValue]:::priv
 
     %% Data-plane wrappers (azdevops_db.ps1)
     AzJson[Invoke-AzDevOpsAzJson]:::priv
@@ -1570,6 +1580,13 @@ graph LR
     RTags --> TypeCfg
     RTags --> ActCfg
     RReq --> TypeCfg
+    RReq --> FTForType
+    FTForType --> FTGet
+    FTForType --> TypeKey
+    FTGet --> FTInit
+    FTGet --> FTSpec
+    FTInit --> QPaths
+    FTInit --> MkDir
     RPri --> TypeCfg
     RPts --> TypeCfg
     RScope --> TypeCfg
@@ -1583,6 +1600,8 @@ graph LR
     RPtsP --> Pts
     RTagsE --> RTags
     ReadReq --> RReq
+    ReadReq --> ReqGrid
+    ReqGrid --> GridPick
 
     NewS --> RPriP
     NewS --> RPtsP
@@ -1621,6 +1640,7 @@ graph LR
     OpenEpics(["az-Open-EpicsWiql"]):::pub
     OpenFeats(["az-Open-FeaturesWiql"]):::pub
     OpenStories(["az-Open-UserStoriesWiql"]):::pub
+    OpenFieldTmpl(["az-Open-FieldTemplates"]):::pub
     OpenSchema(["az-Open-Schema"]):::pub
 
     %% Path-inspector helper + path-discovery helpers used by the openers above
@@ -1654,6 +1674,11 @@ graph LR
     OpenAsg & OpenMen & OpenHier & OpenIter & OpenAreas & OpenLast & OpenLog --> OpenPath
     OpenEpics & OpenFeats & OpenStories & OpenSchema --> OpenPath
     OpenPath --> OSHandler
+
+    %% az-Open-FieldTemplates seeds via Initialize-AzDevOpsFieldTemplates, then
+    %% Start-Processes each seeded path directly (like az-Open-HierarchyWiqls).
+    OpenFieldTmpl --> FTInit
+    OpenFieldTmpl --> OSHandler
 
     %% Schema management wiring
     GetSchema --> SchemaRead
