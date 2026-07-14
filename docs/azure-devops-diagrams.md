@@ -41,6 +41,7 @@ flowchart LR
         GetM["az-Get-AzDevOpsMentions"]
         OpenM["az-Open-Mention"]
         RecentActivity["az-Show-RecentActivity"]
+        Digest["az-Show-AzDevOpsDigest<br/>(also on-open, internal)"]
         Tree["az-Show-Tree"]
         Board["az-Show-Board"]
         Epics["az-Show-Epics"]
@@ -125,6 +126,7 @@ flowchart LR
     OpenM --> MentionsJson
     RecentActivity --> ActivityJson
     RecentActivity --> MentionsJson
+    Digest --> HierJson
     Tree --> HierJson
     Board --> HierJson
     Epics --> HierJson
@@ -678,6 +680,8 @@ Private helpers:
 - `Test-AzDevOpsAutoSyncLockActive` → `$true` when the lock is younger than the TTL
 - `Get-AzDevOpsPlatform` → `'Windows' | 'Posix' | 'Unknown'` (retained — still used by `azdevops_schema.ps1`)
 
+**Sibling on-open behavior:** after this background-sync gate, `powcuts_home.ps1` also invokes `Invoke-AzDevOpsStartupDigest` to print `az-Show-AzDevOpsDigest` — a cache-only activity summary (new comments, new items this week, open commented stories). It makes no `az` calls, is a silent no-op when the hierarchy cache is absent, and honors the `$env:AZ_DEVOPS_NO_DIGEST` opt-out. Its helper graph is in Diagram 13.
+
 ---
 
 ## 12. `az-Start-UnplannedWork` — firefighting session loop + debrief
@@ -935,6 +939,16 @@ graph LR
     MergeAct[Merge-AzDevOpsActivityRows]:::priv
     ReadH[Read-AzDevOpsHierarchyCache]:::priv
     ReadHForProj[Read-AzDevOpsHierarchyCacheForProject]:::priv
+
+    %% Startup activity digest (azdevops_workitems.ps1)
+    Digest(["az-Show-AzDevOpsDigest"]):::pub
+    StartupDigest[Invoke-AzDevOpsStartupDigest]:::priv
+    ReadDigest[Read-AzDevOpsDigestRows]:::priv
+    ConvDigest[ConvertFrom-AzDevOpsDigestItem]:::priv
+    NullDate[ConvertTo-AzDevOpsNullableDate]:::priv
+    WeekStart[Get-AzDevOpsWeekStart]:::priv
+    DigestRow[Format-AzDevOpsDigestRow]:::priv
+    DigestSect[Write-AzDevOpsDigestSection]:::priv
 
     %% Shared scaffolding
     Closed[Get-AzDevOpsClosedStates]:::priv
@@ -1203,6 +1217,16 @@ graph LR
     RecentAct --> ShowRows
     RecentAct --> RowAction
     ReadAct --> ReadJson --> ConvAct
+
+    StartupDigest --> Digest
+    Digest --> ReadDigest
+    Digest --> WeekStart
+    Digest --> Closed
+    Digest --> Sort
+    Digest --> DigestSect --> DigestRow --> Trunc
+    ReadDigest --> Paths
+    ReadDigest --> ConvDigest --> NullDate
+    ReadDigest --> FS
 
     Tree --> ReadH
     Tree --> Stale
