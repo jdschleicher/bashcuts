@@ -4,503 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Daily Viewer — Azure DevOps Agenda</title>
-<style>
-  :root {
-    --bg: #EEF1F6;
-    --surface: #FFFFFF;
-    --surface-2: #F5F7FA;
-    --border: #DCE2EC;
-    --border-strong: #C6CFDC;
-    --text: #1B2430;
-    --text-dim: #5A6675;
-    --text-faint: #8A94A3;
-    --accent: #0E6FCE;
-    --accent-weak: rgba(14,111,206,.10);
-
-    --epic:    #C77700;
-    --feature: #7B49D6;
-    --story:   #1E86BE;
-    --bug:     #D1373A;
-    --task:    #2C9E43;
-
-    --good: #2C9E43;
-    --warn: #B5820A;
-    --crit: #D1373A;
-
-    --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
-    --radius: 12px;
-
-    --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
-
-    color-scheme: light;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0F131A;
-      --surface: #171C25;
-      --surface-2: #1E2531;
-      --border: #29313D;
-      --border-strong: #38424F;
-      --text: #E7ECF3;
-      --text-dim: #97A3B4;
-      --text-faint: #6C7889;
-      --accent: #4AA3F0;
-      --accent-weak: rgba(74,163,240,.14);
-
-      --epic:    #E8A317;
-      --feature: #A47CF0;
-      --story:   #3FB4E8;
-      --bug:     #E5645F;
-      --task:    #4FBF63;
-
-      --good: #4FBF63;
-      --warn: #D9A521;
-      --crit: #E5645F;
-
-      --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
-      color-scheme: dark;
-    }
-  }
-
-  :root[data-theme="dark"] {
-    --bg: #0F131A;
-    --surface: #171C25;
-    --surface-2: #1E2531;
-    --border: #29313D;
-    --border-strong: #38424F;
-    --text: #E7ECF3;
-    --text-dim: #97A3B4;
-    --text-faint: #6C7889;
-    --accent: #4AA3F0;
-    --accent-weak: rgba(74,163,240,.14);
-    --epic: #E8A317; --feature: #A47CF0; --story: #3FB4E8; --bug: #E5645F; --task: #4FBF63;
-    --good: #4FBF63; --warn: #D9A521; --crit: #E5645F;
-    --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
-    color-scheme: dark;
-  }
-  :root[data-theme="light"] {
-    --bg: #EEF1F6;
-    --surface: #FFFFFF;
-    --surface-2: #F5F7FA;
-    --border: #DCE2EC;
-    --border-strong: #C6CFDC;
-    --text: #1B2430;
-    --text-dim: #5A6675;
-    --text-faint: #8A94A3;
-    --accent: #0E6FCE;
-    --accent-weak: rgba(14,111,206,.10);
-    --epic: #C77700; --feature: #7B49D6; --story: #1E86BE; --bug: #D1373A; --task: #2C9E43;
-    --good: #2C9E43; --warn: #B5820A; --crit: #D1373A;
-    --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
-    color-scheme: light;
-  }
-
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    font-size: 15px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  a:focus-visible,
-  summary:focus-visible,
-  button:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 6px;
-  }
-
-  .wrap {
-    max-width: 1180px;
-    margin: 0 auto;
-    padding: 22px 24px 56px;
-  }
-
-  /* ---------- top bar ---------- */
-  .topbar {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 18px;
-    flex-wrap: wrap;
-    padding-bottom: 18px;
-    margin-bottom: 22px;
-    border-bottom: 1px solid var(--border);
-  }
-  .brand h1 {
-    margin: 0;
-    font-size: 22px;
-    font-weight: 650;
-    letter-spacing: -.01em;
-  }
-  .brand .sub {
-    margin-top: 3px;
-    color: var(--text-dim);
-    font-size: 13px;
-  }
-  .brand .date {
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .synced {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12.5px;
-    color: var(--text-dim);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 6px 11px;
-    border-radius: 999px;
-  }
-  .synced .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--good);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
-  }
-  .btn {
-    font-family: inherit;
-    font-size: 12.5px;
-    color: var(--text-dim);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 6px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  .btn:hover { color: var(--text); border-color: var(--border-strong); }
-  .btn.icon { padding: 6px 8px; display: inline-flex; align-items: center; }
-  .btn.icon svg { width: 15px; height: 15px; }
-
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 5px 10px;
-  }
-  .search:focus-within { border-color: var(--accent); }
-  .search svg { width: 14px; height: 14px; color: var(--text-faint); flex: none; }
-  .search input {
-    border: 0; background: transparent; outline: none;
-    font-family: inherit; font-size: 13px; color: var(--text);
-    width: 148px;
-  }
-  .search input::placeholder { color: var(--text-faint); }
-
-  /* ---------- summary stat strip ---------- */
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-  @media (max-width: 820px) { .stats { grid-template-columns: repeat(2, 1fr); } }
-  .stat {
-    font-family: inherit;
-    text-align: left;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .stat:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
-  .stat .n {
-    font-size: 23px;
-    font-weight: 680;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    color: var(--stat, var(--text));
-  }
-  .stat .l { font-size: 12px; color: var(--text-dim); }
-  .stat.a { --stat: var(--accent); }
-  .stat.f { --stat: var(--feature); }
-  .stat.s { --stat: var(--story); }
-  .stat.g { --stat: var(--warn); }
-
-  /* ---------- grid ---------- */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
-  }
-  @media (max-width: 820px) {
-    .grid { grid-template-columns: 1fr; }
-  }
-
-  /* ---------- tile ---------- */
-  .tile {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    overflow: hidden;
-  }
-  .tile > summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 15px 18px;
-    user-select: none;
-  }
-  .tile > summary::-webkit-details-marker { display: none; }
-  .tile > summary:hover { background: var(--surface-2); }
-
-  .chev {
-    flex: none;
-    width: 16px; height: 16px;
-    color: var(--text-faint);
-    transition: transform .18s ease;
-  }
-  details[open] > summary > .chev { transform: rotate(90deg); }
-
-  .tile .tt {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    flex: 1;
-    min-width: 0;
-  }
-  .ticon {
-    flex: none;
-    width: 16px; height: 16px;
-    color: var(--tint, var(--accent));
-  }
-  #tile-agenda   { --tint: var(--accent); }
-  #tile-week     { --tint: var(--feature); }
-  #tile-activity { --tint: var(--story); }
-  #tile-focus    { --tint: var(--warn); }
-
-  .wi.hide, .event.hide, .group.hide { display: none; }
-  .nomatch {
-    display: none;
-    padding: 14px 2px 2px;
-    color: var(--text-faint);
-    font-size: 13px;
-  }
-  .tile.empty .nomatch { display: block; }
-  .tile .tt h2 {
-    margin: 0;
-    font-size: 12.5px;
-    font-weight: 700;
-    letter-spacing: .07em;
-    text-transform: uppercase;
-    color: var(--text);
-  }
-  .tile .tt .accent-i { color: var(--accent); }
-  .count {
-    font-family: var(--mono);
-    font-size: 11.5px;
-    color: var(--text-dim);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 1px 8px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ---------- per-tile freshness + refresh ---------- */
-  .tile-meta {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .stale {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11.5px;
-    color: var(--text-dim);
-    white-space: nowrap;
-  }
-  .fdot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--good);
-    flex: none;
-  }
-  .stale.warn .fdot { background: var(--warn); }
-  .stale.busy { color: var(--accent); }
-  .stale.busy .fdot { background: var(--accent); }
-
-  .refresh-btn {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px; height: 28px;
-    padding: 0;
-    color: var(--text-dim);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  .refresh-btn:hover { color: var(--accent); border-color: var(--border-strong); }
-  .refresh-btn:disabled { cursor: default; opacity: .8; }
-  .refresh-btn svg { width: 15px; height: 15px; }
-  .refresh-btn.spinning svg { animation: spin .7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) {
-    .refresh-btn.spinning svg { animation: none; }
-    .chev { transition: none; }
-  }
-
-  .tile .body {
-    padding: 4px 18px 18px;
-    border-top: 1px solid var(--border);
-  }
-
-  /* ---------- agenda events ---------- */
-  .event {
-    display: grid;
-    grid-template-columns: 88px 1fr;
-    gap: 14px;
-    padding: 14px 0;
-    border-bottom: 1px dashed var(--border);
-  }
-  .event:last-child { border-bottom: 0; }
-  .event .time {
-    font-family: var(--mono);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-  .event .time .tz { display: block; color: var(--text-faint); font-weight: 400; font-size: 11px; }
-  .event .etitle { font-weight: 600; margin-bottom: 5px; }
-  .meta { font-size: 13px; color: var(--text-dim); }
-  .meta .k { color: var(--text-faint); }
-  .where {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-weight: 500;
-  }
-  .badge-loc {
-    font-size: 11px; font-weight: 600;
-    padding: 1px 8px; border-radius: 999px;
-    background: var(--accent-weak); color: var(--accent);
-  }
-
-  /* ---------- nested drill-in groups ---------- */
-  .group { border-top: 1px solid var(--border); }
-  .group:first-child { border-top: 0; }
-  .group > summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 12px 0;
-    user-select: none;
-  }
-  .group > summary::-webkit-details-marker { display: none; }
-  .group > summary:hover .glabel { color: var(--accent); }
-  .glabel { font-weight: 600; font-size: 14px; flex: 1; }
-  .group .glist {
-    padding: 0 0 12px 26px;
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-  }
-
-  /* ---------- work item rows ---------- */
-  .wi {
-    display: flex;
-    align-items: baseline;
-    gap: 9px;
-    flex-wrap: wrap;
-  }
-  .wi .id {
-    font-family: var(--mono);
-    font-size: 12.5px;
-    font-variant-numeric: tabular-nums;
-  }
-  .type {
-    flex: none;
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 11px; font-weight: 600;
-    color: var(--text-dim);
-  }
-  .type::before {
-    content: ""; width: 9px; height: 9px; border-radius: 2px;
-    background: var(--dot, var(--text-faint));
-  }
-  .t-epic    { --dot: var(--epic); }
-  .t-feature { --dot: var(--feature); }
-  .t-story   { --dot: var(--story); }
-  .t-bug     { --dot: var(--bug); border-radius: 50%; }
-  .t-task    { --dot: var(--task); }
-  .wi .wtitle { flex: 1; min-width: 140px; }
-  .wi .wtitle a { color: var(--text); }
-  .wi .wtitle a:hover { color: var(--accent); }
-
-  .state {
-    font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
-    padding: 1px 7px; border-radius: 4px;
-    text-transform: uppercase;
-  }
-  .s-active   { color: var(--accent); background: var(--accent-weak); }
-  .s-progress { color: var(--warn);   background: color-mix(in srgb, var(--warn) 15%, transparent); }
-  .s-review   { color: var(--feature);background: color-mix(in srgb, var(--feature) 16%, transparent); }
-  .s-closing  { color: var(--good);   background: color-mix(in srgb, var(--good) 15%, transparent); }
-  .s-new      { color: var(--text-dim); background: var(--surface-2); }
-
-  .note { font-size: 12.5px; color: var(--text-dim); }
-  .check {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12px; font-weight: 600; color: var(--warn);
-  }
-  .check::before { content: "\25CB"; }        /* open circle = to confirm */
-
-  .primary {
-    display: flex; gap: 12px; align-items: flex-start;
-    padding: 13px 14px; margin: 12px 0 4px;
-    background: var(--accent-weak);
-    border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
-    border-radius: 10px;
-  }
-  .primary .star { color: var(--accent); font-size: 15px; line-height: 1.6; }
-  .primary .ptitle { font-weight: 650; }
-  .primary .psub { font-size: 12.5px; color: var(--text-dim); margin-top: 2px; }
-
-  .footer {
-    margin-top: 26px;
-    font-size: 12px;
-    color: var(--text-faint);
-    text-align: center;
-  }
-  .footer code {
-    font-family: var(--mono);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 1px 6px; border-radius: 5px;
-    color: var(--text-dim);
-  }
-</style>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
 </head>
 <body>
 <div class="wrap">
@@ -508,14 +13,14 @@
   <header class="topbar">
     <div class="brand">
       <h1>Daily Viewer</h1>
-      <div class="sub">Azure DevOps agenda &middot; <span class="date">Tuesday, July 14</span></div>
+      <p class="sub">Azure DevOps agenda &middot; <span class="date">Tuesday, July 14</span></p>
     </div>
-    <div class="toolbar">
+    <nav class="toolbar" aria-label="Viewer controls">
       <label class="search">
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <input id="search" type="search" placeholder="Filter items&hellip;" aria-label="Filter items across tiles" autocomplete="off">
       </label>
-      <span class="synced"><span class="dot"></span>Local cache</span>
+      <span class="synced"><span class="dot" aria-hidden="true"></span>Local cache</span>
       <button class="btn" id="refreshAll" type="button">Refresh all</button>
       <button class="btn" id="collapseAll" type="button">Collapse all</button>
       <button class="btn" id="expandAll" type="button">Expand all</button>
@@ -523,365 +28,255 @@
         <svg id="icon-sun" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9L13 13M13 3l-1.1 1.1M4.1 11.9L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <svg id="icon-moon" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="display:none"><path d="M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
       </button>
-    </div>
+    </nav>
   </header>
 
-  <div class="stats">
-    <button class="stat a" type="button" data-target="tile-agenda"><span class="n">2</span><span class="l">Meetings today</span></button>
-    <button class="stat f" type="button" data-target="tile-week"><span class="n">3</span><span class="l">Stories due this week</span></button>
-    <button class="stat s" type="button" data-target="tile-activity"><span class="n">6</span><span class="l">Recent updates</span></button>
-    <button class="stat g" type="button" data-target="tile-focus"><span class="n">2</span><span class="l">Support &amp; focus items</span></button>
-  </div>
+  <main>
 
-  <div class="grid">
+    <section class="stats" aria-label="Summary counts">
+      <button class="stat a" type="button" data-target="tile-agenda"><span class="n">2</span><span class="l">Meetings today</span></button>
+      <button class="stat f" type="button" data-target="tile-week"><span class="n">3</span><span class="l">Stories due this week</span></button>
+      <button class="stat s" type="button" data-target="tile-activity"><span class="n">6</span><span class="l">Recent updates</span></button>
+      <button class="stat g" type="button" data-target="tile-focus"><span class="n">2</span><span class="l">Support &amp; focus items</span></button>
+    </section>
 
-    <!-- ============ TODAY'S AGENDA ============ -->
-    <details class="tile" id="tile-agenda" open>
-      <summary>
-        <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><h2>Today&rsquo;s Agenda</h2><span class="count">2</span></span>
-        <span class="tile-meta">
-          <span class="stale"><span class="fdot"></span>cached 12m ago</span>
-          <button class="refresh-btn" type="button" data-tile="agenda" aria-label="Refresh Today&rsquo;s Agenda"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </span>
-      </summary>
-      <div class="body">
+    <div class="grid">
 
-        <div class="event">
-          <div class="time">9:00 AM<span class="tz">EST</span></div>
-          <div>
-            <div class="etitle">Sprint Planning Sync</div>
-            <div class="meta"><span class="where"><span class="badge-loc">Teams</span> <a href="https://teams.microsoft.com/l/meetup-join/example" target="_blank" rel="noopener">Join meeting &rarr;</a></span></div>
-            <div class="meta"><span class="k">With</span> Platform Team &middot; 6 attendees</div>
-          </div>
-        </div>
-
-        <div class="event">
-          <div class="time">11:00 AM<span class="tz">EST</span></div>
-          <div>
-            <div class="etitle">Architecture Design Review</div>
-            <div class="meta"><span class="where"><span class="badge-loc">In person</span> Room 132</span></div>
-            <div class="meta"><span class="k">Prep</span> <a href="https://dev.azure.com/org/project/_wiki/wikis/project.wiki/42/Design-Review" target="_blank" rel="noopener">Design doc &rarr;</a></div>
-          </div>
-        </div>
-
-      </div>
-    </details>
-
-    <!-- ============ THIS WEEK'S FOCUS ============ -->
-    <details class="tile" id="tile-week" open>
-      <summary>
-        <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.4"/></svg><h2>This Week&rsquo;s Focus</h2><span class="count">2</span></span>
-        <span class="tile-meta">
-          <span class="stale warn"><span class="fdot"></span>cached 2h ago</span>
-          <button class="refresh-btn" type="button" data-tile="week" aria-label="Refresh This Week&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </span>
-      </summary>
-      <div class="body">
-
-        <details class="group" open>
+      <!-- Today's Agenda -->
+      <section class="tile" id="tile-agenda" data-tile="agenda" aria-labelledby="h-agenda">
+        <details open>
           <summary>
             <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">Stories to complete</span>
-            <span class="count">3</span>
+            <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><h2 id="h-agenda">Today&rsquo;s Agenda</h2><span class="count">2</span></span>
+            <span class="tile-meta">
+              <span class="stale"><span class="fdot" aria-hidden="true"></span>cached 12m ago</span>
+              <button class="refresh-btn" type="button" data-tile="agenda" aria-label="Refresh Today&rsquo;s Agenda"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
           </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="type t-story">Story</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">#1234</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">Wire agenda tile to az boards query</a></span>
-              <span class="state s-progress">In progress</span>
-            </div>
-            <div class="wi">
-              <span class="type t-story">Story</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">#1240</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">Outlook calendar pull for daily events</a></span>
-              <span class="state s-active">Active</span>
-            </div>
-            <div class="wi">
-              <span class="type t-bug">Bug</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">#1251</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">Timezone offset on EST agenda rows</a></span>
-              <span class="state s-review">In review</span>
-            </div>
+          <div class="body">
+            <ul class="events">
+              <li class="event">
+                <time class="time" datetime="2026-07-14T09:00:00-05:00">9:00 AM<span class="tz">EST</span></time>
+                <div>
+                  <p class="etitle">Sprint Planning Sync</p>
+                  <p class="meta"><span class="where"><span class="badge-loc">Teams</span> <a href="https://teams.microsoft.com/l/meetup-join/example" target="_blank" rel="noopener">Join meeting &rarr;</a></span></p>
+                  <p class="meta"><span class="k">With</span> Platform Team &middot; 6 attendees</p>
+                </div>
+              </li>
+              <li class="event">
+                <time class="time" datetime="2026-07-14T11:00:00-05:00">11:00 AM<span class="tz">EST</span></time>
+                <div>
+                  <p class="etitle">Architecture Design Review</p>
+                  <p class="meta"><span class="where"><span class="badge-loc">In person</span> Room 132</span></p>
+                  <p class="meta"><span class="k">Prep</span> <a href="https://dev.azure.com/org/project/_wiki/wikis/project.wiki/42/Design-Review" target="_blank" rel="noopener">Design doc &rarr;</a></p>
+                </div>
+              </li>
+            </ul>
           </div>
         </details>
+      </section>
 
-        <details class="group" open>
+      <!-- This Week's Focus -->
+      <section class="tile" id="tile-week" data-tile="week" aria-labelledby="h-week">
+        <details open>
           <summary>
             <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">Events to prepare for</span>
-            <span class="count">2</span>
+            <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.4"/></svg><h2 id="h-week">This Week&rsquo;s Focus</h2><span class="count">2</span></span>
+            <span class="tile-meta">
+              <span class="stale warn"><span class="fdot" aria-hidden="true"></span>cached 2h ago</span>
+              <button class="refresh-btn" type="button" data-tile="week" aria-label="Refresh This Week&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
           </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="check"></span>
-              <span class="wtitle">Confirm demo build is deployed before <strong>Thu review</strong></span>
-            </div>
-            <div class="wi">
-              <span class="check"></span>
-              <span class="wtitle">Send agenda for <a href="https://teams.microsoft.com/l/meetup-join/example2" target="_blank" rel="noopener">Fri sprint retro</a></span>
-            </div>
+          <div class="body">
+
+            <details class="group" open>
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">Stories to complete</span>
+                <span class="count">3</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="type t-story">Story</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">#1234</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">Wire agenda tile to az boards query</a></span>
+                  <span class="state s-progress">In progress</span>
+                </li>
+                <li class="wi">
+                  <span class="type t-story">Story</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">#1240</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">Outlook calendar pull for daily events</a></span>
+                  <span class="state s-active">Active</span>
+                </li>
+                <li class="wi">
+                  <span class="type t-bug">Bug</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">#1251</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">Timezone offset on EST agenda rows</a></span>
+                  <span class="state s-review">In review</span>
+                </li>
+              </ul>
+            </details>
+
+            <details class="group" open>
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">Events to prepare for</span>
+                <span class="count">2</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="check" aria-hidden="true"></span>
+                  <span class="wtitle">Confirm demo build is deployed before <strong>Thu review</strong></span>
+                </li>
+                <li class="wi">
+                  <span class="check" aria-hidden="true"></span>
+                  <span class="wtitle">Send agenda for <a href="https://teams.microsoft.com/l/meetup-join/example2" target="_blank" rel="noopener">Fri sprint retro</a></span>
+                </li>
+              </ul>
+            </details>
+
           </div>
         </details>
+      </section>
 
-      </div>
-    </details>
-
-    <!-- ============ RECENT ACTIVITY ============ -->
-    <details class="tile" id="tile-activity" open>
-      <summary>
-        <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8h3l2-4.5 3 9 2-4.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Recent Activity</h2><span class="count">3</span></span>
-        <span class="tile-meta">
-          <span class="stale"><span class="fdot"></span>cached 5m ago</span>
-          <button class="refresh-btn" type="button" data-tile="activity" aria-label="Refresh Recent Activity"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </span>
-      </summary>
-      <div class="body">
-
-        <details class="group">
+      <!-- Recent Activity -->
+      <section class="tile" id="tile-activity" data-tile="activity" aria-labelledby="h-activity">
+        <details open>
           <summary>
             <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">Tagged discussions</span>
-            <span class="count">2</span>
+            <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8h3l2-4.5 3 9 2-4.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><h2 id="h-activity">Recent Activity</h2><span class="count">3</span></span>
+            <span class="tile-meta">
+              <span class="stale"><span class="fdot" aria-hidden="true"></span>cached 5m ago</span>
+              <button class="refresh-btn" type="button" data-tile="activity" aria-label="Refresh Recent Activity"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
           </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="type t-feature">Feature</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1180" target="_blank" rel="noopener">#1180</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1180?discussion" target="_blank" rel="noopener">@you &mdash; &ldquo;can you confirm the WIQL scope?&rdquo;</a></span>
-            </div>
-            <div class="wi">
-              <span class="type t-story">Story</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">#1240</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1240?discussion" target="_blank" rel="noopener">@you &mdash; &ldquo;ready for review whenever&rdquo;</a></span>
-            </div>
+          <div class="body">
+
+            <details class="group">
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">Tagged discussions</span>
+                <span class="count">2</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="type t-feature">Feature</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1180" target="_blank" rel="noopener">#1180</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1180?discussion" target="_blank" rel="noopener">@you &mdash; &ldquo;can you confirm the WIQL scope?&rdquo;</a></span>
+                </li>
+                <li class="wi">
+                  <span class="type t-story">Story</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1240" target="_blank" rel="noopener">#1240</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1240?discussion" target="_blank" rel="noopener">@you &mdash; &ldquo;ready for review whenever&rdquo;</a></span>
+                </li>
+              </ul>
+            </details>
+
+            <details class="group">
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">Active story updates</span>
+                <span class="count">2</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="type t-story">Story</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">#1234</a>
+                  <span class="wtitle">State &rarr; <strong>In progress</strong> by A. Rivera</span>
+                  <span class="note">2h ago</span>
+                </li>
+                <li class="wi">
+                  <span class="type t-bug">Bug</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">#1251</a>
+                  <span class="wtitle">Moved to <strong>In review</strong></span>
+                  <span class="note">4h ago</span>
+                </li>
+              </ul>
+            </details>
+
+            <details class="group">
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">Sprint close items</span>
+                <span class="count">2</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="type t-task">Task</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1209" target="_blank" rel="noopener">#1209</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1209" target="_blank" rel="noopener">Update release notes</a></span>
+                  <span class="state s-closing">Closing</span>
+                </li>
+                <li class="wi">
+                  <span class="type t-story">Story</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1222" target="_blank" rel="noopener">#1222</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1222" target="_blank" rel="noopener">Verify acceptance criteria signed off</a></span>
+                  <span class="state s-closing">Closing</span>
+                </li>
+              </ul>
+            </details>
+
           </div>
         </details>
+      </section>
 
-        <details class="group">
+      <!-- Today's Focus -->
+      <section class="tile" id="tile-focus" data-tile="focus" aria-labelledby="h-focus">
+        <details open>
           <summary>
             <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">Active story updates</span>
-            <span class="count">2</span>
+            <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3 4.3 13.3l.7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><h2 id="h-focus">Today&rsquo;s Focus</h2><span class="count">2</span></span>
+            <span class="tile-meta">
+              <span class="stale warn"><span class="fdot" aria-hidden="true"></span>cached 1h ago</span>
+              <button class="refresh-btn" type="button" data-tile="focus" aria-label="Refresh Today&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
           </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="type t-story">Story</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">#1234</a>
-              <span class="wtitle">State &rarr; <strong>In progress</strong> by A. Rivera</span>
-              <span class="note">2h ago</span>
+          <div class="body">
+
+            <div class="primary">
+              <span class="star" aria-hidden="true">&#9733;</span>
+              <div>
+                <p class="ptitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">User Story #1234 &mdash; Wire agenda tile to az boards</a></p>
+                <p class="psub">Primary commitment for today &middot; In progress</p>
+              </div>
             </div>
-            <div class="wi">
-              <span class="type t-bug">Bug</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1251" target="_blank" rel="noopener">#1251</a>
-              <span class="wtitle">Moved to <strong>In review</strong></span>
-              <span class="note">4h ago</span>
-            </div>
+
+            <details class="group" open>
+              <summary>
+                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="glabel">SF devs &mdash; unplanned support</span>
+                <span class="count">2</span>
+              </summary>
+              <ul class="glist">
+                <li class="wi">
+                  <span class="type t-bug">Bug</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1260" target="_blank" rel="noopener">#1260</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1260" target="_blank" rel="noopener">Deploy failing on scratch org spin-up</a></span>
+                  <span class="state s-active">Active</span>
+                </li>
+                <li class="wi">
+                  <span class="type t-task">Task</span>
+                  <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1263" target="_blank" rel="noopener">#1263</a>
+                  <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1263" target="_blank" rel="noopener">Help triage permission set assignment</a></span>
+                  <span class="state s-new">New</span>
+                </li>
+              </ul>
+            </details>
+
           </div>
         </details>
+      </section>
 
-        <details class="group">
-          <summary>
-            <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">Sprint close items</span>
-            <span class="count">2</span>
-          </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="type t-task">Task</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1209" target="_blank" rel="noopener">#1209</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1209" target="_blank" rel="noopener">Update release notes</a></span>
-              <span class="state s-closing">Closing</span>
-            </div>
-            <div class="wi">
-              <span class="type t-story">Story</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1222" target="_blank" rel="noopener">#1222</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1222" target="_blank" rel="noopener">Verify acceptance criteria signed off</a></span>
-              <span class="state s-closing">Closing</span>
-            </div>
-          </div>
-        </details>
+    </div>
+  </main>
 
-      </div>
-    </details>
-
-    <!-- ============ TODAY'S FOCUS ============ -->
-    <details class="tile" id="tile-focus" open>
-      <summary>
-        <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3 4.3 13.3l.7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><h2>Today&rsquo;s Focus</h2><span class="count">2</span></span>
-        <span class="tile-meta">
-          <span class="stale warn"><span class="fdot"></span>cached 1h ago</span>
-          <button class="refresh-btn" type="button" data-tile="focus" aria-label="Refresh Today&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </span>
-      </summary>
-      <div class="body">
-
-        <div class="primary">
-          <span class="star" aria-hidden="true">&#9733;</span>
-          <div>
-            <div class="ptitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1234" target="_blank" rel="noopener">User Story #1234 &mdash; Wire agenda tile to az boards</a></div>
-            <div class="psub">Primary commitment for today &middot; In progress</div>
-          </div>
-        </div>
-
-        <details class="group" open>
-          <summary>
-            <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="glabel">SF devs &mdash; unplanned support</span>
-            <span class="count">2</span>
-          </summary>
-          <div class="glist">
-            <div class="wi">
-              <span class="type t-bug">Bug</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1260" target="_blank" rel="noopener">#1260</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1260" target="_blank" rel="noopener">Deploy failing on scratch org spin-up</a></span>
-              <span class="state s-active">Active</span>
-            </div>
-            <div class="wi">
-              <span class="type t-task">Task</span>
-              <a class="id" href="https://dev.azure.com/org/project/_workitems/edit/1263" target="_blank" rel="noopener">#1263</a>
-              <span class="wtitle"><a href="https://dev.azure.com/org/project/_workitems/edit/1263" target="_blank" rel="noopener">Help triage permission set assignment</a></span>
-              <span class="state s-new">New</span>
-            </div>
-          </div>
-        </details>
-
-      </div>
-    </details>
-
-  </div>
-
-  <p class="footer">
+  <footer class="footer">
     Mock &middot; placeholder data. Live build feeds from <code>az boards query</code> + the Outlook PowerShell module.
-  </p>
+  </footer>
 
 </div>
 
-<script>
-  document.getElementById("expandAll").addEventListener("click", function () {
-    document.querySelectorAll("details").forEach(function (d) { d.open = true; });
-  });
-  document.getElementById("collapseAll").addEventListener("click", function () {
-    document.querySelectorAll(".tile").forEach(function (d) { d.open = false; });
-  });
+<div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
 
-  // Per-tile refresh: the only expensive path. Cheap render is already on screen
-  // from cache; this is where the real build would fire that tile's az CLI calls.
-  var REFRESH_MS = 900;
-
-  function refreshTile(btn) {
-    if (btn.disabled) return;
-
-    var stale = btn.parentElement.querySelector(".stale");
-    var label = stale.childNodes[stale.childNodes.length - 1];
-
-    btn.disabled = true;
-    btn.classList.add("spinning");
-    stale.classList.remove("warn");
-    stale.classList.add("busy");
-    label.textContent = "refreshing…";
-
-    window.setTimeout(function () {
-      btn.classList.remove("spinning");
-      btn.disabled = false;
-      stale.classList.remove("busy");
-      label.textContent = "cached just now";
-    }, REFRESH_MS);
-  }
-
-  document.querySelectorAll(".refresh-btn").forEach(function (btn) {
-    btn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      refreshTile(btn);
-    });
-  });
-
-  document.getElementById("refreshAll").addEventListener("click", function () {
-    document.querySelectorAll(".refresh-btn").forEach(refreshTile);
-  });
-
-  // Stat strip: jump to (and open) the tile a stat summarizes.
-  document.querySelectorAll(".stat").forEach(function (stat) {
-    stat.addEventListener("click", function () {
-      var tile = document.getElementById(stat.dataset.target);
-      if (!tile) return;
-      tile.open = true;
-      tile.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  });
-
-  // Theme toggle: stamp data-theme on <html> so it overrides the OS media query.
-  var root = document.documentElement;
-  var iconSun = document.getElementById("icon-sun");
-  var iconMoon = document.getElementById("icon-moon");
-
-  function currentTheme() {
-    var t = root.getAttribute("data-theme");
-    if (t) return t;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-  function paintThemeIcon() {
-    var dark = currentTheme() === "dark";
-    iconMoon.style.display = dark ? "block" : "none";
-    iconSun.style.display = dark ? "none" : "block";
-  }
-  document.getElementById("themeToggle").addEventListener("click", function () {
-    var next = currentTheme() === "dark" ? "light" : "dark";
-    root.setAttribute("data-theme", next);
-    paintThemeIcon();
-  });
-  paintThemeIcon();
-
-  // Live filter across every work-item and event row. Remembers each tile's
-  // open/closed state so clearing the box restores the original layout.
-  var allDetails = document.querySelectorAll("details");
-  allDetails.forEach(function (d) { d.dataset.open0 = d.open ? "1" : "0"; });
-
-  document.querySelectorAll(".tile .body").forEach(function (body) {
-    var note = document.createElement("p");
-    note.className = "nomatch";
-    note.textContent = "No matching items in this tile.";
-    body.appendChild(note);
-  });
-
-  function applyFilter(raw) {
-    var q = raw.trim().toLowerCase();
-
-    if (q) {
-      allDetails.forEach(function (d) { d.open = true; });
-    } else {
-      allDetails.forEach(function (d) { d.open = d.dataset.open0 === "1"; });
-    }
-
-    document.querySelectorAll(".tile").forEach(function (tile) {
-      var rows = tile.querySelectorAll(".wi, .event");
-      var anyVisible = false;
-
-      rows.forEach(function (row) {
-        var match = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
-        row.classList.toggle("hide", !match);
-        if (match) anyVisible = true;
-      });
-
-      tile.querySelectorAll(".group").forEach(function (group) {
-        var visible = group.querySelectorAll(".wi:not(.hide), .event:not(.hide)").length;
-        group.classList.toggle("hide", !!q && visible === 0);
-      });
-
-      tile.classList.toggle("empty", !!q && !anyVisible);
-    });
-  }
-
-  var searchBox = document.getElementById("search");
-  searchBox.addEventListener("input", function () { applyFilter(searchBox.value); });
-  searchBox.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { searchBox.value = ""; applyFilter(""); }
-  });
-</script>
 </body>
 </html>
