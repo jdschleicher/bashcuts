@@ -192,6 +192,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_classification.ps1     # Areas + iterations (show/get/find)
 │   ├── azdevops_create_pickers.ps1     # Field prompts + create-flow pickers
 │   ├── azdevops_create.ps1             # az-New-AzDevOps{UserStory,Feature,FeatureStories}
+│   ├── azdevops_draft.ps1              # Deferred "brain-dump" draft: build a hierarchy locally, publish once
 │   ├── azdevops_schema.ps1             # Field-schema cache (per-org)
 │   ├── azdevops_openers.ps1            # az-Open-* file/folder openers
 │   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher

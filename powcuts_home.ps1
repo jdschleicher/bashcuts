@@ -105,6 +105,13 @@ if ($azdevops_create -ne $NULL) {
     Write-Host "no azdevops_create.ps1"
 }
 
+$azdevops_draft = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_draft.ps1"
+if ($azdevops_draft -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_draft.ps1"
+} else {
+    Write-Host "no azdevops_draft.ps1"
+}
+
 $pow_timer = Get-Content "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
 if ($pow_timer -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\pow_timer.ps1"
