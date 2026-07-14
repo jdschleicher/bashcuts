@@ -251,6 +251,53 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* ---------- per-tile freshness + refresh ---------- */
+  .tile-meta {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .stale {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .fdot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--good);
+    flex: none;
+  }
+  .stale.warn .fdot { background: var(--warn); }
+  .stale.busy { color: var(--accent); }
+  .stale.busy .fdot { background: var(--accent); }
+
+  .refresh-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    padding: 0;
+    color: var(--text-dim);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .refresh-btn:hover { color: var(--accent); border-color: var(--border-strong); }
+  .refresh-btn:disabled { cursor: default; opacity: .8; }
+  .refresh-btn svg { width: 15px; height: 15px; }
+  .refresh-btn.spinning svg { animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-btn.spinning svg { animation: none; }
+    .chev { transition: none; }
+  }
+
   .tile .body {
     padding: 4px 18px 18px;
     border-top: 1px solid var(--border);
@@ -392,7 +439,8 @@
       <div class="sub">Azure DevOps agenda &middot; <span class="date">Tuesday, July 14</span></div>
     </div>
     <div class="toolbar">
-      <span class="synced"><span class="dot"></span>Synced 7:42 AM</span>
+      <span class="synced"><span class="dot"></span>Local cache</span>
+      <button class="btn" id="refreshAll" type="button">Refresh all</button>
       <button class="btn" id="collapseAll" type="button">Collapse all</button>
       <button class="btn" id="expandAll" type="button">Expand all</button>
     </div>
@@ -404,8 +452,11 @@
     <details class="tile" open>
       <summary>
         <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><h2>Today&rsquo;s Agenda</h2></span>
-        <span class="count">2</span>
+        <span class="tt"><h2>Today&rsquo;s Agenda</h2><span class="count">2</span></span>
+        <span class="tile-meta">
+          <span class="stale"><span class="fdot"></span>cached 12m ago</span>
+          <button class="refresh-btn" type="button" data-tile="agenda" aria-label="Refresh Today&rsquo;s Agenda"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </span>
       </summary>
       <div class="body">
 
@@ -434,8 +485,11 @@
     <details class="tile" open>
       <summary>
         <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><h2>This Week&rsquo;s Focus</h2></span>
-        <span class="count">2</span>
+        <span class="tt"><h2>This Week&rsquo;s Focus</h2><span class="count">2</span></span>
+        <span class="tile-meta">
+          <span class="stale warn"><span class="fdot"></span>cached 2h ago</span>
+          <button class="refresh-btn" type="button" data-tile="week" aria-label="Refresh This Week&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </span>
       </summary>
       <div class="body">
 
@@ -492,8 +546,11 @@
     <details class="tile" open>
       <summary>
         <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><h2>Recent Activity</h2></span>
-        <span class="count">3</span>
+        <span class="tt"><h2>Recent Activity</h2><span class="count">3</span></span>
+        <span class="tile-meta">
+          <span class="stale"><span class="fdot"></span>cached 5m ago</span>
+          <button class="refresh-btn" type="button" data-tile="activity" aria-label="Refresh Recent Activity"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </span>
       </summary>
       <div class="body">
 
@@ -568,8 +625,11 @@
     <details class="tile" open>
       <summary>
         <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="tt"><h2>Today&rsquo;s Focus</h2></span>
-        <span class="count">2</span>
+        <span class="tt"><h2>Today&rsquo;s Focus</h2><span class="count">2</span></span>
+        <span class="tile-meta">
+          <span class="stale warn"><span class="fdot"></span>cached 1h ago</span>
+          <button class="refresh-btn" type="button" data-tile="focus" aria-label="Refresh Today&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </span>
       </summary>
       <div class="body">
 
@@ -620,6 +680,42 @@
   });
   document.getElementById("collapseAll").addEventListener("click", function () {
     document.querySelectorAll(".tile").forEach(function (d) { d.open = false; });
+  });
+
+  // Per-tile refresh: the only expensive path. Cheap render is already on screen
+  // from cache; this is where the real build would fire that tile's az CLI calls.
+  var REFRESH_MS = 900;
+
+  function refreshTile(btn) {
+    if (btn.disabled) return;
+
+    var stale = btn.parentElement.querySelector(".stale");
+    var label = stale.childNodes[stale.childNodes.length - 1];
+
+    btn.disabled = true;
+    btn.classList.add("spinning");
+    stale.classList.remove("warn");
+    stale.classList.add("busy");
+    label.textContent = "refreshing…";
+
+    window.setTimeout(function () {
+      btn.classList.remove("spinning");
+      btn.disabled = false;
+      stale.classList.remove("busy");
+      label.textContent = "cached just now";
+    }, REFRESH_MS);
+  }
+
+  document.querySelectorAll(".refresh-btn").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      refreshTile(btn);
+    });
+  });
+
+  document.getElementById("refreshAll").addEventListener("click", function () {
+    document.querySelectorAll(".refresh-btn").forEach(refreshTile);
   });
 </script>
 </body>
