@@ -261,6 +261,8 @@ If you run desktop Outlook on Windows, the `ol-` shortcuts (in `powcuts_by_cli/o
 
 These read the Calendar and Tasks folders via Outlook COM automation, so they require **Windows + the desktop Outlook client** (no cloud/Graph auth). On macOS/Linux — or if Outlook can't be reached — every command prints a short hint and exits cleanly.
 
+If you also use the Azure DevOps (`az-*`) shortcuts, your assigned work items appear automatically as a **🎯 Azure DevOps** section at the bottom of `ol-Show-OutlookDay` — the active items in your current iteration, sorted by priority. It's read-only and served straight from the existing assigned cache (no extra sync or `az` callout), so run `az-Sync-AzDevOpsCache` if the section says the cache isn't found. Pass `ol-Show-OutlookDay -NoWorkItems` to hide it and show only the built-in agenda + tasks. The Outlook module has no hard dependency on `az-*`: on a machine without the Azure DevOps shortcuts the section simply doesn't appear.
+
 ## Opening VS Code Snipppets
 
 When using VS Code it is HIGHLY recommend to setup VSCode settings sync: https://code.visualstudio.com/docs/editor/settings-sync
