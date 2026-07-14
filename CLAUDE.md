@@ -199,14 +199,58 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
-└── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
-    ├── Apex.code-snippets
-    ├── azure-cli.code-snippets
-    ├── lwc.code-snippets
-    └── powershell.code-snippets
+├── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
+│   ├── Apex.code-snippets
+│   ├── azure-cli.code-snippets
+│   ├── lwc.code-snippets
+│   └── powershell.code-snippets
+└── daily-viewer/                       # Azure DevOps daily viewer — localhost HTML app (front-end surface)
+    ├── index.html                      # Cache-backed 2x2 tile dashboard (mock → live)
+    └── wpf/                            # WPF prototype of the same viewer (reference; the HTML path is primary)
+        ├── DailyViewer.xaml
+        ├── Start-DailyViewer.ps1
+        └── README.md
 ```
 
 Note the asymmetric naming: bash files use a `.<cli>_bashcuts` dotfile pattern, PowerShell uses `<cli>.ps1`. Some bash files have no dedicated PowerShell counterpart and vice-versa (e.g. `.bash_commons` ↔ `pow_common.ps1`, `.support_bashcuts` has no pwsh equivalent). That's intentional — only enforce parity when the issue calls for it or when adding a new CLI wrapper.
+
+## Front-End Conventions (`daily-viewer/`)
+
+`daily-viewer/` is the one browser-facing surface in this repo: an HTML dashboard that renders the Azure DevOps daily agenda from a **local cache** and, in the live build, is served on `127.0.0.1` by a PowerShell backend. It is **operated, not read** — treat it as information design, and hold it to the rules below. `/senior-frontend-engineer` (part of `/code-review`) enforces them.
+
+The shell rules elsewhere in this file still apply in spirit — **match the surrounding style**, **breathing room**, **name your magic values**, **no self-evident comments**, **no premature abstraction**. These add to them for HTML/CSS/JS.
+
+### Security — the browser is untrusted (NO EXCEPTIONS)
+
+- **Escape untrusted data — never build markup from it.** Azure DevOps titles, discussion text, display names, and area/iteration paths are user-entered. Inject them with `textContent` / `createElement` / `setAttribute`, or a templater that escapes by default. **Never** `innerHTML = "…" + item.title` or `innerHTML` a template string with interpolated cached fields — that is the XSS hole this project is most likely to grow. Static literal markup (no interpolation) is fine.
+- **Secrets stay server-side.** No Azure DevOps PAT, `az` token, connection string, or org secret in HTML/JS/config shipped to the page. The token lives in the backend process only.
+- **Bind the local server to `127.0.0.1`/`localhost` only** — never `0.0.0.0`. The browser talks to a same-origin local endpoint; the endpoint holds the credentials.
+
+### Structure & accessibility
+
+- **Semantic first.** Collapsibles are `<details>/<summary>` (native keyboard + `aria-expanded`, works with JS off), not `<div onclick>`. Interactive things are `<button>`. Wrap the page in `<main>` and each tile in a `<section aria-labelledby>`; the toolbar is a `<header>`/`<nav>`. Repeated item rows are `<ul><li>`, not sibling `<div>`s. Meeting times are `<time datetime="…">`.
+- **Label the non-text.** Icon-only buttons get `aria-label`; decorative SVGs get `aria-hidden="true"`.
+- **Announce async change.** A refresh that flips "cached 5m ago" → "cached just now" updates an `aria-live="polite"` region so it isn't silent to a screen reader.
+- **Focus & motion.** Every interactive element has a visible `:focus-visible` state; all animation sits under `@media (prefers-reduced-motion: reduce)`.
+
+### CSS
+
+- **Design tokens via custom properties.** Colors, spacing, and type sizes go through `var(--…)`. Keep a spacing scale (`--space-1…`) — don't scatter ad-hoc `px` paddings.
+- **Theme by redefining tokens only.** Light/dark live in `:root`, `@media (prefers-color-scheme: dark)`, and `:root[data-theme="dark"|"light"]`, and they redefine **only the tokens**. A component that hardcodes a color inside a theme block breaks the other theme. Style both themes with equal care.
+- **`rem` for type and spacing** (scales with the user's font-size); `px` only for borders/hairlines.
+- **Low specificity.** Single classes or `data-*` attributes. No `#id` selectors for styling, no `!important`, no long descendant chains.
+
+### Structure of the code (MVC / separation of concerns)
+
+- **The view is a function of data.** Render tiles from a JS data model (a render function or `<template>` + `.map()`), not hand-authored per-item markup. A count/badge is derived (`items.length`), never a second literal that can drift from the list it summarizes.
+- **Model / View / Controller stay separate.** Model = the cached JSON (+ staleness rules); View = the render layer; Controller = event handlers + the thin local API. Keep the **cheap cache-read** path distinct from the **expensive per-tile refresh** (the `az`/Outlook call) — that split is the whole point of the cache.
+- **CSP-friendly in the served app.** No inline `onclick=`/`style=` (use `addEventListener`), no CDN scripts or webfont links — self-contained / same-origin so the page runs under a strict CSP with no `unsafe-inline`. **Exception:** the single-file mock (`index.html`) and any Artifact preview keep inline `<style>`/`<script>` — that's required by the Artifact CSP and is the established pattern for the mock phase.
+- **Vanilla JS, no framework.** At this scale (a handful of tiles) a render function plus one small state object beats React/Vue and keeps the "opens instantly, no build step" property. Don't add a framework, client router, or state store unless an issue explicitly calls for it — that's premature abstraction.
+- **Progressive enhancement.** Core content and collapse degrade gracefully (the `<details>` tiles already work with JS disabled — don't replace them with a JS-only toggle).
+
+### Externalize when it goes live
+
+The mock is one self-contained `index.html` (fine, and required for Artifact preview). When it becomes a served app, split linked `styles.css` + `app.js` (browser caching, strict CSP, separately testable render functions). Backend `.ps1` under `daily-viewer/` follows the PowerShell rules above and is reviewed by both `/senior-powershell-engineer` and `/senior-frontend-engineer`.
 
 ## Architecture Patterns
 
@@ -291,10 +335,11 @@ This repo defines its own Claude Code slash commands:
 | `/criteria-check` | Verifies issue acceptance criteria against the code |
 | `/docs-check` | Audits README + sourcing wire-up |
 | `/azdevops-diagrams-check` | When AzDO source files change, verifies `docs/azure-devops-diagrams.md` is in sync and proposes targeted mermaid edits |
-| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` + `senior-clean-code-engineer` in parallel |
+| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` + `senior-clean-code-engineer` + `senior-frontend-engineer` in parallel |
 | `/senior-bash-engineer` | Solo bash review (called by `/code-review`) |
 | `/senior-powershell-engineer` | Solo PowerShell review (called by `/code-review`) |
 | `/senior-clean-code-engineer` | Solo clean-code review — duplication, function shape, abstraction debt; enforces CLAUDE.md's extract-repeated-branches + breathing-room rules (called by `/code-review`) |
+| `/senior-frontend-engineer` | Solo front-end review — semantic HTML + a11y, CSS token/specificity/unit hygiene, data-driven rendering, untrusted-data escaping (XSS); owns the `daily-viewer/` web surface (called by `/code-review`) |
 | `/pr-body` | Builds / refreshes the PR body table of contents |
 | `/pr-flow` | Full pipeline: parse-checks → commit → push → PR → code-review → docs-check → criteria-check → azdevops-diagrams-check → pr-body |
 
