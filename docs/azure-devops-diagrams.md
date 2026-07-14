@@ -1,6 +1,6 @@
 # Azure DevOps Functionality — Mermaid Diagrams
 
-Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`, `azdevops_unplanned.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
+Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azdevops_*.ps1` (split across `azdevops_auth.ps1`, `azdevops_paths.ps1`, `azdevops_sync.ps1`, `azdevops_views.ps1`, `azdevops_find.ps1`, `azdevops_classification.ps1`, `azdevops_create_pickers.ps1`, `azdevops_create.ps1`, `azdevops_draft.ps1`, `azdevops_schema.ps1`, `azdevops_openers.ps1`, `azdevops_unplanned.ps1`). Each diagram covers one subsystem; the last diagram is a cross-cutting function-dependency map.
 
 - [1. High-level architecture](#1-high-level-architecture)
 - [2. `az-Connect-AzDevOps` — 8-step orchestrator](#2-az-connect-azdevops--8-step-orchestrator)
@@ -11,9 +11,10 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
-- [10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#10-start-azdevopsbackgroundsync--silent-on-open-refresh)
-- [11. `az-Start-UnplannedWork` — firefighting session loop + debrief](#11-az-start-unplannedwork--firefighting-session-loop--debrief)
-- [12. Function dependency map](#12-function-dependency-map)
+- [10. `az-*-AzDevOpsDraft*` — deferred "brain-dump" build + publish](#10-az-azdevopsdraft--deferred-brain-dump-build--publish)
+- [11. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#11-start-azdevopsbackgroundsync--silent-on-open-refresh)
+- [12. `az-Start-UnplannedWork` — firefighting session loop + debrief](#12-az-start-unplannedwork--firefighting-session-loop--debrief)
+- [13. Function dependency map](#13-function-dependency-map)
 
 ---
 
@@ -590,7 +591,61 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 10. `Start-AzDevOpsBackgroundSync` — silent on-open refresh
+## 10. `az-*-AzDevOpsDraft*` — deferred "brain-dump" build + publish
+
+Where §7-9 each make a live `az boards work-item create` the moment one item is finished, **draft mode** defers every `az` call. The whole hierarchy is built as local edits to `<cache>/draft.json` (project-segmented like the rest of the cache), and only `az-Publish-AzDevOpsDraft` touches Azure. Parent/child relationships are carried by a local reference id (`#Ref`) on each item — a child can point at a parent that has no Azure id yet. At publish the tree is walked **parents-first** (`Sort-AzDevOpsDraftForPublish`), each `Ref` is mapped to its freshly-created id, and the parent link is added in the same pass; a live progress bar (`Write-AzDevOpsDraftProgress`) reports how far the publish has landed. Publish reuses the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` + `Add-AzDevOpsHierarchyCacheItem` path the single-shot creators use, so create behavior / field-schema enforcement stays identical. A create that fails skips its descendants; `Update-AzDevOpsDraftAfterPublish` then drops published items and keeps the rest (rewriting any child of a now-published parent to the real Azure id) so a re-run only creates what's left.
+
+```mermaid
+flowchart TD
+    subgraph Build["Build phase — local only, NO az calls"]
+        direction TB
+        New([az-New-AzDevOpsDraft]) --> Loop{"add another?"}
+        Loop -- yes --> Type["Read-AzDevOpsDraftTypePick<br/>Epic / Feature / User Story / Task"]
+        Type --> Title["Read-AzDevOpsTitle"]
+        Title --> Details{"capture details now?"}
+        Details -- yes --> Readers["Read-AzDevOpsDraftDetails<br/>(same readers §7 uses)"]
+        Details -- no --> Parent
+        Readers --> Parent["Read-AzDevOpsDraftParentPick<br/>draft items + hierarchy.json + orphan"]
+        Parent --> Save["Save-AzDevOpsDraft → draft.json"]
+        Save --> Tree["Show-AzDevOpsDraftTree<br/>per-item completeness %"]
+        Tree --> Loop
+        Quick["az-Add / az-Set / az-Remove<br/>-AzDevOpsDraftItem"] --> Save
+        Show["az-Show-AzDevOpsDraft"] --> Tree
+        Clear["az-Clear-AzDevOpsDraft"] --> Save
+    end
+
+    Loop -- "no (blank type)" --> AskPub{"publish now?"}
+    AskPub -- no --> Later([draft saved for later])
+    AskPub -- yes --> Pub
+
+    subgraph Publish["az-Publish-AzDevOpsDraft — the only az calls"]
+        direction TB
+        Pub([Test-AzDevOpsCreateGate]) --> Resolve["Resolve-AzDevOpsIterationArea<br/>(once for the batch)"]
+        Resolve --> Sort["Sort-AzDevOpsDraftForPublish<br/>parents-first"]
+        Sort --> Each{"for each item"}
+        Each --> Resolve2["resolve parent id<br/>ParentId | RefToId[ParentRef]"]
+        Resolve2 --> Create["Invoke-AzDevOpsWorkItemCreate"]
+        Create -- ok --> Link["Invoke-AzDevOpsParentLink"]
+        Link --> Cache["Add-AzDevOpsHierarchyCacheItem"]
+        Cache --> Prog["Write-AzDevOpsDraftProgress<br/>[####----] N/Total %"]
+        Create -- fail --> Skip["record failure;<br/>skip descendants"]
+        Prog --> Each
+        Skip --> Each
+        Each -- done --> Reconcile["Update-AzDevOpsDraftAfterPublish<br/>drop published, keep + relink leftovers"]
+        Reconcile --> Done([return [int[]] $createdIds])
+    end
+```
+
+Helpers introduced for this flow (CLAUDE.md "extract repeated branches" + "name your magic strings"):
+
+- `Get-AzDevOpsDraftTierOrder` / `Get-AzDevOpsDraftParentType` — single source of the Epic→Feature→Story→Task tier order + parent tier.
+- `Get-AzDevOpsDraftRefSet` / `Get-AzDevOpsDraftChildMap` — the `Ref → exists` and `ParentRef → children` maps shared by the tree render, publish sort, and recursive remove (the childMap is the single guarded home of the `@($null)` leaf-lookup footgun).
+- `Test-AzDevOpsDraftPriorityValid` (+ `$script:AzDevOpsDraftMin/MaxPriority`) — the 1-4 bound shared by the completeness check, the create-args builder, and the `az-Set` editor.
+- `Get-AzDevOpsDraftCompleteness` / `Get-AzDevOpsDraftMissingLabels` — per-item "percentage finished" and the `[missing: …]` hint.
+
+---
+
+## 11. `Start-AzDevOpsBackgroundSync` — silent on-open refresh
 
 Runs on every shell open — invoked from `powcuts_home.ps1` after all `azdevops_*.ps1` files are dot-sourced, so `Get-AzDevOpsActiveProjectSlug` is defined and the staleness check targets the active project's cache. A cheap foreground gate decides whether to spawn a detached, hidden `pwsh` running `az-Sync-AzDevOpsCache`. The network auth check is intentionally left to the child (`az-Sync-AzDevOpsCache` → `Assert-AzDevOpsAuthOrAbort`) so the interactive prompt is never blocked by a smoke query. The child inherits `AZ_DEVOPS_AUTOSYNC_CHILD`, so its own profile load skips re-spawning — no cascade.
 
@@ -625,7 +680,7 @@ Private helpers:
 
 ---
 
-## 11. `az-Start-UnplannedWork` — firefighting session loop + debrief
+## 12. `az-Start-UnplannedWork` — firefighting session loop + debrief
 
 Free-for-all companion to the Pomodoro timer for work that can't be time-boxed. Each day rolls up under one **Unplanned Work — yyyy-MM-dd** User Story; every firefight is a child Task with its own debrief. PowerShell-only (the Windows balloon reminder + key-poll loop have no bash counterpart). `New-UnplannedWorkDebrief` is the end-of-day roll-up over a local per-day ledger.
 
@@ -696,7 +751,7 @@ Capture lands in two places per firefight: the accumulated bullet items flush to
 
 ---
 
-## 12. Function dependency map
+## 13. Function dependency map
 
 Public functions on the left, private helpers on the right. Helpers under "Shared scaffolding" exist specifically because their bodies were duplicated across the parallel `Get-/Open-` pairs. The "Multi-project resolver layer" cluster collects the opt-in `$global:AzDevOpsProjectMap` switcher (`az-Use-/Show-/Get-AzDevOpsProject(s)`) plus every `Resolve-AzDevOpsType*` helper consumed by the `az-New-*` creators; when no map is defined, all resolvers return `$null`/`-1`/`@()` and the create paths fall through to today's prompt-driven flow.
 
