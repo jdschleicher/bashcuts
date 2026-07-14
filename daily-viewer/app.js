@@ -98,8 +98,8 @@ function currentTheme() {
 
 function paintThemeIcon() {
   var dark = currentTheme() === "dark";
-  iconMoon.style.display = dark ? "block" : "none";
-  iconSun.style.display = dark ? "none" : "block";
+  iconMoon.classList.toggle("is-hidden", !dark);
+  iconSun.classList.toggle("is-hidden", dark);
 }
 
 document.getElementById("themeToggle").addEventListener("click", function () {
