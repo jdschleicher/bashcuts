@@ -47,6 +47,12 @@ $script:AzDevOpsHelpPhases = @(
 
     [PSCustomObject]@{
         Order       = 4
+        Phase       = 'Draft'
+        Description = 'Brain-dump a whole hierarchy locally (no az calls), then publish it at once'
+    },
+
+    [PSCustomObject]@{
+        Order       = 5
         Phase       = 'MultiProject'
         Description = 'Switch projects + manage background sync schedule'
     }
@@ -392,6 +398,106 @@ $script:AzDevOpsHelpCatalog = @(
         Example       = 'az-New-Task'
         RunsBefore    = ''
         RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
+    # --- Draft -------------------------------------------------------------
+
+    [PSCustomObject]@{
+        Name          = 'az-New-AzDevOpsDraft'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 1
+        Purpose       = 'Guided brain-dump loop: add Epic/Feature/Story/Task items locally (no az calls), then optionally publish'
+        Args          = '(none) - type / title / details / parent prompted per item'
+        Example       = 'az-New-AzDevOpsDraft'
+        RunsBefore    = 'az-Publish-AzDevOpsDraft'
+        RequiresSync  = 'No'
+        DiagramAnchor = '#10-draft-mode--deferred-brain-dump-build--publish'
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Add-AzDevOpsDraftItem'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 2
+        Purpose       = 'Quick, params-driven add of one item to the local draft (no az call)'
+        Args          = '[-Type] [-Title] [-ParentRef <n> | -ParentId <id> | -Orphan] [field overrides]'
+        Example       = 'az-Add-AzDevOpsDraftItem -Type Feature -Title "Checkout revamp" -Orphan'
+        RunsBefore    = 'az-Publish-AzDevOpsDraft'
+        RequiresSync  = 'No'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Show-AzDevOpsDraft'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 3
+        Purpose       = 'Render the local draft as a tree with per-item completeness % (read-only, no az call)'
+        Args          = '(none)'
+        Example       = 'az-Show-AzDevOpsDraft'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Set-AzDevOpsDraftItem'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 4
+        Purpose       = 'Fill in / edit an existing draft item, or re-parent it (no az call)'
+        Args          = '-Ref <n> [-Details] [-ParentRef <n> | -ParentId <id> | -Orphan] [field overrides]'
+        Example       = 'az-Set-AzDevOpsDraftItem -Ref 3 -Details'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Remove-AzDevOpsDraftItem'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 5
+        Purpose       = 'Drop one draft item; children reparent to the grandparent (or -Recurse to drop the sub-tree)'
+        Args          = '-Ref <n> [-Recurse]'
+        Example       = 'az-Remove-AzDevOpsDraftItem -Ref 3'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
+        DiagramAnchor = ''
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Publish-AzDevOpsDraft'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 6
+        Purpose       = 'Create every drafted item in Azure + wire parent/child links in one parents-first pass, with a live progress bar'
+        Args          = '[-Iteration <path>] [-Area <path>] [-KeepDraft]'
+        Example       = 'az-Publish-AzDevOpsDraft'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
+        DiagramAnchor = '#10-draft-mode--deferred-brain-dump-build--publish'
+        Issues        = @()
+    },
+
+    [PSCustomObject]@{
+        Name          = 'az-Clear-AzDevOpsDraft'
+        File          = 'powcuts_by_cli/azdevops_draft.ps1'
+        Phase         = 'Draft'
+        Order         = 7
+        Purpose       = 'Discard the entire local draft (prompts unless -Force)'
+        Args          = '[-Force]'
+        Example       = 'az-Clear-AzDevOpsDraft'
+        RunsBefore    = ''
+        RequiresSync  = 'No'
         DiagramAnchor = ''
         Issues        = @()
     },
