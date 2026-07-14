@@ -839,15 +839,18 @@ function Format-TimerCommentBody {
         "$iconCheck Pomodoro complete — $totalDisplay"
     }
 
+    $debriefBody = ConvertTo-AzDevOpsHtmlLineBreak -Text $Debrief
+    $nextBody    = ConvertTo-AzDevOpsHtmlLineBreak -Text $Next
+
     $lines = @(
         $header,
         "<em>$timestamp</em>",
         '',
         "$iconMemo Debrief:",
-        $Debrief,
+        $debriefBody,
         '',
         "$iconRocket Next:",
-        $Next,
+        $nextBody,
         ''
     )
 

@@ -471,7 +471,8 @@ function Format-UnplannedItemsDescription {
         $lines += '(no items captured)'
     } else {
         foreach ($entry in $Items) {
-            $lines += "$bullet [$($entry.Time)] $($entry.Text)"
+            $itemText = ConvertTo-AzDevOpsHtmlLineBreak -Text $entry.Text
+            $lines += "$bullet [$($entry.Time)] $itemText"
         }
     }
 
@@ -502,13 +503,13 @@ function Format-UnplannedDebriefComment {
 
     if ($Debrief) {
         $lines += "$iconMemo Debrief:"
-        $lines += $Debrief
+        $lines += ConvertTo-AzDevOpsHtmlLineBreak -Text $Debrief
         $lines += ''
     }
 
     if ($FutureFeature) {
         $lines += "$iconRocket Future opportunity:"
-        $lines += $FutureFeature
+        $lines += ConvertTo-AzDevOpsHtmlLineBreak -Text $FutureFeature
         $lines += ''
     }
 

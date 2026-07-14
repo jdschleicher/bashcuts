@@ -83,6 +83,29 @@ function pow_remove_property_from_field {
 }
 
 
+$script:AzDevOpsHtmlLineBreak = '<br/>'
+
+
+function ConvertTo-AzDevOpsHtmlLineBreak {
+    # Normalize any embedded newline (CRLF / CR / LF) in a free-text field to
+    # the Azure DevOps discussion field's HTML <br/> break. Multi-line debrief
+    # text captured from the WPF form's AcceptsReturn boxes would otherwise
+    # reach `az boards ... --discussion` with raw CRLFs, and cmd.exe /c
+    # truncates the argument at the first CRLF - silently dropping everything
+    # the user typed after their first page-return. Converting to <br/> keeps
+    # the whole body on one physical line so it survives the shell hand-off,
+    # and renders as a visible line break in the AzDO UI. Trailing newlines are
+    # trimmed so a field that ends on Enter doesn't leave a dangling <br/>.
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Text)
+
+    $break     = $script:AzDevOpsHtmlLineBreak
+    $trimmed   = $Text -replace '[\r\n]+$', ''
+    $converted = $trimmed -replace '\r\n?|\n', $break
+
+    return $converted
+}
+
+
 function Test-ConsoleGridAvailable {
     # $true iff Out-ConsoleGridView (from Microsoft.PowerShell.ConsoleGuiTools)
     # is loaded. Used by every cross-platform interactive picker - the TUI
