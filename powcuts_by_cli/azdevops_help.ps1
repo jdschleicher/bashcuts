@@ -344,6 +344,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @()
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Show-AzDevOpsDigest'
+        File          = 'powcuts_by_cli/azdevops_workitems.ps1'
+        Phase         = 'DailyRead'
+        Order         = 15
+        Purpose       = 'Compact non-blocking activity digest from the cache (new comments, new items this week, open commented stories); prints automatically on shell open and omits empty sections. Set $env:AZ_DEVOPS_NO_DIGEST to opt out'
+        Args          = '(none)'
+        Example       = 'az-Show-AzDevOpsDigest'
+        RunsBefore    = ''
+        RequiresSync  = 'Yes'
+        DiagramAnchor = ''
+        Issues        = @(81)
+    },
+
     # --- Create ------------------------------------------------------------
 
     [PSCustomObject]@{
