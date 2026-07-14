@@ -414,7 +414,7 @@ $script:AzDevOpsHelpCatalog = @(
         Example       = 'az-New-AzDevOpsDraft'
         RunsBefore    = 'az-Publish-AzDevOpsDraft'
         RequiresSync  = 'No'
-        DiagramAnchor = ''
+        DiagramAnchor = '#10-draft-mode--deferred-brain-dump-build--publish'
         Issues        = @()
     },
 
@@ -484,7 +484,7 @@ $script:AzDevOpsHelpCatalog = @(
         Example       = 'az-Publish-AzDevOpsDraft'
         RunsBefore    = ''
         RequiresSync  = 'No'
-        DiagramAnchor = ''
+        DiagramAnchor = '#10-draft-mode--deferred-brain-dump-build--publish'
         Issues        = @()
     },
 

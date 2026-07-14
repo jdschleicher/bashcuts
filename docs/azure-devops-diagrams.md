@@ -11,7 +11,7 @@ Visual reference for the Azure DevOps work-item shortcuts in `powcuts_by_cli/azd
 - [7. `az-New-AzDevOpsUserStory` — interactive create flow](#7-az-new-azdevopsuserstory--interactive-create-flow)
 - [8. `az-New-AzDevOpsFeature` — interactive Feature create + child-story hand-off](#8-az-new-azdevopsfeature--interactive-feature-create--child-story-hand-off)
 - [9. `az-New-AzDevOpsFeatureStories` — batch child-story loop](#9-az-new-azdevopsfeaturestories--batch-child-story-loop)
-- [10. `az-*-AzDevOpsDraft*` — deferred "brain-dump" build + publish](#10-az-azdevopsdraft--deferred-brain-dump-build--publish)
+- [10. Draft mode (`az-*-AzDevOpsDraft*`) — deferred brain-dump build + publish](#10-draft-mode--deferred-brain-dump-build--publish)
 - [11. `Start-AzDevOpsBackgroundSync` — silent on-open refresh](#11-start-azdevopsbackgroundsync--silent-on-open-refresh)
 - [12. `az-Start-UnplannedWork` — firefighting session loop + debrief](#12-az-start-unplannedwork--firefighting-session-loop--debrief)
 - [13. Function dependency map](#13-function-dependency-map)
@@ -591,7 +591,7 @@ Helpers introduced for this flow (named in CLAUDE.md's "extract repeated branche
 
 ---
 
-## 10. `az-*-AzDevOpsDraft*` — deferred "brain-dump" build + publish
+## 10. Draft mode — deferred brain-dump build + publish
 
 Where §7-9 each make a live `az boards work-item create` the moment one item is finished, **draft mode** defers every `az` call. The whole hierarchy is built as local edits to `<cache>/draft.json` (project-segmented like the rest of the cache), and only `az-Publish-AzDevOpsDraft` touches Azure. Parent/child relationships are carried by a local reference id (`#Ref`) on each item — a child can point at a parent that has no Azure id yet. At publish the tree is walked **parents-first** (`Sort-AzDevOpsDraftForPublish`), each `Ref` is mapped to its freshly-created id, and the parent link is added in the same pass; a live progress bar (`Write-AzDevOpsDraftProgress`) reports how far the publish has landed. Publish reuses the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` + `Add-AzDevOpsHierarchyCacheItem` path the single-shot creators use, so create behavior / field-schema enforcement stays identical. A create that fails skips its descendants; `Update-AzDevOpsDraftAfterPublish` then drops published items and keeps the rest (rewriting any child of a now-published parent to the real Azure id) so a re-run only creates what's left.
 
