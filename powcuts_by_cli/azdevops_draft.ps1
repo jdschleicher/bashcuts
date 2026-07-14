@@ -41,8 +41,22 @@ $script:AzDevOpsDraftTaskType    = 'Task'
 
 # Azure DevOps' stock default priority (Medium) - applied to a drafted item that
 # was published without a priority ever being set, so the create never sends an
-# out-of-range value.
+# out-of-range value. Min/Max bound the valid 1-4 range shared by the field-
+# fill check, the publish create-args builder, and the az-Set editor.
 $script:AzDevOpsDraftDefaultPriority = 2
+$script:AzDevOpsDraftMinPriority     = 1
+$script:AzDevOpsDraftMaxPriority     = 4
+
+
+function Test-AzDevOpsDraftPriorityValid {
+    # True when $Priority is inside Azure DevOps' 1-4 priority range. Single
+    # source of the bound so the field-fill check, the create-args builder, and
+    # the az-Set editor can't drift.
+    param([Parameter(Mandatory)] [int] $Priority)
+
+    $valid = ($Priority -ge $script:AzDevOpsDraftMinPriority -and $Priority -le $script:AzDevOpsDraftMaxPriority)
+    return $valid
+}
 
 
 function Get-AzDevOpsDraftTierOrder {
@@ -167,6 +181,44 @@ function Get-AzDevOpsDraftItemByRef {
 }
 
 
+function Get-AzDevOpsDraftRefSet {
+    # Hashtable of every draft item's Ref -> $true, for O(1) "does this Ref
+    # exist" tests (dangling-parent detection in the tree render, the publish
+    # sort, and publish parent resolution all need it).
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Draft)
+
+    $refSet = @{}
+    foreach ($item in $Draft) {
+        $refSet[[int]$item.Ref] = $true
+    }
+
+    return $refSet
+}
+
+
+function Get-AzDevOpsDraftChildMap {
+    # Hashtable of ParentRef -> List[child records] for the draft. Only parents
+    # that actually have children get a key, so callers MUST guard the lookup
+    # with .ContainsKey (or a $null check) before iterating - `@($map[$absent])`
+    # is `@($null)`, a one-element array holding $null, which would iterate once
+    # on a bogus $null child.
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Draft)
+
+    $childMap = @{}
+    foreach ($item in $Draft) {
+        $parentRef = [int]$item.ParentRef
+        if ($parentRef -gt 0) {
+            if (-not $childMap.ContainsKey($parentRef)) {
+                $childMap[$parentRef] = [System.Collections.Generic.List[object]]::new()
+            }
+            $childMap[$parentRef].Add($item)
+        }
+    }
+
+    return $childMap
+}
+
+
 function New-AzDevOpsDraftItemRecord {
     # Build a draft item record. Only Ref + Type + Title are conceptually
     # required; every other field is optional so a title-only brain-dump entry
@@ -245,7 +297,7 @@ function Test-AzDevOpsDraftFieldFilled {
 
     switch ($Key) {
         'Priority' {
-            $filled = ([int]$Item.Priority -ge 1 -and [int]$Item.Priority -le 4)
+            $filled = Test-AzDevOpsDraftPriorityValid -Priority ([int]$Item.Priority)
             return $filled
         }
 
@@ -412,7 +464,7 @@ function Get-AzDevOpsDraftHierarchy {
         return @()
     }
 
-    $items = @(Read-AzDevOpsHierarchyCache)
+    $items = @(Read-AzDevOpsHierarchyCache | Where-Object { $null -ne $_ })
     return $items
 }
 
@@ -569,9 +621,11 @@ function Show-AzDevOpsDraftTreeNode {
         Write-Host ("{0}missing: {1}" -f $missingIndent, ($missing -join ', ')) -ForegroundColor DarkYellow
     }
 
-    $children = @($ChildMap[[int]$Item.Ref])
-    foreach ($child in $children) {
-        Show-AzDevOpsDraftTreeNode -Item $child -ChildMap $ChildMap -Depth ($Depth + 1)
+    $itemRef = [int]$Item.Ref
+    if ($ChildMap.ContainsKey($itemRef)) {
+        foreach ($child in $ChildMap[$itemRef]) {
+            Show-AzDevOpsDraftTreeNode -Item $child -ChildMap $ChildMap -Depth ($Depth + 1)
+        }
     }
 }
 
@@ -587,21 +641,8 @@ function Show-AzDevOpsDraftTree {
         return
     }
 
-    $childMap = @{}
-    foreach ($item in $Draft) {
-        $parentRef = [int]$item.ParentRef
-        if ($parentRef -gt 0) {
-            if (-not $childMap.ContainsKey($parentRef)) {
-                $childMap[$parentRef] = [System.Collections.Generic.List[object]]::new()
-            }
-            $childMap[$parentRef].Add($item)
-        }
-    }
-
-    $refSet = @{}
-    foreach ($item in $Draft) {
-        $refSet[[int]$item.Ref] = $true
-    }
+    $childMap = Get-AzDevOpsDraftChildMap -Draft $Draft
+    $refSet   = Get-AzDevOpsDraftRefSet -Draft $Draft
 
     $roots = $Draft | Where-Object {
         [int]$_.ParentRef -le 0 -or -not $refSet.ContainsKey([int]$_.ParentRef)
@@ -668,7 +709,7 @@ function Build-AzDevOpsDraftCreateArgs {
         [Parameter(Mandatory)] [string] $DefaultArea
     )
 
-    $priority = if ([int]$Item.Priority -ge 1 -and [int]$Item.Priority -le 4) {
+    $priority = if (Test-AzDevOpsDraftPriorityValid -Priority ([int]$Item.Priority)) {
         [int]$Item.Priority
     } else {
         $script:AzDevOpsDraftDefaultPriority
@@ -717,10 +758,7 @@ function Sort-AzDevOpsDraftForPublish {
     # falls back to appending the stragglers so nothing is silently dropped.
     param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Draft)
 
-    $refSet = @{}
-    foreach ($item in $Draft) {
-        $refSet[[int]$item.Ref] = $true
-    }
+    $refSet = Get-AzDevOpsDraftRefSet -Draft $Draft
 
     $ordered   = [System.Collections.Generic.List[object]]::new()
     $emitted   = @{}
@@ -892,7 +930,7 @@ function az-Set-AzDevOpsDraftItem {
         [string]   $Title,
         [string]   $Description,
         [int]      $Priority = -1,
-        [int]      $StoryPoints = -2,
+        [int]      $StoryPoints = -1,
         [string]   $AcceptanceCriteria,
         [string[]] $Tags,
         [string]   $Iteration,
@@ -919,7 +957,7 @@ function az-Set-AzDevOpsDraftItem {
         $item.Description = $Description
     }
 
-    if ($PSBoundParameters.ContainsKey('Priority') -and $Priority -ge 1 -and $Priority -le 4) {
+    if ($PSBoundParameters.ContainsKey('Priority') -and (Test-AzDevOpsDraftPriorityValid -Priority $Priority)) {
         $item.Priority = $Priority
     }
 
@@ -997,23 +1035,18 @@ function az-Remove-AzDevOpsDraftItem {
     $toRemove.Add($Ref)
 
     if ($Recurse) {
-        $childMap = @{}
-        foreach ($d in $draft) {
-            $parentRef = [int]$d.ParentRef
-            if ($parentRef -gt 0) {
-                if (-not $childMap.ContainsKey($parentRef)) {
-                    $childMap[$parentRef] = [System.Collections.Generic.List[object]]::new()
-                }
-                $childMap[$parentRef].Add($d)
-            }
-        }
+        $childMap = Get-AzDevOpsDraftChildMap -Draft $draft
 
         $stack = [System.Collections.Generic.Stack[int]]::new()
         $stack.Push($Ref)
         while ($stack.Count -gt 0) {
-            $current  = $stack.Pop()
-            $children = @($childMap[$current])
-            foreach ($child in $children) {
+            $current = $stack.Pop()
+
+            if (-not $childMap.ContainsKey($current)) {
+                continue
+            }
+
+            foreach ($child in $childMap[$current]) {
                 $childRef = [int]$child.Ref
                 $toRemove.Add($childRef)
                 $stack.Push($childRef)
@@ -1200,10 +1233,7 @@ function az-Publish-AzDevOpsDraft {
     $defaultIteration = $resolved.Iteration
     $defaultArea      = $resolved.Area
 
-    $refSet = @{}
-    foreach ($item in $draft) {
-        $refSet[[int]$item.Ref] = $true
-    }
+    $refSet = Get-AzDevOpsDraftRefSet -Draft $draft
 
     $ordered = Sort-AzDevOpsDraftForPublish -Draft $draft
     $total   = @($ordered).Count
