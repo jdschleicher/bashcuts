@@ -226,14 +226,16 @@ function Get-AzDevOpsConfigPaths {
     $queriesDir = Join-Path $configDir 'queries'
 
     return [PSCustomObject]@{
-        Dir              = $configDir
-        QueriesDir       = $queriesDir
-        EpicsQuery       = Join-Path $queriesDir 'epics.wiql'
-        FeaturesQuery    = Join-Path $queriesDir 'features.wiql'
-        UserStoriesQuery = Join-Path $queriesDir 'user-stories.wiql'
-        AssignedQuery    = Join-Path $queriesDir 'assigned.wiql'
-        MentionsQuery    = Join-Path $queriesDir 'mentions.wiql'
-        ActivityQuery    = Join-Path $queriesDir 'activity.wiql'
+        Dir                   = $configDir
+        QueriesDir            = $queriesDir
+        EpicsQuery            = Join-Path $queriesDir 'epics.wiql'
+        FeaturesQuery         = Join-Path $queriesDir 'features.wiql'
+        UserStoriesQuery      = Join-Path $queriesDir 'user-stories.wiql'
+        AssignedQuery         = Join-Path $queriesDir 'assigned.wiql'
+        MentionsQuery         = Join-Path $queriesDir 'mentions.wiql'
+        ActivityQuery         = Join-Path $queriesDir 'activity.wiql'
+        FieldTemplates        = Join-Path $configDir 'field-templates.json'
+        FieldTemplatesExample = Join-Path $configDir 'field-templates.example.json'
     }
 }
 
@@ -283,19 +285,23 @@ function Get-AzDevOpsQueryDefaults {
 }
 
 
-function Initialize-AzDevOpsQueryFiles {
-    # Idempotent: creates the queries directory if absent and seeds each
-    # default .wiql file only when the file does not already exist. Returns
-    # the resolved paths plus per-file Seeded flags so callers (the
-    # az-Connect-AzDevOps step and az-Open-HierarchyWiqls) can print
-    # consistent status lines.
-    $paths = Get-AzDevOpsConfigPaths
-    New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
+function Initialize-AzDevOpsSeededFiles {
+    # Shared seed loop for the config-file initializers. Ensures $Directory
+    # exists, then writes each entry's Default to its Path only when the file is
+    # absent (idempotent). $Files is a list of [PSCustomObject]@{ Name; Path;
+    # Default }. Returns the per-file Seeded flags (Name / Path / Seeded) as a
+    # List[PSCustomObject]. Consumed by Initialize-AzDevOpsQueryFiles and
+    # Initialize-AzDevOpsFieldTemplates so the two never drift.
+    param(
+        [Parameter(Mandatory)] [string]   $Directory,
+        [Parameter(Mandatory)] [object[]] $Files
+    )
 
-    $defaults = Get-AzDevOpsQueryDefaults
+    New-AzDevOpsDirectoryIfMissing -Path $Directory
+
     $seeded = New-Object System.Collections.Generic.List[PSCustomObject]
 
-    foreach ($entry in $defaults) {
+    foreach ($entry in $Files) {
         $wasSeeded = $false
         if (-not (Test-Path -LiteralPath $entry.Path)) {
             Set-Content -LiteralPath $entry.Path -Value $entry.Default -Encoding UTF8
@@ -309,9 +315,24 @@ function Initialize-AzDevOpsQueryFiles {
         })
     }
 
+    return $seeded
+}
+
+
+function Initialize-AzDevOpsQueryFiles {
+    # Idempotent: creates the queries directory if absent and seeds each
+    # default .wiql file only when the file does not already exist. Returns
+    # the resolved paths plus per-file Seeded flags so callers (the
+    # az-Connect-AzDevOps step and az-Open-HierarchyWiqls) can print
+    # consistent status lines.
+    $paths    = Get-AzDevOpsConfigPaths
+    $defaults = Get-AzDevOpsQueryDefaults
+
+    $seeded = Initialize-AzDevOpsSeededFiles -Directory $paths.QueriesDir -Files $defaults
+
     return [PSCustomObject]@{
         Paths  = $paths
-        Seeded = @($seeded)
+        Seeded = $seeded
     }
 }
 
@@ -319,6 +340,197 @@ function Initialize-AzDevOpsQueryFiles {
 function Get-AzDevOpsHierarchyQueryNames {
     $hierarchyNames = @('epics', 'features', 'user-stories')
     return $hierarchyNames
+}
+
+
+# ---------------------------------------------------------------------------
+# Field templates (extra work-item fields per type)
+#
+# Config file: $HOME/.bashcuts-az-devops-app/config/field-templates.json
+#   Declares extra `az boards work-item create --fields` values per work-item
+#   type (USER_STORY / FEATURE / TASK / EPIC), keyed by Azure DevOps field
+#   reference name (e.g. 'Custom.Swimlane', NOT the display name). Each field's
+#   value is one of:
+#     "prompt"                                  -> free-text Read-Host
+#     { "mode": "prompt" }                      -> same as "prompt"
+#     { "mode": "grid", "options": ["A","B"] }  -> single-select grid pick
+#                                                  (Out-ConsoleGridView) with a
+#                                                  free-text fallback
+#     "SomeLiteral"                             -> passed straight through
+#
+# The seeded field-templates.json ships empty ({}) so a fresh machine prompts
+# for nothing until the user opts in. field-templates.example.json documents
+# the swimlane example. A matching RequiredFields entry in
+# $global:AzDevOpsProjectMap overrides the JSON entry for that field
+# (see Resolve-AzDevOpsTypeRequiredFields).
+# ---------------------------------------------------------------------------
+
+$script:AzDevOpsEmptyFieldTemplatesJson = @"
+{}
+"@
+
+$script:AzDevOpsExampleFieldTemplatesJson = @"
+{
+  "USER_STORY": {
+    "Custom.Swimlane": {
+      "mode": "grid",
+      "options": ["Expedite", "Standard", "Blocked"]
+    },
+    "Custom.BusinessValue": {
+      "mode": "prompt"
+    }
+  }
+}
+"@
+
+
+function Initialize-AzDevOpsFieldTemplates {
+    # Idempotent: creates the config directory if absent and seeds
+    # field-templates.json (empty {}) plus field-templates.example.json (the
+    # documented swimlane example) only when each file does not already exist.
+    # Mirrors Initialize-AzDevOpsQueryFiles: returns the resolved paths plus
+    # per-file Seeded flags so callers can print consistent status lines.
+    $paths = Get-AzDevOpsConfigPaths
+    New-AzDevOpsDirectoryIfMissing -Path $paths.Dir
+
+    $files = @(
+        [PSCustomObject]@{
+            Name    = 'field-templates.json'
+            Path    = $paths.FieldTemplates
+            Default = $script:AzDevOpsEmptyFieldTemplatesJson
+        },
+        [PSCustomObject]@{
+            Name    = 'field-templates.example.json'
+            Path    = $paths.FieldTemplatesExample
+            Default = $script:AzDevOpsExampleFieldTemplatesJson
+        }
+    )
+
+    $seeded = Initialize-AzDevOpsSeededFiles -Directory $paths.Dir -Files $files
+
+    return [PSCustomObject]@{
+        Paths  = $paths
+        Seeded = $seeded
+    }
+}
+
+
+function ConvertTo-AzDevOpsFieldSpec {
+    # Normalize one field-templates.json value into the same shape the
+    # ProjectMap RequiredFields hashtable uses so downstream readers stay
+    # uniform. A plain string (a literal, or 'prompt') passes through unchanged;
+    # a JSON object with mode/options becomes @{ Mode = '...'; Options = @(...) }.
+    param($Raw)
+
+    if ($Raw -is [string]) {
+        return $Raw
+    }
+
+    if ($Raw -is [System.Management.Automation.PSCustomObject]) {
+        $spec = @{}
+
+        $modeProp = $Raw.PSObject.Properties['mode']
+        if ($null -ne $modeProp -and $modeProp.Value) {
+            $spec['Mode'] = [string]$modeProp.Value
+        }
+
+        $optionsProp = $Raw.PSObject.Properties['options']
+        if ($null -ne $optionsProp -and $null -ne $optionsProp.Value) {
+            $spec['Options'] = @($optionsProp.Value | ForEach-Object { [string]$_ })
+        }
+
+        return $spec
+    }
+
+    return $Raw
+}
+
+
+function Get-AzDevOpsNormalizedTypeKey {
+    # Single normalizer for work-item type keys in this file. Routes through the
+    # canonical ConvertTo-AzDevOpsTypeKey (azdevops_projects.ps1) when it's
+    # loaded, with an inline fallback for the rare case this file is used on its
+    # own, so both the JSON-key and the lookup paths canonicalize identically
+    # ('User Story' / 'user story' / 'USER_STORY' -> 'USER_STORY').
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $key = if (Get-Command ConvertTo-AzDevOpsTypeKey -ErrorAction SilentlyContinue) {
+        ConvertTo-AzDevOpsTypeKey -Type $Type
+    } else {
+        ($Type.ToUpper() -replace '\s+', '_')
+    }
+
+    return $key
+}
+
+
+function Get-AzDevOpsFieldTemplates {
+    # Reads field-templates.json (seeding the defaults first, like
+    # Get-AzDevOpsWiql) and returns a hashtable keyed by normalized work-item
+    # type key (USER_STORY / FEATURE / TASK / EPIC) whose values are hashtables
+    # of <RefName> -> field spec. An empty hashtable is returned on any miss,
+    # empty file, or parse failure so a create is never blocked by a malformed
+    # config.
+    $templates = @{}
+
+    $init = Initialize-AzDevOpsFieldTemplates
+    $path = $init.Paths.FieldTemplates
+
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $templates
+    }
+
+    $raw = Get-Content -LiteralPath $path -Raw
+    if (-not $raw -or -not $raw.Trim()) {
+        return $templates
+    }
+
+    try {
+        $parsed = $raw | ConvertFrom-Json
+    }
+    catch {
+        return $templates
+    }
+
+    if ($null -eq $parsed) {
+        return $templates
+    }
+
+    foreach ($typeProp in $parsed.PSObject.Properties) {
+        $typeKey  = Get-AzDevOpsNormalizedTypeKey -Type $typeProp.Name
+        $fieldMap = @{}
+
+        $typeValue = $typeProp.Value
+        if ($null -ne $typeValue) {
+            foreach ($fieldProp in $typeValue.PSObject.Properties) {
+                $spec = ConvertTo-AzDevOpsFieldSpec -Raw $fieldProp.Value
+                $fieldMap[$fieldProp.Name] = $spec
+            }
+        }
+
+        $templates[$typeKey] = $fieldMap
+    }
+
+    return $templates
+}
+
+
+function Get-AzDevOpsFieldTemplateForType {
+    # Per-type accessor over Get-AzDevOpsFieldTemplates. Returns the field-spec
+    # hashtable for the given type (empty when the type isn't declared), using
+    # the same case-insensitive type-key normalization the ProjectMap lookups
+    # use so 'User Story', 'user story', and 'USER_STORY' all resolve alike.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $key = Get-AzDevOpsNormalizedTypeKey -Type $Type
+
+    $templates = Get-AzDevOpsFieldTemplates
+    if ($templates.ContainsKey($key)) {
+        $fields = $templates[$key]
+        return $fields
+    }
+
+    return @{}
 }
 
 

@@ -141,6 +141,26 @@ function az-Open-UserStoriesWiql {
 }
 
 
+function az-Open-FieldTemplates {
+    # Opens the per-type extra-fields config (field-templates.json). Defensively
+    # seeds field-templates.json (empty {}) and field-templates.example.json (the
+    # swimlane example) via Initialize-AzDevOpsFieldTemplates - mirrors how
+    # az-Open-HierarchyWiqls seeds - so a fresh machine can discover and edit the
+    # config in one step. The example is opened alongside so the shape is visible.
+    $init = Initialize-AzDevOpsFieldTemplates
+
+    foreach ($entry in $init.Seeded) {
+        if ($entry.Seeded) {
+            Write-Host "Wrote default $($entry.Name) to $($entry.Path) - opening for editing" -ForegroundColor Green
+        } else {
+            Write-Host "Opening $($entry.Path)" -ForegroundColor DarkGray
+        }
+
+        Start-Process $entry.Path
+    }
+}
+
+
 # --- Schema file opener (1) ------------------------------------------------
 
 function az-Open-Schema {

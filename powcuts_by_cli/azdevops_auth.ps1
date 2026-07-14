@@ -432,6 +432,18 @@ function az-Confirm-AzDevOpsQueryFiles {
         Write-Host "  OK  Query files at $($init.Paths.QueriesDir)" -ForegroundColor Green
     }
 
+    $templateInit = Initialize-AzDevOpsFieldTemplates
+    $newlyTemplated = @($templateInit.Seeded | Where-Object { $_.Seeded })
+
+    if ($newlyTemplated.Count -gt 0) {
+        foreach ($entry in $newlyTemplated) {
+            Write-Host "  OK  Seeded $($entry.Name) at $($entry.Path)" -ForegroundColor Green
+        }
+        Write-Host "      Declare extra create-time fields in field-templates.json (az-Open-FieldTemplates)." -ForegroundColor DarkGray
+    } else {
+        Write-Host "  OK  Field-template config at $($templateInit.Paths.FieldTemplates)" -ForegroundColor Green
+    }
+
     $stepResult = New-AzDevOpsStepResult -Ok $true
     return $stepResult
 }
@@ -490,7 +502,7 @@ function az-Connect-AzDevOps {
         @{ Num = 4; Name = 'Project map (multi-project)'; Action = { az-Confirm-AzDevOpsProjectMap } },
         @{ Num = 5; Name = 'Azure login session'; Action = { az-Confirm-AzDevOpsLogin } },
         @{ Num = 6; Name = 'Configure az devops defaults'; Action = { az-Set-AzDevOpsDefaults } },
-        @{ Num = 7; Name = 'User-machine query files'; Action = { az-Confirm-AzDevOpsQueryFiles } },
+        @{ Num = 7; Name = 'User-machine query + field-template files'; Action = { az-Confirm-AzDevOpsQueryFiles } },
         @{ Num = 8; Name = 'Smoke test (az boards query)'; Action = { az-Confirm-AzDevOpsSmokeQuery } }
     )
 

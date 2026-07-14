@@ -365,6 +365,12 @@ az-Open-FeaturesWiql     # config/queries/features.wiql
 az-Open-UserStoriesWiql  # config/queries/user-stories.wiql
 ```
 
+Field-templates config (extra `az boards work-item create` fields per type — see "Declaring extra create fields" below):
+
+```powershell
+az-Open-FieldTemplates   # config/field-templates.json  (+ the seeded .example.json)
+```
+
 Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
 
 ```powershell
@@ -509,6 +515,35 @@ az-New-AzDevOpsUserStory `
 `-FeatureId 0` creates an orphan (no parent link) with no prompt. `-NoOpen` skips the browser launch and just echoes the new work-item URL — handy in scripts.
 
 When you reach the parent-Feature picker interactively and pick `0` / cancel (orphan), the creator asks `Create a new parent Feature now? [y/N]` first. On **yes** it runs the full `az-New-AzDevOpsFeature` walk-through (which can itself chain up to a new Epic), then links your new Story to the Feature it just created — so you can build a fresh Epic → Feature → Story slice in one command. On **no/Enter** it creates the orphan exactly as before. (Passing `-FeatureId 0` explicitly still means "force orphan" and skips this prompt.)
+
+#### Declaring extra create fields (`field-templates.json`)
+
+Every `az-New-AzDevOps*` creator can prompt for extra work-item fields beyond the built-in title / description / priority / etc. — things like a swimlane, a business-value note, or a team tag. Declare them per work-item type in `~/.bashcuts-az-devops-app/config/field-templates.json`, keyed by **Azure DevOps field reference name** (e.g. `Custom.Swimlane`, *not* the display name). Each field's value is one of three shapes:
+
+| Value | Behavior at create time |
+|-------|-------------------------|
+| `{ "mode": "grid", "options": ["Expedite","Standard","Blocked"] }` | Single-select **grid pick** over the static options via `Out-ConsoleGridView` — no typos, sortable / filterable |
+| `{ "mode": "prompt" }` (or the bare string `"prompt"`) | Free-text `Read-Host` |
+| `"SomeLiteral"` | Passed straight through to `--fields` unchanged |
+
+Grid mode never blocks a create: if `Out-ConsoleGridView` isn't installed, the options list is empty, or you cancel/escape the grid, it falls back to a free-text `Read-Host` (an empty answer just skips the field). The config keys are `USER_STORY`, `FEATURE`, `TASK`, and `EPIC`:
+
+```json
+{
+  "USER_STORY": {
+    "Custom.Swimlane": { "mode": "grid", "options": ["Expedite", "Standard", "Blocked"] },
+    "Custom.BusinessValue": { "mode": "prompt" }
+  }
+}
+```
+
+`az-Connect-AzDevOps` (and the first create / `az-Open-FieldTemplates`) seeds an empty `field-templates.json` (`{}`, so nothing extra is prompted until you opt in) plus a `field-templates.example.json` documenting the swimlane example above. Open both for editing with:
+
+```powershell
+az-Open-FieldTemplates
+```
+
+The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
 
 ### Creating a new Feature
 

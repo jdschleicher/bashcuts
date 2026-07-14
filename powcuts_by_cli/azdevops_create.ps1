@@ -155,13 +155,59 @@ function Test-AzDevOpsCreateGate {
 }
 
 
+# Recognized per-field spec modes for the RequiredFields / field-templates.json
+# mechanism. Named so the mode comparisons below read intent instead of bare
+# string literals.
+$script:AzDevOpsFieldModeGrid   = 'grid'
+$script:AzDevOpsFieldModePrompt = 'prompt'
+
+
+function Read-AzDevOpsFieldGridValue {
+    # Grid picker for a single 'grid'-mode required field. Renders the static
+    # Options through Read-AzDevOpsGridPick (Out-ConsoleGridView, single-select)
+    # and returns the picked value. Falls back to a free-text Read-Host when the
+    # grid is unavailable (Out-ConsoleGridView not installed), when no options
+    # were configured, or when the user cancels/escapes the grid - so a required
+    # field never blocks the create. An empty free-text answer returns '' and the
+    # caller skips the field, matching the 'prompt' behavior.
+    param(
+        [Parameter(Mandatory)] [string] $RefName,
+        [object[]] $Options
+    )
+
+    $choices = @($Options | Where-Object { $_ } | ForEach-Object { [string]$_ })
+
+    $gridReady =
+        ($choices.Count -gt 0) -and
+        (Get-Command Test-AzDevOpsGridAvailable -ErrorAction SilentlyContinue) -and
+        (Test-AzDevOpsGridAvailable) -and
+        (Get-Command Read-AzDevOpsGridPick -ErrorAction SilentlyContinue)
+
+    if ($gridReady) {
+        $rows = $choices | ForEach-Object { [PSCustomObject]@{ Value = $_ } }
+        $picked = Read-AzDevOpsGridPick -Rows $rows -Title "Pick $RefName"
+
+        if ($null -ne $picked) {
+            $value = [string]$picked.Value
+            return $value
+        }
+    }
+
+    $answer = Read-Host "Enter $RefName"
+    return $answer
+}
+
+
 function Read-AzDevOpsRequiredFields {
     # Walks Resolve-AzDevOpsTypeRequiredFields output for the given type and
     # returns a hashtable of <RefName> = <value> ready to feed
-    # Invoke-AzDevOpsWorkItemCreate -ExtraFields. Entries whose value is the
-    # literal 'prompt' (case-insensitive) trigger a Read-Host; any other value
-    # passes through unchanged. Empty input on a 'prompt' entry skips that field
-    # rather than sending an empty string to `az boards work-item create`.
+    # Invoke-AzDevOpsWorkItemCreate -ExtraFields. Each entry's spec resolves as:
+    #   'prompt' string, or @{ Mode = 'prompt' }   -> Read-Host free text
+    #   @{ Mode = 'grid'; Options = @('A','B') }    -> Read-AzDevOpsFieldGridValue
+    #                                                  (grid pick + free-text fallback)
+    #   any other value                             -> literal passthrough
+    # Empty input on a prompt/grid entry skips that field rather than sending an
+    # empty string to `az boards work-item create`.
     param([Parameter(Mandatory)] [string] $Type)
 
     $result = @{}
@@ -176,11 +222,38 @@ function Read-AzDevOpsRequiredFields {
 
     foreach ($refName in $required.Keys) {
         $value = $required[$refName]
-        if ("$value".Trim().ToLower() -eq 'prompt') {
+
+        $mode = $null
+        $options = @()
+        if ($value -is [hashtable]) {
+            if ($value.ContainsKey('Mode')) {
+                $mode = "$($value['Mode'])".Trim().ToLower()
+            }
+            if ($value.ContainsKey('Options')) {
+                $options = @($value['Options'])
+            }
+        }
+        elseif ("$value".Trim().ToLower() -eq $script:AzDevOpsFieldModePrompt) {
+            $mode = $script:AzDevOpsFieldModePrompt
+        }
+
+        if ($mode -eq $script:AzDevOpsFieldModeGrid) {
+            $picked = Read-AzDevOpsFieldGridValue -RefName $refName -Options $options
+            if ($picked) {
+                $result[$refName] = $picked
+            }
+        }
+        elseif ($mode -eq $script:AzDevOpsFieldModePrompt) {
             $answer = Read-Host "Enter $refName"
             if ($answer) {
                 $result[$refName] = $answer
             }
+        }
+        elseif ($value -is [hashtable]) {
+            # A hashtable with no recognized Mode is a malformed spec (e.g. {}
+            # from an empty JSON object) - skip it rather than passing a
+            # hashtable literal to `az boards work-item create --fields`.
+            continue
         }
         else {
             $result[$refName] = $value
