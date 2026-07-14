@@ -398,6 +398,8 @@ az-Open-Mention 12345                         # open one of your mentioned items
 az-Show-RecentActivity                        # merged grid of non-closed items you posted on OR were tagged in, newest first; Reason column flags Posted / Tagged / Both
 az-Show-RecentActivity -State Active,New      # filter to one or more states (default excludes Closed/Removed)
 
+az-Show-AzDevOpsDigest                        # compact activity digest (new comments, new items this week, open commented stories) from the cache; also prints automatically on shell open
+
 az-Show-Tree                          # Epic -> Feature -> User Story tree; select a row to open it or create a child work item
 az-Show-Board                         # board view: cached items grouped by State (click the State header in the grid to group)
 az-Show-Board -State Active,New       # filter to one or more states (default excludes Closed/Removed)
@@ -446,6 +448,15 @@ az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-U
 If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Show-Assigned`, `az-Get-AzDevOpsMentions`, `az-Show-Tree`, `az-Show-Board`, `az-Show-Epics`, `az-Show-Features`, `az-Show-Orphans`, `az-Show-CurrentSprint`, `az-Show-ItemsBySprint`, `az-Show-Areas`, `az-Show-Iterations`, `az-Find-AzDevOpsWorkItem`, `az-Find-AzDevOpsItem`, and `az-Find-AzDevOpsText` each print a one-line `WARNING stale (last sync: ...)` notice above their output and still render the cached data.
 
 **Automatic on-open refresh.** You don't have to schedule anything. Every time a PowerShell session loads bashcuts, it checks the cache age and — if it's stale (older than 6 hours, or never synced) — spawns a detached, hidden `pwsh` that runs `az-Sync-AzDevOpsCache` in the background. Your prompt returns instantly and no sync chatter prints into the terminal; the next command you run reads the freshly-updated cache (the background sync's progress goes to `~/.bashcuts-az-devops-app/cache/sync.log`). The background process does the network auth check itself and exits quietly if you're not connected, so a not-connected shell is a silent no-op. To disable this entirely, set `$env:AZ_DEVOPS_NO_AUTOSYNC = '1'` in your `$profile` (run `az-Sync-AzDevOpsCache` by hand when you want a refresh). A short-lived lock under the cache directory keeps several terminals opened in quick succession from each kicking off a sync.
+
+**Startup activity digest.** Every PowerShell session also prints a compact `az-Show-AzDevOpsDigest` on open — a non-blocking, cache-only glance at what's moved in Azure DevOps since the last sync, with no keypress and no `az` round-trip. It reads the same cached `hierarchy.json` and shows up to four sections, each omitted entirely when it has no rows:
+
+- **New comments since yesterday** — items changed since yesterday 00:00 that carry discussion comments
+- **New items this week** — items created since Monday 00:00 of the current week
+- **New comments this week** — items changed since Monday 00:00 that carry comments
+- **Open stories with comments** — non-closed requirement-tier items (User Story / PBI / Bug) that have comments
+
+When nothing matches — or the cache doesn't exist yet — the digest prints nothing at all, so a fresh or not-configured shell stays quiet. Run `az-Show-AzDevOpsDigest` any time to see it on demand, and set `$env:AZ_DEVOPS_NO_DIGEST = '1'` in your `$profile` to suppress the automatic on-open print (the manual command still works). The comment counts and change/create dates come from fields Azure DevOps returns on each cached work item, so no WIQL or sync changes are needed.
 
 `az-Show-Tree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
 

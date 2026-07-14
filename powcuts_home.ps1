@@ -77,6 +77,13 @@ if ($azdevops_views -ne $NULL) {
     Write-Host "no azdevops_views.ps1"
 }
 
+$azdevops_workitems = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
+if ($azdevops_workitems -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azdevops_workitems.ps1"
+} else {
+    Write-Host "no azdevops_workitems.ps1"
+}
+
 $azdevops_find = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_find.ps1"
 if ($azdevops_find -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_find.ps1"
@@ -179,4 +186,13 @@ if (Get-Command Start-AzDevOpsBackgroundSync -ErrorAction SilentlyContinue) {
     catch {
         # swallow — the on-open refresh is best-effort and must not break the shell
     }
+}
+
+# On shell open: print a compact Azure DevOps activity digest (new comments,
+# new items this week, open commented stories) from the cache. Non-blocking,
+# cache-only, and a silent no-op when the cache is absent. Set
+# $env:AZ_DEVOPS_NO_DIGEST to opt out. The wrapper swallows its own errors so a
+# digest failure can never break profile load.
+if (Get-Command Invoke-AzDevOpsStartupDigest -ErrorAction SilentlyContinue) {
+    Invoke-AzDevOpsStartupDigest
 }
