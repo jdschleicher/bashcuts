@@ -46,9 +46,9 @@ function Get-OutlookComApplication {
     # Returns $null (after a one-line yellow hint) when the platform is wrong
     # or Outlook can't be reached, so every caller shares one guard instead of
     # repeating the platform branch. Unapproved verb is fine — not user-facing.
-    $isWindows = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
+    $onWindows = ($IsWindows -or ($env:OS -eq 'Windows_NT'))
 
-    if (-not $isWindows) {
+    if (-not $onWindows) {
         Write-Host "Outlook COM automation requires Windows desktop Outlook." -ForegroundColor Yellow
         return $null
     }
