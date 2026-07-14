@@ -38,6 +38,16 @@ $script:OutlookIconCalendar = [char]::ConvertFromUtf32(0x1F4C5)   # calendar
 $script:OutlookIconTasks    = [char]::ConvertFromUtf32(0x1F5D2)   # spiral notepad
 $script:OutlookIconParty    = [char]::ConvertFromUtf32(0x1F389)   # party popper
 $script:OutlookIconCheck    = [char]::ConvertFromUtf32(0x2705)    # check mark
+$script:OutlookIconWarning  = [char]::ConvertFromUtf32(0x26A0)    # warning sign
+
+# --- Day-section registry ---------------------------------------------------
+# External modules (Azure DevOps today; Jira / GitHub as trivial follow-ups)
+# register a section here; ol-Show-OutlookDay renders each one after its
+# built-in agenda + tasks, in Order. Mirrors the $script:TimerIntegrations
+# pattern from pow_timer.ps1 — the Outlook module never references az-* symbols,
+# so neither module hard-depends on the other. Registering only appends to this
+# collection: no cache reads, no callouts at source time.
+$script:OutlookDaySections = @()
 
 
 function Get-OutlookComApplication {
@@ -338,12 +348,66 @@ function ol-Show-OutlookTasks {
 }
 
 
-function ol-Show-OutlookDay {
-    # Composed day view: today's meetings, then the tasks to work on. Both
-    # sections delegate to their own ol-Get-/ol-Show- pair.
+function Register-OutlookDaySection {
+    # Registers (or replaces by Name) an external section that ol-Show-OutlookDay
+    # renders after its built-in agenda + tasks. Idempotent by Name so
+    # re-sourcing the profile swaps the entry in place rather than duplicating
+    # it. Render is a scriptblock that prints the section body; it runs only when
+    # the day view runs, never at registration time.
     [CmdletBinding()]
     param(
-        [datetime] $Date = (Get-Date)
+        [Parameter(Mandatory)] [string]      $Name,
+        [Parameter(Mandatory)] [int]         $Order,
+        [Parameter(Mandatory)] [scriptblock] $Render
+    )
+
+    $entry = [PSCustomObject]@{
+        Name   = $Name
+        Order  = $Order
+        Render = $Render
+    }
+
+    $existing = @($script:OutlookDaySections | Where-Object { $_.Name -eq $Name })
+    if ($existing.Count -gt 0) {
+        $script:OutlookDaySections = @($script:OutlookDaySections | Where-Object { $_.Name -ne $Name })
+    }
+
+    $script:OutlookDaySections = @($script:OutlookDaySections) + $entry
+}
+
+
+function Invoke-OutlookDaySections {
+    # Private. Renders every registered external day section in Order (then Name
+    # for a stable tie-break), each behind a try/catch so a failing section
+    # prints a yellow hint and never aborts the rest of the day view. Prints the
+    # section's Name as a Cyan header — the same shape the built-in agenda /
+    # tasks sections use — then invokes its Render body.
+    $sections = @($script:OutlookDaySections | Sort-Object Order, Name)
+
+    foreach ($section in $sections) {
+        Write-Host ""
+        Write-Host $section.Name -ForegroundColor Cyan
+
+        try {
+            & $section.Render
+        }
+        catch {
+            Write-Host "$script:OutlookIconWarning section '$($section.Name)' failed: $_" -ForegroundColor Yellow
+        }
+    }
+}
+
+
+function ol-Show-OutlookDay {
+    # Composed day view: today's meetings, then the tasks to work on, then any
+    # externally-registered sections (e.g. Azure DevOps assigned work). The
+    # built-in sections delegate to their own ol-Get-/ol-Show- pair;
+    # -NoWorkItems suppresses the registered external sections while keeping the
+    # agenda + tasks.
+    [CmdletBinding()]
+    param(
+        [datetime] $Date = (Get-Date),
+        [switch]   $NoWorkItems
     )
 
     $application = Get-OutlookComApplication
@@ -361,6 +425,10 @@ function ol-Show-OutlookDay {
     Write-Host "$script:OutlookIconTasks To work on today" -ForegroundColor Cyan
 
     ol-Show-OutlookTasks -Date $Date
+
+    if (-not $NoWorkItems) {
+        Invoke-OutlookDaySections
+    }
 }
 
 

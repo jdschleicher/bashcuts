@@ -70,6 +70,15 @@ if ($azdevops_sync -ne $NULL) {
     Write-Host "no azdevops_sync.ps1"
 }
 
+# Loaded before azdevops_views.ps1 so its $script:OutlookDaySections registry +
+# Register-OutlookDaySection exist when the AzDO area registers its day section.
+$outlook_agenda = Get-Content "$path_to_bashcuts\powcuts_by_cli\outlook_agenda.ps1"
+if ($outlook_agenda -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\outlook_agenda.ps1"
+} else {
+    Write-Host "no outlook_agenda.ps1"
+}
+
 $azdevops_views = Get-Content "$path_to_bashcuts\powcuts_by_cli\azdevops_views.ps1"
 if ($azdevops_views -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_views.ps1"
@@ -166,13 +175,6 @@ if ($azdevops_help -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\azdevops_help.ps1"
 } else {
     Write-Host "no azdevops_help.ps1"
-}
-
-$outlook_agenda = Get-Content "$path_to_bashcuts\powcuts_by_cli\outlook_agenda.ps1"
-if ($outlook_agenda -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\outlook_agenda.ps1"
-} else {
-    Write-Host "no outlook_agenda.ps1"
 }
 
 # On shell open: silently refresh the Azure DevOps cache in the background when

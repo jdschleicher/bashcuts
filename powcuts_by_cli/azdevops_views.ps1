@@ -1810,30 +1810,42 @@ function Get-AzDevOpsSprintItemPool {
 }
 
 
-function Resolve-AzDevOpsCurrentIteration {
-    # Private. Returns the cached iteration row whose StartDate <= today <=
-    # FinishDate - the same date-range test `az boards iteration team list
-    # --timeframe current` applies (Azure DevOps stores no "is current" flag;
-    # "current" is always derived from the sprint's start/finish dates). The
-    # returned row carries Path / StartDate / FinishDate. Returns $null when no
-    # dated iteration brackets today (e.g. a gap between sprints) so the caller
-    # can fall back to $env:AZ_ITERATION.
-    $rows = Read-AzDevOpsClassificationRows -Kind 'Iteration' -CommandName 'az-Show-CurrentSprint'
-    if ($null -eq $rows -or @($rows).Count -eq 0) {
+function Select-AzDevOpsCurrentIterationRow {
+    # Private. Given flattened iteration rows, returns the one whose StartDate <=
+    # today <= FinishDate - the same date-range test `az boards iteration team
+    # list --timeframe current` applies (Azure DevOps stores no "is current"
+    # flag; "current" is always derived from the sprint's start/finish dates).
+    # Returns $null when the rows are empty or no dated iteration brackets today
+    # (e.g. a gap between sprints). Shared by the live-capable
+    # Resolve-AzDevOpsCurrentIteration and the cache-only
+    # Resolve-AzDevOpsCurrentIterationFromCache so the bracket test lives once.
+    param($Rows)
+
+    if ($null -eq $Rows -or @($Rows).Count -eq 0) {
         return $null
     }
 
     $today = (Get-Date).Date
 
-    $match = $rows | Where-Object {
+    $match = $Rows | Where-Object {
         $_.StartDate -and $_.FinishDate -and
         $_.StartDate.Date -le $today -and $today -le $_.FinishDate.Date
     } | Select-Object -First 1
 
-    if ($null -eq $match) {
-        return $null
-    }
+    return $match
+}
 
+
+function Resolve-AzDevOpsCurrentIteration {
+    # Private. Returns the cached iteration row bracketing today (Path /
+    # StartDate / FinishDate), or $null when no dated iteration brackets today so
+    # the caller can fall back to $env:AZ_ITERATION. Reads through
+    # Read-AzDevOpsClassificationRows, which falls back to a live `az` fetch when
+    # the iteration cache is missing - fine for the interactive sprint views, but
+    # see Resolve-AzDevOpsCurrentIterationFromCache for the callout-free variant
+    # the read-only day view needs.
+    $rows = Read-AzDevOpsClassificationRows -Kind 'Iteration' -CommandName 'az-Show-CurrentSprint'
+    $match = Select-AzDevOpsCurrentIterationRow -Rows $rows
     return $match
 }
 
@@ -1945,4 +1957,140 @@ function az-Show-CurrentSprint {
     Write-AzDevOpsCurrentSprintBanner -Current $current -IterationPath $iterationPath
 
     Show-AzDevOpsSprintGrid -IterationPath $iterationPath -Label $iterationPath
+}
+
+
+# ---------------------------------------------------------------------------
+# Outlook day-view integration
+#
+# Registers an Azure DevOps section into the Outlook day view
+# (ol-Show-OutlookDay), guarded on Register-OutlookDaySection so neither module
+# hard-depends on the other: when the Outlook module isn't loaded the guard
+# skips registration with no error. outlook_agenda.ps1 is dot-sourced before
+# this file in powcuts_home.ps1 so the registry exists at this point.
+#
+# The section is a today-slice of the assigned cache - active items in the
+# current iteration, sorted by Priority then most-recently-changed. Strictly
+# read-only / cache-only: the current-iteration resolve reads the classification
+# cache directly (no live `az` fallback), so the day view never triggers a
+# callout or an auth prompt.
+# ---------------------------------------------------------------------------
+
+$script:AzDevOpsDayEmDash           = "$([char]0x2014)"                                        # em-dash (BMP)
+$script:AzDevOpsDayCacheMissingHint = "Azure DevOps cache not found $script:AzDevOpsDayEmDash run az-Sync-AzDevOpsCache"
+$script:AzDevOpsDayCelebrateIcon    = [char]::ConvertFromUtf32(0x1F389)                        # party popper
+$script:AzDevOpsDaySectionName      = "$([char]::ConvertFromUtf32(0x1F3AF)) Azure DevOps"      # bullseye
+$script:AzDevOpsDaySectionOrder     = 100
+
+
+function Resolve-AzDevOpsCurrentIterationFromCache {
+    # Private. Cache-only current-iteration resolve for the read-only day view:
+    # reads the iteration classification cache directly (NO live `az` fallback,
+    # honoring the section's no-callouts contract), flattens it, and returns the
+    # row bracketing today - or $null when the cache is absent or nothing
+    # brackets today, so the caller falls back to all-active.
+    $tree = Read-AzDevOpsClassificationCache -Kind 'Iteration'
+    if ($null -eq $tree) {
+        return $null
+    }
+
+    $rows = ConvertFrom-AzDevOpsClassificationTree -Tree $tree -Kind 'Iteration'
+    $match = Select-AzDevOpsCurrentIterationRow -Rows $rows
+    return $match
+}
+
+
+function Sort-AzDevOpsByPriority {
+    # Priority ascending (1 = highest) with null priorities pushed last via an
+    # [int]::MaxValue substitution, then most-recently-changed first. Mirrors the
+    # calculated-key shape of Sort-AzDevOpsByDateDesc / Sort-AzDevOpsByClosedLast
+    # so each ordering the views need lives in one named helper.
+    param([Parameter(Mandatory)] $Items)
+
+    $priorityKey = {
+        if ($null -eq $_.Priority) {
+            [int]::MaxValue
+        } else {
+            $_.Priority
+        }
+    }
+
+    $sorted = $Items | Sort-Object `
+        @{ Expression = $priorityKey; Ascending = $true }, `
+        @{ Expression = 'AssignedAt'; Descending = $true }
+
+    return @($sorted)
+}
+
+
+function Get-AzDevOpsDayViewRows {
+    # Private. Today-slice of the assigned cache for the day view: active states,
+    # filtered to the current iteration (falls back to all-active when the
+    # current iteration can't be resolved from cache), sorted by Priority asc
+    # (nulls last) then AssignedAt desc. Returns the projected rows (Id, Type,
+    # State, Priority, Title, Iteration), or $null when the assigned cache is
+    # absent so the renderer can print its dim sync hint.
+    $items = Read-AzDevOpsAssignedCache
+    if ($null -eq $items) {
+        return $null
+    }
+
+    # Normalize to an array up front: Select-AzDevOpsActiveItems collapses an
+    # empty result to $null (empty pipeline), and Sort-AzDevOpsByPriority's
+    # Mandatory -Items rejects $null - the empty-cache path would otherwise throw
+    # instead of yielding the friendly "no active items" state.
+    $active = @(Select-AzDevOpsActiveItems -Items $items)
+
+    $current = Resolve-AzDevOpsCurrentIterationFromCache
+
+    $scoped = if ($null -ne $current) {
+        @($active | Where-Object { $_.Iteration -eq $current.Path })
+    } else {
+        $active
+    }
+
+    if ($scoped.Count -eq 0) {
+        return @()
+    }
+
+    $sorted = Sort-AzDevOpsByPriority -Items $scoped
+
+    $rows = @($sorted | Select-Object Id, Type, State, Priority, (Get-AzDevOpsTitleColumn), Iteration)
+    return $rows
+}
+
+
+function Show-AzDevOpsDaySection {
+    # Renders the Azure DevOps section inside ol-Show-OutlookDay: today's slice
+    # of assigned work (current iteration, active states, priority-sorted). A
+    # view function - Write-Host for display is intended here. Strictly
+    # cache-only: prints a single dim hint when the assigned cache is absent
+    # (instead of the standard multi-line sync warning or an empty grid), a
+    # friendly line when nothing is active, and surfaces staleness through the
+    # shared Write-AzDevOpsStaleBanner path like az-Show-Assigned.
+    $paths = Get-AzDevOpsCachePaths
+
+    if (-not (Test-Path -LiteralPath $paths.Assigned)) {
+        Write-Host $script:AzDevOpsDayCacheMissingHint -ForegroundColor DarkGray
+        return
+    }
+
+    Write-AzDevOpsStaleBanner
+
+    $rows = Get-AzDevOpsDayViewRows
+
+    if ($null -eq $rows -or @($rows).Count -eq 0) {
+        Write-Host "No active work items $script:AzDevOpsDayCelebrateIcon"
+        return
+    }
+
+    $rows | Format-Table -AutoSize | Out-Host
+}
+
+
+if (Get-Command Register-OutlookDaySection -ErrorAction SilentlyContinue) {
+    Register-OutlookDaySection `
+        -Name  $script:AzDevOpsDaySectionName `
+        -Order $script:AzDevOpsDaySectionOrder `
+        -Render { Show-AzDevOpsDaySection }
 }
