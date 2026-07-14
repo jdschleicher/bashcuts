@@ -285,19 +285,23 @@ function Get-AzDevOpsQueryDefaults {
 }
 
 
-function Initialize-AzDevOpsQueryFiles {
-    # Idempotent: creates the queries directory if absent and seeds each
-    # default .wiql file only when the file does not already exist. Returns
-    # the resolved paths plus per-file Seeded flags so callers (the
-    # az-Connect-AzDevOps step and az-Open-HierarchyWiqls) can print
-    # consistent status lines.
-    $paths = Get-AzDevOpsConfigPaths
-    New-AzDevOpsDirectoryIfMissing -Path $paths.QueriesDir
+function Initialize-AzDevOpsSeededFiles {
+    # Shared seed loop for the config-file initializers. Ensures $Directory
+    # exists, then writes each entry's Default to its Path only when the file is
+    # absent (idempotent). $Files is a list of [PSCustomObject]@{ Name; Path;
+    # Default }. Returns the per-file Seeded flags (Name / Path / Seeded) as a
+    # List[PSCustomObject]. Consumed by Initialize-AzDevOpsQueryFiles and
+    # Initialize-AzDevOpsFieldTemplates so the two never drift.
+    param(
+        [Parameter(Mandatory)] [string]   $Directory,
+        [Parameter(Mandatory)] [object[]] $Files
+    )
 
-    $defaults = Get-AzDevOpsQueryDefaults
+    New-AzDevOpsDirectoryIfMissing -Path $Directory
+
     $seeded = New-Object System.Collections.Generic.List[PSCustomObject]
 
-    foreach ($entry in $defaults) {
+    foreach ($entry in $Files) {
         $wasSeeded = $false
         if (-not (Test-Path -LiteralPath $entry.Path)) {
             Set-Content -LiteralPath $entry.Path -Value $entry.Default -Encoding UTF8
@@ -311,9 +315,24 @@ function Initialize-AzDevOpsQueryFiles {
         })
     }
 
+    return $seeded
+}
+
+
+function Initialize-AzDevOpsQueryFiles {
+    # Idempotent: creates the queries directory if absent and seeds each
+    # default .wiql file only when the file does not already exist. Returns
+    # the resolved paths plus per-file Seeded flags so callers (the
+    # az-Connect-AzDevOps step and az-Open-HierarchyWiqls) can print
+    # consistent status lines.
+    $paths    = Get-AzDevOpsConfigPaths
+    $defaults = Get-AzDevOpsQueryDefaults
+
+    $seeded = Initialize-AzDevOpsSeededFiles -Directory $paths.QueriesDir -Files $defaults
+
     return [PSCustomObject]@{
         Paths  = $paths
-        Seeded = @($seeded)
+        Seeded = $seeded
     }
 }
 
@@ -387,21 +406,7 @@ function Initialize-AzDevOpsFieldTemplates {
         }
     )
 
-    $seeded = New-Object System.Collections.Generic.List[PSCustomObject]
-
-    foreach ($entry in $files) {
-        $wasSeeded = $false
-        if (-not (Test-Path -LiteralPath $entry.Path)) {
-            Set-Content -LiteralPath $entry.Path -Value $entry.Default -Encoding UTF8
-            $wasSeeded = $true
-        }
-
-        $seeded.Add([PSCustomObject]@{
-            Name   = $entry.Name
-            Path   = $entry.Path
-            Seeded = $wasSeeded
-        })
-    }
+    $seeded = Initialize-AzDevOpsSeededFiles -Directory $paths.Dir -Files $files
 
     return [PSCustomObject]@{
         Paths  = $paths
@@ -441,6 +446,24 @@ function ConvertTo-AzDevOpsFieldSpec {
 }
 
 
+function Get-AzDevOpsNormalizedTypeKey {
+    # Single normalizer for work-item type keys in this file. Routes through the
+    # canonical ConvertTo-AzDevOpsTypeKey (azdevops_projects.ps1) when it's
+    # loaded, with an inline fallback for the rare case this file is used on its
+    # own, so both the JSON-key and the lookup paths canonicalize identically
+    # ('User Story' / 'user story' / 'USER_STORY' -> 'USER_STORY').
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $key = if (Get-Command ConvertTo-AzDevOpsTypeKey -ErrorAction SilentlyContinue) {
+        ConvertTo-AzDevOpsTypeKey -Type $Type
+    } else {
+        ($Type.ToUpper() -replace '\s+', '_')
+    }
+
+    return $key
+}
+
+
 function Get-AzDevOpsFieldTemplates {
     # Reads field-templates.json (seeding the defaults first, like
     # Get-AzDevOpsWiql) and returns a hashtable keyed by normalized work-item
@@ -474,7 +497,7 @@ function Get-AzDevOpsFieldTemplates {
     }
 
     foreach ($typeProp in $parsed.PSObject.Properties) {
-        $typeKey  = ($typeProp.Name.ToUpper() -replace '\s+', '_')
+        $typeKey  = Get-AzDevOpsNormalizedTypeKey -Type $typeProp.Name
         $fieldMap = @{}
 
         $typeValue = $typeProp.Value
@@ -499,11 +522,7 @@ function Get-AzDevOpsFieldTemplateForType {
     # use so 'User Story', 'user story', and 'USER_STORY' all resolve alike.
     param([Parameter(Mandatory)] [string] $Type)
 
-    $key = if (Get-Command ConvertTo-AzDevOpsTypeKey -ErrorAction SilentlyContinue) {
-        ConvertTo-AzDevOpsTypeKey -Type $Type
-    } else {
-        ($Type.ToUpper() -replace '\s+', '_')
-    }
+    $key = Get-AzDevOpsNormalizedTypeKey -Type $Type
 
     $templates = Get-AzDevOpsFieldTemplates
     if ($templates.ContainsKey($key)) {

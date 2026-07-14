@@ -155,6 +155,13 @@ function Test-AzDevOpsCreateGate {
 }
 
 
+# Recognized per-field spec modes for the RequiredFields / field-templates.json
+# mechanism. Named so the mode comparisons below read intent instead of bare
+# string literals.
+$script:AzDevOpsFieldModeGrid   = 'grid'
+$script:AzDevOpsFieldModePrompt = 'prompt'
+
+
 function Read-AzDevOpsFieldGridValue {
     # Grid picker for a single 'grid'-mode required field. Renders the static
     # Options through Read-AzDevOpsGridPick (Out-ConsoleGridView, single-select)
@@ -226,21 +233,27 @@ function Read-AzDevOpsRequiredFields {
                 $options = @($value['Options'])
             }
         }
-        elseif ("$value".Trim().ToLower() -eq 'prompt') {
-            $mode = 'prompt'
+        elseif ("$value".Trim().ToLower() -eq $script:AzDevOpsFieldModePrompt) {
+            $mode = $script:AzDevOpsFieldModePrompt
         }
 
-        if ($mode -eq 'grid') {
+        if ($mode -eq $script:AzDevOpsFieldModeGrid) {
             $picked = Read-AzDevOpsFieldGridValue -RefName $refName -Options $options
             if ($picked) {
                 $result[$refName] = $picked
             }
         }
-        elseif ($mode -eq 'prompt') {
+        elseif ($mode -eq $script:AzDevOpsFieldModePrompt) {
             $answer = Read-Host "Enter $refName"
             if ($answer) {
                 $result[$refName] = $answer
             }
+        }
+        elseif ($value -is [hashtable]) {
+            # A hashtable with no recognized Mode is a malformed spec (e.g. {}
+            # from an empty JSON object) - skip it rather than passing a
+            # hashtable literal to `az boards work-item create --fields`.
+            continue
         }
         else {
             $result[$refName] = $value

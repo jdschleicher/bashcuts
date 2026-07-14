@@ -905,6 +905,8 @@ graph LR
     FTForType[Get-AzDevOpsFieldTemplateForType]:::priv
     FTSpec[ConvertTo-AzDevOpsFieldSpec]:::priv
     ReqGrid[Read-AzDevOpsFieldGridValue]:::priv
+    SeedFiles[Initialize-AzDevOpsSeededFiles]:::priv
+    NormKey[Get-AzDevOpsNormalizedTypeKey]:::priv
 
     %% Data-plane wrappers (azdevops_db.ps1)
     AzJson[Invoke-AzDevOpsAzJson]:::priv
@@ -1150,7 +1152,8 @@ graph LR
     InvHier --> Boards
     QInit --> QDefaults
     QInit --> QPaths
-    QInit --> MkDir
+    QInit --> SeedFiles
+    SeedFiles --> MkDir
     OpenHWiql --> QInit
     InvokeDS --> Boards
     InvokeDS --> ClassList
@@ -1582,11 +1585,13 @@ graph LR
     RReq --> TypeCfg
     RReq --> FTForType
     FTForType --> FTGet
-    FTForType --> TypeKey
+    FTForType --> NormKey
     FTGet --> FTInit
     FTGet --> FTSpec
+    FTGet --> NormKey
+    NormKey --> TypeKey
     FTInit --> QPaths
-    FTInit --> MkDir
+    FTInit --> SeedFiles
     RPri --> TypeCfg
     RPts --> TypeCfg
     RScope --> TypeCfg
