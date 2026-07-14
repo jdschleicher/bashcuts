@@ -27,6 +27,9 @@ $script:OutlookFolderTasks    = 13
 # Date format Outlook's Items.Restrict filter expects for [Start] / [DueDate].
 $script:OutlookRestrictDateFormat = 'MM/dd/yyyy hh:mm tt'
 
+# MAPI is the messaging namespace every Outlook default folder hangs off.
+$script:OutlookMapiNamespace = 'MAPI'
+
 # Outlook stores "no due date" as a sentinel far in the future; anything at or
 # beyond this year is treated as unset.
 $script:OutlookNoDateYear = 4000
@@ -56,6 +59,33 @@ function Get-OutlookComApplication {
     }
     catch {
         Write-Host "Could not reach Outlook. Is the desktop client installed?" -ForegroundColor Yellow
+        return $null
+    }
+}
+
+
+function Get-OutlookDefaultFolder {
+    # Private. Resolves an Outlook default folder (Calendar, Tasks, ...) through
+    # the shared platform guard, wrapping the COM navigation so a transient
+    # fault (Outlook busy, a MAPI security prompt) fails soft as $null instead
+    # of throwing. Centralizes the acquire -> namespace -> folder sequence the
+    # ol-Get- functions would otherwise repeat.
+    param(
+        [Parameter(Mandatory)] [int] $FolderId
+    )
+
+    $application = Get-OutlookComApplication
+    if ($null -eq $application) {
+        return $null
+    }
+
+    try {
+        $namespace = $application.GetNamespace($script:OutlookMapiNamespace)
+        $folder = $namespace.GetDefaultFolder($FolderId)
+        return $folder
+    }
+    catch {
+        Write-Host "Could not read the Outlook folder. Is Outlook busy or blocked by a dialog?" -ForegroundColor Yellow
         return $null
     }
 }
@@ -149,13 +179,10 @@ function ol-Get-OutlookAgenda {
         [datetime] $Date = (Get-Date)
     )
 
-    $application = Get-OutlookComApplication
-    if ($null -eq $application) {
+    $calendar = Get-OutlookDefaultFolder -FolderId $script:OutlookFolderCalendar
+    if ($null -eq $calendar) {
         return $null
     }
-
-    $namespace = $application.GetNamespace('MAPI')
-    $calendar = $namespace.GetDefaultFolder($script:OutlookFolderCalendar)
 
     $items = $calendar.Items
     $items.IncludeRecurrences = $true
@@ -166,7 +193,11 @@ function ol-Get-OutlookAgenda {
 
     $startText = $dayStart.ToString($script:OutlookRestrictDateFormat)
     $endText = $dayEnd.ToString($script:OutlookRestrictDateFormat)
-    $filter = "[Start] >= '$startText' AND [End] <= '$endText'"
+
+    # Bound the window on [Start], not [End]: with IncludeRecurrences the
+    # supported day-range pattern filters on Start, and an all-day event ends at
+    # next-day midnight — an [End] bound would silently drop it.
+    $filter = "[Start] >= '$startText' AND [Start] <= '$endText'"
 
     $restricted = $items.Restrict($filter)
 
@@ -188,7 +219,9 @@ function ol-Get-OutlookAgenda {
         $events.Add($row)
     }
 
-    return $events
+    # Comma-wrap so an empty list survives the return as an empty collection
+    # (a bare `return $events` enumerates to $null, hiding the empty-day path).
+    return ,$events
 }
 
 
@@ -232,13 +265,10 @@ function ol-Get-OutlookTasks {
         [datetime] $Date = (Get-Date)
     )
 
-    $application = Get-OutlookComApplication
-    if ($null -eq $application) {
+    $taskFolder = Get-OutlookDefaultFolder -FolderId $script:OutlookFolderTasks
+    if ($null -eq $taskFolder) {
         return $null
     }
-
-    $namespace = $application.GetNamespace('MAPI')
-    $taskFolder = $namespace.GetDefaultFolder($script:OutlookFolderTasks)
 
     $dayEnd = $Date.Date
 
@@ -250,7 +280,7 @@ function ol-Get-OutlookTasks {
         }
 
         $dueDate = $task.DueDate
-        if ($null -eq $dueDate -or $dueDate.Year -ge $script:OutlookNoDateYear) {
+        if ($dueDate.Year -ge $script:OutlookNoDateYear) {
             continue
         }
 
@@ -272,7 +302,8 @@ function ol-Get-OutlookTasks {
         $tasks.Add($row)
     }
 
-    return $tasks
+    # Comma-wrap so an empty list survives the return (see ol-Get-OutlookAgenda).
+    return ,$tasks
 }
 
 
