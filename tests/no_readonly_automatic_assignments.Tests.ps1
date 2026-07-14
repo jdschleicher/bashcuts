@@ -44,7 +44,9 @@ Describe 'Read-only automatic variables' {
         function Get-AssignmentTargetName {
             # Unwrap an optional [type] cast and return the bare variable name
             # (scope prefix stripped), or $null when the target isn't a plain
-            # variable (e.g. $env:OS, an index, or a property assignment).
+            # variable: a property ($obj.Prop), an index ($arr[0]), or a
+            # drive-qualified variable ($env:HOME, $function:foo) whose
+            # assignment is legal and must never be flagged.
             param(
                 [Parameter(Mandatory)] $LeftAst
             )
@@ -59,10 +61,18 @@ Describe 'Read-only automatic variables' {
                 return $null
             }
 
+            # $env:HOME / $function:foo parse as variables, but assigning them is
+            # legal; skip drive-qualified paths so an env var whose name collides
+            # with a read-only automatic (e.g. $env:Host) isn't a false positive.
+            if ($target.VariablePath.IsDriveQualified) {
+                return $null
+            }
+
             $userPath = $target.VariablePath.UserPath
             $leaf = ($userPath -split ':')[-1]
             return $leaf
         }
+
 
         function Get-ReadOnlyAssignment {
             # Parse one file and return readable offense strings for every
