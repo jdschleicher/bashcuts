@@ -251,6 +251,16 @@ With those seven steps done, head to [Azure DevOps work-item shortcuts](#azure-d
 
 ![image](https://github.com/jdschleicher/bashcuts/assets/3968818/87f2fefe-f81f-42a8-b6fc-100e2292703b)
 
+## Outlook day agenda (`ol-`, PowerShell + Windows)
+
+If you run desktop Outlook on Windows, the `ol-` shortcuts (in `powcuts_by_cli/outlook_agenda.ps1`) show your day from the terminal — no alt-tab into Outlook:
+
+- `ol-Show-OutlookDay` (alias `ol-day`) — today's meetings, then the open tasks you're expected to work on (due today or overdue)
+- `ol-Get-OutlookAgenda` / `ol-Get-OutlookTasks` — the same data as objects you can pipe/filter (`ol-Get-OutlookAgenda | Format-List`)
+- `ol-Show-OutlookAgenda` / `ol-Show-OutlookTasks` — the individual tables
+
+These read the Calendar and Tasks folders via Outlook COM automation, so they require **Windows + the desktop Outlook client** (no cloud/Graph auth). On macOS/Linux — or if Outlook can't be reached — every command prints a short hint and exits cleanly.
+
 ## Opening VS Code Snipppets
 
 When using VS Code it is HIGHLY recommend to setup VSCode settings sync: https://code.visualstudio.com/docs/editor/settings-sync
