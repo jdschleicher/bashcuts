@@ -157,11 +157,35 @@ function chevron() {
   return tpl.content.firstElementChild.cloneNode(true);
 }
 
+// textContent protects a title's text, but an href does not — a javascript:
+// URL still executes on click. Once live Azure DevOps data flows in, a link
+// field is untrusted too, so gate the scheme and drop the href otherwise.
+var SAFE_URL_SCHEMES = { "http:": true, "https:": true, "mailto:": true };
+
+function safeUrl(url) {
+  try {
+    var parsed = new URL(url, window.location.href);
+    if (SAFE_URL_SCHEMES[parsed.protocol]) {
+      return parsed.href;
+    }
+  } catch (err) {
+    return null;
+  }
+
+  return null;
+}
+
 function externalLink(text, url, className) {
-  var opts = { href: url, target: "_blank", rel: "noopener", text: text };
+  var opts = { target: "_blank", rel: "noopener noreferrer", text: text };
+
+  var href = safeUrl(url);
+  if (href) {
+    opts.href = href;
+  }
   if (className) {
     opts["class"] = className;
   }
+
   return el("a", opts);
 }
 
