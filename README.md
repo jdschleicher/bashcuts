@@ -456,7 +456,7 @@ If the cache is older than 6 hours, `az-Get-AzDevOpsAssigned`, `az-Show-Assigned
 - **New comments this week** — items changed since Monday 00:00 that carry comments
 - **Open stories with comments** — non-closed requirement-tier items (User Story / PBI / Bug) that have comments
 
-When nothing matches — or the cache doesn't exist yet — the digest prints nothing at all, so a fresh or not-configured shell stays quiet. Run `az-Show-AzDevOpsDigest` any time to see it on demand, and set `$env:AZ_DEVOPS_NO_DIGEST = '1'` in your `$profile` to suppress the automatic on-open print (the manual command still works). The comment counts and change/create dates come from fields Azure DevOps returns on each cached work item, so no WIQL or sync changes are needed.
+On shell open, when nothing matches — or the cache doesn't exist yet — the digest prints nothing at all, so a fresh or not-configured shell stays quiet. When you run `az-Show-AzDevOpsDigest` **by hand**, the empty cases instead print a single dim status line so the command never looks broken: `Azure DevOps cache not found - run az-Sync-AzDevOpsCache` when there's no cache, or `No recent Azure DevOps activity 🎉` when the cache is present but nothing falls in the four windows. Set `$env:AZ_DEVOPS_NO_DIGEST = '1'` in your `$profile` to suppress the automatic on-open print (the manual command still works). The comment counts and change/create dates come from fields Azure DevOps returns on each cached work item, so no WIQL or sync changes are needed.
 
 `az-Show-Tree` (and any future hierarchy-view commands) include a `Url` column on every row so you can copy or click straight to the work item from `Out-ConsoleGridView`.
 

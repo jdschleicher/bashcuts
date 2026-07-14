@@ -165,24 +165,56 @@ function Write-AzDevOpsDigestSection {
 }
 
 
+function Write-AzDevOpsDigestEmptyHint {
+    # One dim status line for the empty cases, shown only on a manual call. The
+    # on-open path passes -OnOpen (which skips this), so a fresh shell stays
+    # silent while a hand-run `az-Show-AzDevOpsDigest` says something instead of
+    # printing nothing — 'NoCache' points at the sync, 'NoActivity' confirms it
+    # ran and found nothing.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('NoCache', 'NoActivity')] [string] $Reason
+    )
+
+    $partyPopper = "$([char]0x1F389)"
+
+    $message = if ($Reason -eq 'NoCache') {
+        'Azure DevOps cache not found - run az-Sync-AzDevOpsCache'
+    }
+    else {
+        "No recent Azure DevOps activity $partyPopper"
+    }
+
+    Write-Host $message -ForegroundColor DarkGray
+}
+
+
 function az-Show-AzDevOpsDigest {
-    # Compact, non-blocking summary of recent Azure DevOps activity from the
-    # cached hierarchy (no `az` calls). Four sections — new comments since
-    # yesterday, new items this week, new comments this week, and open stories
-    # with comments — each omitted entirely when it has no rows. Silent no-op
-    # when the hierarchy cache doesn't exist yet or holds zero rows. Printed
-    # automatically on shell open (unless $env:AZ_DEVOPS_NO_DIGEST is set) and
-    # runnable on demand.
+    # Compact summary of recent Azure DevOps activity from the cached hierarchy
+    # (no `az` calls). Four sections — new comments since yesterday, new items
+    # this week, new comments this week, and open stories with comments — each
+    # omitted entirely when it has no rows. On a manual call, the empty cases
+    # print a single dim status line (cache missing vs. nothing to show); pass
+    # -OnOpen (the shell-startup path does) to suppress that line so a fresh
+    # terminal stays completely silent when there's nothing to report. Printed
+    # automatically on shell open unless $env:AZ_DEVOPS_NO_DIGEST is set.
     [CmdletBinding()]
-    param()
+    param(
+        [switch] $OnOpen
+    )
 
     $items = Read-AzDevOpsDigestRows
     if ($null -eq $items) {
+        if (-not $OnOpen) {
+            Write-AzDevOpsDigestEmptyHint -Reason 'NoCache'
+        }
         return
     }
 
     $items = @($items)
     if ($items.Count -eq 0) {
+        if (-not $OnOpen) {
+            Write-AzDevOpsDigestEmptyHint -Reason 'NoActivity'
+        }
         return
     }
 
@@ -220,6 +252,9 @@ function az-Show-AzDevOpsDigest {
     $total = $newCommentsYesterday.Count + $newItemsThisWeek.Count +
              $newCommentsThisWeek.Count + $openStoriesWithComments.Count
     if ($total -eq 0) {
+        if (-not $OnOpen) {
+            Write-AzDevOpsDigestEmptyHint -Reason 'NoActivity'
+        }
         return
     }
 
@@ -241,14 +276,16 @@ function az-Show-AzDevOpsDigest {
 
 function Invoke-AzDevOpsStartupDigest {
     # On-open entry point for the digest. Honors the $env:AZ_DEVOPS_NO_DIGEST
-    # opt-out (the manual az-Show-AzDevOpsDigest always renders, opt-out or not)
-    # and swallows any error so a digest failure can never break profile load.
+    # opt-out and passes -OnOpen so the empty cases stay completely silent on a
+    # fresh shell (the manual az-Show-AzDevOpsDigest prints a status line
+    # instead). Swallows any error so a digest failure can never break profile
+    # load.
     if ($env:AZ_DEVOPS_NO_DIGEST) {
         return
     }
 
     try {
-        az-Show-AzDevOpsDigest
+        az-Show-AzDevOpsDigest -OnOpen
     }
     catch {
         # swallow — the on-open digest is best-effort and must not break the shell

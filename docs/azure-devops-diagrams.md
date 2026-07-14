@@ -949,6 +949,7 @@ graph LR
     WeekStart[Get-AzDevOpsWeekStart]:::priv
     DigestRow[Format-AzDevOpsDigestRow]:::priv
     DigestSect[Write-AzDevOpsDigestSection]:::priv
+    DigestHint[Write-AzDevOpsDigestEmptyHint]:::priv
 
     %% Shared scaffolding
     Closed[Get-AzDevOpsClosedStates]:::priv
@@ -1218,7 +1219,8 @@ graph LR
     RecentAct --> RowAction
     ReadAct --> ReadJson --> ConvAct
 
-    StartupDigest --> Digest
+    StartupDigest -- "-OnOpen (silent empties)" --> Digest
+    Digest -- "manual empty: cache missing / no activity" --> DigestHint
     Digest --> ReadDigest
     Digest --> WeekStart
     Digest --> Closed
