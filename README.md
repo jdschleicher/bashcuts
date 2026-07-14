@@ -299,6 +299,89 @@ $env:BASHCUTS_NO_SPINNER = '1'            # opt out of the az-call loading spinn
 
 Every AzDevOps command routes its underlying `az` call through one wrapper, which now shows a small terminal spinner while the call is in flight and clears it cleanly when the call returns — so a multi-second `az-Sync-AzDevOpsCache` or `az-New-AzDevOpsUserStory` always signals that work is happening. The spinner suppresses itself when output is redirected or piped (CI, `> out.txt`, `| cmd`) so it never leaks into captured JSON; set `BASHCUTS_NO_SPINNER` to turn it off everywhere.
 
+### Multi-project setup (optional)
+
+The flat `$env:AZ_*` vars above are all you need if you only ever touch **one** Azure DevOps board. If you work across **several** projects, define `$global:AzDevOpsProjectMap` in your `$profile` instead — a hashtable describing every board you touch — and switch the active one with a single command. The existing `az-*` commands don't change shape: the switcher hydrates the same flat `$env:AZ_DEVOPS_ORG` / `AZ_PROJECT` / `AZ_AREA` / `AZ_ITERATION` vars they already read.
+
+Add this to your `$profile` **after** the line that sources `powcuts_home.ps1`:
+
+```powershell
+$global:AzDevOpsProjectMap = @{
+    ProjectABC = @{
+        Org       = 'https://dev.azure.com/myorg'
+        Project   = 'Project ABC'
+        Area      = 'Project ABC\Team Phoenix'
+        Iteration = 'Project ABC\Sprint 42'
+        Tags      = @('team-phoenix')
+        Types = @{
+            EPIC = @{
+                Area            = 'Project ABC\Portfolio'
+                Iteration       = 'Project ABC'
+                Tags            = @('portfolio')
+                DefaultPriority = 2
+                RequiredFields  = @{ 'Custom.BusinessValue' = 'prompt' }
+            }
+            FEATURE = @{
+                Area        = 'Project ABC\Team Phoenix'
+                Iteration   = 'Project ABC\Sprint 42'
+                ParentScope = @{
+                    Type      = 'EPIC'
+                    AreaPaths = @('Project ABC\Portfolio')
+                }
+            }
+            USER_STORY = @{
+                Area               = 'Project ABC\Team Phoenix\Backend'
+                Iteration          = 'Project ABC\Sprint 42'
+                DefaultStoryPoints = 3
+                ParentScope        = @{
+                    Type      = 'FEATURE'
+                    AreaPaths = @('Project ABC\Team Phoenix')
+                }
+            }
+        }
+    }
+    Project123 = @{
+        Org       = 'https://dev.azure.com/otherorg'
+        Project   = 'Project 123'
+        Area      = 'Project 123\Platform'
+        Iteration = 'Project 123\Iteration 8'
+    }
+}
+
+$global:AzDevOpsDefaultProject = 'ProjectABC'   # optional: auto-hydrate this board on shell startup
+```
+
+`$global:AzDevOpsDefaultProject` is optional. When set, every new PowerShell session silently hydrates that board's `$env:AZ_*` vars on startup (no `az` round-trip — it runs the switch with `-Quiet -SkipConfigure` so the terminal stays fast and quiet). Leave it unset to start each shell with no active project and pick one by hand.
+
+The three user-facing switcher commands:
+
+```powershell
+az-Use-AzDevOpsProject ProjectABC   # switch the active board: hydrates the flat $env:AZ_* vars AND runs `az devops configure --defaults`
+az-Show-Project                     # print the active project name + the four $env:AZ_* vars it resolved to
+az-Get-AzDevOpsProjects             # list every project in the map (pipeable rows), the active one flagged
+az-Find-AzDevOpsProject             # Out-ConsoleGridView picker over the map; -Use also switches to the pick
+```
+
+The switcher **auto-hydrates silently on shell startup** (env vars only, no `az` call) when `$global:AzDevOpsDefaultProject` is set. It only runs `az devops configure --defaults organization=… project=…` on an **explicit** `az-Use-AzDevOpsProject` call, so switching boards mid-session repoints your `az boards` defaults while a fresh shell stays quiet.
+
+#### Per-type config keys
+
+Each entry under `Types` (keyed by work-item type) can override the board-level defaults for that one type. Every key is optional; an omitted key falls through to the board-level value, then to the flat `$env:AZ_*` var, then to the interactive prompt. These are read by the `az-New-*` creators at create time:
+
+| Key | Applies to types | What it overrides | Accepted values |
+|-----|------------------|-------------------|-----------------|
+| `Area` | any type | the area path for items of this type (else board `Area`, else `$env:AZ_AREA`) | area-path string, e.g. `'Project ABC\Portfolio'` |
+| `Iteration` | any type | the iteration path for items of this type (else board `Iteration`, else `$env:AZ_ITERATION`) | iteration-path string, e.g. `'Project ABC\Sprint 42'` |
+| `Tags` | any type | *supplements* (does not replace) the board-level `Tags`; the two are concatenated and de-duplicated | string array, e.g. `@('portfolio','q3')` |
+| `DefaultPriority` | any type | the priority prompt's default (Epic/Feature/Story creators) | int `1`–`4` (out-of-range values are ignored) |
+| `DefaultStoryPoints` | `USER_STORY` | the story-points prompt's default | non-negative int (only Story carries points in default Agile/Scrum) |
+| `RequiredFields` | any type | merged with `field-templates.json`; a map entry **wins** over the JSON entry for the same field | hashtable of `'Ref.Name' = <spec>`, where `<spec>` is `'prompt'`, a literal passthrough string, or `@{ Mode = 'grid'; Options = @(...) }` |
+| `ParentScope` | `FEATURE`, `USER_STORY` | narrows the parent picker to a type + area-path subset when creating a child | `@{ Type = 'EPIC'; AreaPaths = @('...') }` (`AreaPath` singular also accepted) |
+
+> **Cache namespacing.** When `$global:AzDevOpsProjectMap` is set and a project is active, the cache directory splits into per-project subdirs under `~/.bashcuts-az-devops-app/cache/<project-slug>/` (the slug is the project name lowercased, non-alphanumerics collapsed to `-`). Switching projects loads that board's cache; the first `az-Sync-AzDevOpsCache` after switching populates it. With no map defined, everything stays in the flat `~/.bashcuts-az-devops-app/cache/` as before.
+
+> **Type-key normalization.** Type lookups uppercase the key and replace whitespace with underscores, so `EPIC`, `Epic`, and `epic` are equivalent, and `USER_STORY`, `'User Story'`, and `'user story'` all hit the same `Types` entry. Author your keys in whichever form reads best.
+
 ### First run
 
 In a fresh PowerShell terminal:
