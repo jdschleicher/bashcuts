@@ -29,6 +29,8 @@ $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past wh
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
+$script:AzDevOpsDailyViewerPrepWindowDays  = 14      # "events to prepare for" look-ahead: the next two weeks
+$script:AzDevOpsDailyViewerMarkerNeeded    = 'needed'  # a newly-pulled meeting starts "prep still needed"
 
 # Strict Content-Security-Policy for the served app. The page loads styles.css +
 # app.js as external same-origin assets and fetches /api/tiles/* same-origin;
@@ -276,16 +278,18 @@ function Get-AzDevOpsDailyViewerAssignedRows {
 
 
 function Get-AzDevOpsDailyViewerAgendaEvents {
-    # Shared source of today's calendar events for the agenda tile and the week
-    # tile's prep list. ol-Get-OutlookAgenda fails soft to $null off Windows /
-    # desktop Outlook (or when the module isn't loaded); normalize that to an
-    # empty array so callers render a clean empty state instead of tripping on
-    # $null.
+    # Shared source of calendar events for the agenda tile (today, the default)
+    # and the week tile's prep list (the two-week window, via -Days).
+    # ol-Get-OutlookAgenda fails soft to $null off Windows / desktop Outlook (or
+    # when the module isn't loaded); normalize that to an empty array so callers
+    # render a clean empty state instead of tripping on $null.
+    param([int] $Days = 1)
+
     if (-not (Get-Command ol-Get-OutlookAgenda -ErrorAction SilentlyContinue)) {
         return @()
     }
 
-    $events = ol-Get-OutlookAgenda
+    $events = ol-Get-OutlookAgenda -Days $Days
     if ($null -eq $events) {
         return @()
     }
@@ -375,13 +379,21 @@ function Get-AzDevOpsDailyViewerAgendaItems {
 # --- This week's focus tile -------------------------------------------------
 
 function Get-AzDevOpsDailyViewerPrepItems {
-    # "Events to prepare for" = today's meetings, each a checklist line that
-    # links to the Teams join when there is one. Derived from the same agenda
-    # source so the week tile shares the agenda pull rather than a second query.
-    $events = @(Get-AzDevOpsDailyViewerAgendaEvents)
+    # "Events to prepare for" = the next two weeks of meetings, widened from
+    # today so nothing on the calendar sneaks up unprepared. Each row carries a
+    # short date chip, the meeting's ISO datetime, a default "prep still needed"
+    # marker the viewer can toggle to "all set", and a Teams join link when the
+    # meeting has one. Durable marker state is a follow-up — the model ships the
+    # default and the page owns the toggle.
+    $events = @(Get-AzDevOpsDailyViewerAgendaEvents -Days $script:AzDevOpsDailyViewerPrepWindowDays)
 
     $prep = @($events | ForEach-Object {
-        $node = [ordered]@{ title = "Prep for $($_.Subject)" }
+        $node = [ordered]@{
+            title    = [string]$_.Subject
+            date     = Format-AzDevOpsDailyViewerShortDate -When $_.Start
+            datetime = $_.Start.ToString('o')
+            marker   = $script:AzDevOpsDailyViewerMarkerNeeded
+        }
 
         if ($_.MeetingUrl) {
             $node.link = [ordered]@{ text = 'Join meeting'; url = $_.MeetingUrl }

@@ -48,8 +48,10 @@ var MODEL = {
       label: "Events to prepare for",
       open: true,
       items: [
-        { title: "Confirm demo build is deployed before Thu review" },
-        { title: "Send agenda for", link: { text: "Fri sprint retro", url: "https://teams.microsoft.com/l/meetup-join/example2" } }
+        { title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed" },
+        { title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set" },
+        { title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed", link: { text: "Join meeting", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
+        { title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
       ]
     }
   },
@@ -117,6 +119,13 @@ var STATE_CLASS = {
 };
 
 var STAR_GLYPH = "★";
+
+// Prep-marker states. Meetings arrive "needed" (unprepared) and the user toggles
+// each to "set" (all set). Persistence is a follow-up — the toggle is in-memory
+// for now, so a refresh re-reads the model's default state.
+var MARKER_SET = "set";
+var MARKER_SET_LABEL = "All set";
+var MARKER_NEEDED_LABEL = "Prep still needed";
 
 
 // ---------------------------------------------------------------------------
@@ -240,7 +249,38 @@ function workItemRow(wi) {
 }
 
 
-function checklistRow(item) {
+// The prep marker is a real toggle button: aria-pressed carries the state (and
+// drives the chip color in CSS), the visible text is its accessible name, and
+// every flip is announced through the shared aria-live region so a screen reader
+// hears which meeting changed. State lives on the button only (persistence is a
+// follow-up), so a re-render resets it to the model's default.
+function markerText(pressed) {
+  return pressed ? MARKER_SET_LABEL : MARKER_NEEDED_LABEL;
+}
+
+function prepMarkerButton(item) {
+  var pressed = item.marker === MARKER_SET;
+
+  var btn = el("button", {
+    type: "button",
+    class: "marker",
+    "aria-pressed": pressed ? "true" : "false",
+    text: markerText(pressed)
+  });
+
+  btn.addEventListener("click", function () {
+    var next = btn.getAttribute("aria-pressed") !== "true";
+    btn.setAttribute("aria-pressed", next ? "true" : "false");
+    btn.textContent = markerText(next);
+
+    var label = item.title || "This item";
+    announce(label + (next ? " marked all set." : " marked prep still needed."));
+  });
+
+  return btn;
+}
+
+function prepRow(item) {
   var title = [ item.title ];
 
   if (item.link) {
@@ -248,10 +288,15 @@ function checklistRow(item) {
     title.push(externalLink(item.link.text, item.link.url));
   }
 
-  return el("li", { class: "wi" }, [
-    el("span", { class: "check", "aria-hidden": "true" }),
-    el("span", { class: "wtitle" }, title)
-  ]);
+  var children = [ el("span", { class: "wtitle" }, title) ];
+
+  if (item.date) {
+    children.push(el("span", { class: "date", text: item.date }));
+  }
+
+  children.push(prepMarkerButton(item));
+
+  return el("li", { class: "wi prep" }, children);
 }
 
 
@@ -297,7 +342,7 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function groupBlock(group, rowFn) {
+function groupBlock(group, rowFn, emptyNote) {
   var items = asArray(group.items);
 
   var summary = el("summary", null, [
@@ -307,6 +352,13 @@ function groupBlock(group, rowFn) {
   ]);
 
   var list = el("ul", { class: "glist" }, items.map(rowFn));
+
+  // A group that's empty for a friendly reason (no meetings in the prep window)
+  // gets a note in place of a blank list; the note isn't a row, so it never
+  // inflates the count badge or the tile's meaningful-row check.
+  if (items.length === 0 && emptyNote) {
+    list.appendChild(el("li", { class: "empty-note", text: emptyNote }));
+  }
 
   var opts = { class: "group" };
   if (group.open) {
@@ -330,7 +382,7 @@ function renderAgenda(model) {
 function renderWeek(model) {
   return [
     groupBlock(model.stories || {}, workItemRow),
-    groupBlock(model.prep || {}, checklistRow)
+    groupBlock(model.prep || {}, prepRow, "No meetings to prepare for in the next two weeks.")
   ];
 }
 
