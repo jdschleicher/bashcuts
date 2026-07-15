@@ -485,9 +485,11 @@ function loadTile(key) {
   return fetchJson(API + key, { headers: { "Accept": "application/json" } })
     .then(function (data) {
       paintTile(key, data.items || {}, data);
+      return true;
     })
     .catch(function () {
       paintTile(key, MODEL[key], null);
+      return false;
     });
 }
 
@@ -687,6 +689,12 @@ searchBox.addEventListener("keydown", function (e) {
 // record open state so the filter can restore it.
 // ---------------------------------------------------------------------------
 
-Promise.all(TILES.map(function (t) { return loadTile(t.key); })).then(function () {
+Promise.all(TILES.map(function (t) { return loadTile(t.key); })).then(function (results) {
   rememberOpenState();
+
+  // Screen-reader parity with the refresh path: if any tile couldn't reach the
+  // backend and fell back to the sample model, say so once (not per tile).
+  if (results.indexOf(false) !== -1) {
+    announce("Showing sample data — the daily-viewer server isn't reachable.");
+  }
 });
