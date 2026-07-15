@@ -34,6 +34,11 @@ $script:OutlookMapiNamespace = 'MAPI'
 # beyond this year is treated as unset.
 $script:OutlookNoDateYear = 4000
 
+# Teams meetings stash their one-click join URL in the appointment body. Match
+# the meetup-join link so the daily viewer's agenda tile can turn it into a
+# clickable "Join meeting" action.
+$script:OutlookTeamsJoinPattern = 'https://teams\.microsoft\.com/l/meetup-join/\S+'
+
 $script:OutlookIconCalendar = [char]::ConvertFromUtf32(0x1F4C5)   # calendar
 $script:OutlookIconTasks    = [char]::ConvertFromUtf32(0x1F5D2)   # spiral notepad
 $script:OutlookIconParty    = [char]::ConvertFromUtf32(0x1F389)   # party popper
@@ -181,6 +186,34 @@ function ConvertFrom-OutlookImportance {
 }
 
 
+function Get-OutlookMeetingJoinUrl {
+    # Private. Extracts a Teams "join meeting" URL from an appointment body, or
+    # $null when the body is empty / unreadable / has no join link. Body access
+    # is wrapped so a transient COM fault fails soft (no join link) rather than
+    # aborting the whole agenda pull. Unapproved verb is fine — not user-facing.
+    param([Parameter(Mandatory)] $Appointment)
+
+    $body = ''
+    try {
+        $body = [string]$Appointment.Body
+    }
+    catch {
+        return $null
+    }
+
+    if (-not $body) {
+        return $null
+    }
+
+    $match = [regex]::Match($body, $script:OutlookTeamsJoinPattern)
+    if ($match.Success) {
+        return $match.Value
+    }
+
+    return $null
+}
+
+
 function ol-Get-OutlookAgenda {
     # Today's calendar events (recurrences expanded) as objects. Emits data
     # only — formatting lives in ol-Show-OutlookAgenda.
@@ -215,6 +248,7 @@ function ol-Get-OutlookAgenda {
 
     foreach ($appointment in $restricted) {
         $responseText = ConvertFrom-OutlookResponseStatus -Status ([int]$appointment.ResponseStatus)
+        $joinUrl = Get-OutlookMeetingJoinUrl -Appointment $appointment
 
         $row = [PSCustomObject]@{
             Start          = $appointment.Start
@@ -224,6 +258,7 @@ function ol-Get-OutlookAgenda {
             Organizer      = $appointment.Organizer
             IsAllDay       = [bool]$appointment.AllDayEvent
             ResponseStatus = $responseText
+            MeetingUrl     = $joinUrl
         }
 
         $events.Add($row)

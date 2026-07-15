@@ -697,6 +697,15 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 - `GET /api/tiles/<name>` — that tile's cached JSON, plus its `ageSeconds` / `stale` staleness (cheap read).
 - `POST /api/tiles/<name>/refresh` — re-runs that tile's query, rewrites its cache, and returns the fresh JSON (expensive; per-tile).
 
+Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
+
+- **Today's Agenda** — today's calendar events from `ol-Get-OutlookAgenda` (desktop Outlook), with the Teams join link when the meeting carries one.
+- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus a prep checklist derived from today's meetings.
+- **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and sprint-close candidates.
+- **Today's Focus** — the pinned work item you set in `$global:AzDevOpsDailyFocus` (a work-item id), plus an "assigned & unplanned support" bucket. Set it in your `$profile`, e.g. `$global:AzDevOpsDailyFocus = 1234`; leave it unset and the tile shows the support bucket alone.
+
+Any tile whose source is unavailable (not logged in to `az`, Outlook not reachable, or nothing to show) renders a friendly empty state rather than erroring, and the page falls back to sample data when opened directly (without the local server). Opening the viewer off Windows still works — the Outlook-backed agenda simply comes up empty.
+
 > On Windows, `HttpListener` may need a one-time URL reservation the first time you bind a port — if `az-Start-AzDevOpsDailyViewer` reports it could not bind, run the `netsh http add urlacl` line it prints (or just pick another `-Port`).
 
 <br>

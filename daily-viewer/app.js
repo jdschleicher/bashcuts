@@ -268,14 +268,23 @@ function eventRow(ev) {
 }
 
 
+// A tile's collections arrive from the cache/API as JSON. Guard every list
+// through this so a serialized-empty array (or an absent field) becomes [] and
+// never a `.map` on a non-array.
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function groupBlock(group, rowFn) {
+  var items = asArray(group.items);
+
   var summary = el("summary", null, [
     chevron(),
     el("span", { class: "glabel", text: group.label }),
-    el("span", { class: "count", text: String(group.items.length) })
+    el("span", { class: "count", text: String(items.length) })
   ]);
 
-  var list = el("ul", { class: "glist" }, group.items.map(rowFn));
+  var list = el("ul", { class: "glist" }, items.map(rowFn));
 
   var opts = { class: "group" };
   if (group.open) {
@@ -291,84 +300,200 @@ function groupBlock(group, rowFn) {
 // ---------------------------------------------------------------------------
 
 function renderAgenda(model) {
-  var list = el("ul", { class: "events" }, model.events.map(eventRow));
+  var list = el("ul", { class: "events" }, asArray(model.events).map(eventRow));
   return [ list ];
 }
 
 
 function renderWeek(model) {
   return [
-    groupBlock(model.stories, workItemRow),
-    groupBlock(model.prep, checklistRow)
+    groupBlock(model.stories || {}, workItemRow),
+    groupBlock(model.prep || {}, checklistRow)
   ];
 }
 
 
 function renderActivity(model) {
-  return model.groups.map(function (group) {
+  return asArray(model.groups).map(function (group) {
     return groupBlock(group, workItemRow);
   });
 }
 
 
 function renderFocus(model) {
-  var primary = el("div", { class: "primary" }, [
-    el("span", { class: "star", "aria-hidden": "true" }, [ STAR_GLYPH ]),
-    el("div", null, [
-      el("p", { class: "ptitle" }, [ externalLink(model.primary.title, model.primary.url) ]),
-      el("p", { class: "psub", text: model.primary.sub })
-    ])
-  ]);
+  var nodes = [];
 
-  return [ primary, groupBlock(model.support, workItemRow) ];
+  // The pinned item is optional — it comes from $global:AzDevOpsDailyFocus, and
+  // the tile renders its support bucket alone when nothing is pinned.
+  if (model.primary) {
+    nodes.push(el("div", { class: "primary" }, [
+      el("span", { class: "star", "aria-hidden": "true" }, [ STAR_GLYPH ]),
+      el("div", null, [
+        el("p", { class: "ptitle" }, [ externalLink(model.primary.title, model.primary.url) ]),
+        el("p", { class: "psub", text: model.primary.sub })
+      ])
+    ]));
+  }
+
+  nodes.push(groupBlock(model.support || {}, workItemRow));
+  return nodes;
 }
 
 
+
 // ---------------------------------------------------------------------------
-// Mount — populate each tile body, derive its count badge from the rendered
-// rows, and set each stat number from the collection it summarizes.
+// Tile registry — the render function, stat target, and stat count for each
+// tile in one place, so mount and refresh iterate a single list.
+// ---------------------------------------------------------------------------
+
+function activityTotal(model) {
+  return asArray(model.groups).reduce(function (sum, group) {
+    return sum + asArray(group.items).length;
+  }, 0);
+}
+
+var TILES = [
+  { key: "agenda",   render: renderAgenda,   stat: "tile-agenda",
+    empty: "No meetings today.",
+    statCount: function (m) { return asArray(m.events).length; } },
+  { key: "week",     render: renderWeek,     stat: "tile-week",
+    empty: "No stories or prep items this week.",
+    statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
+  { key: "activity", render: renderActivity, stat: "tile-activity",
+    empty: "No recent activity.",
+    statCount: activityTotal },
+  { key: "focus",    render: renderFocus,    stat: "tile-focus",
+    empty: "Nothing pinned. Set $global:AzDevOpsDailyFocus to a work-item id.",
+    statCount: function (m) { return asArray(m.support && m.support.items).length; } }
+];
+
+var TILE_BY_KEY = {};
+TILES.forEach(function (t) { TILE_BY_KEY[t.key] = t; });
+
+
+// ---------------------------------------------------------------------------
+// Mount — render one tile body from its data model: clear, render rows, derive
+// the count badge, and drop a friendly note when the tile is genuinely empty.
 // ---------------------------------------------------------------------------
 
 function tile(key) {
   return document.querySelector('.tile[data-tile="' + key + '"]');
 }
 
-function mountTile(key, nodes) {
+function setStat(statId, count) {
+  var number = document.querySelector('.stat[data-target="' + statId + '"] .n');
+  if (number) {
+    number.textContent = String(count);
+  }
+}
+
+function renderTileBody(key, model) {
+  var conf = TILE_BY_KEY[key];
   var body = tile(key).querySelector(".body");
-  nodes.forEach(function (node) { body.appendChild(node); });
 
-  var badge = tile(key).querySelector(".tt .count");
-  badge.textContent = String(body.querySelectorAll(".wi, .event").length);
+  body.textContent = "";
+  conf.render(model || {}).forEach(function (node) { body.appendChild(node); });
+
+  // "empty" counts the primary too so a focus tile with a pinned item but no
+  // support rows isn't mislabeled as empty; the count badge stays row-only.
+  var meaningful = body.querySelectorAll(".wi, .event, .primary").length;
+  if (meaningful === 0) {
+    body.appendChild(el("p", { class: "empty-note", text: conf.empty }));
+  }
+
+  // Re-add the filter's no-match note after each (re)render so the live filter
+  // has its placeholder whether the body came from cache or a refresh.
+  body.appendChild(el("p", { class: "nomatch", text: "No matching items in this tile." }));
+
+  tile(key).querySelector(".tt .count").textContent =
+    String(body.querySelectorAll(".wi, .event").length);
 }
-
-function setStat(key, count) {
-  var number = document.querySelector('.stat[data-target="' + key + '"] .n');
-  number.textContent = String(count);
-}
-
-function activityTotal(model) {
-  return model.groups.reduce(function (sum, group) {
-    return sum + group.items.length;
-  }, 0);
-}
-
-function renderAll() {
-  mountTile("agenda", renderAgenda(MODEL.agenda));
-  mountTile("week", renderWeek(MODEL.week));
-  mountTile("activity", renderActivity(MODEL.activity));
-  mountTile("focus", renderFocus(MODEL.focus));
-
-  setStat("tile-agenda", MODEL.agenda.events.length);
-  setStat("tile-week", MODEL.week.stories.items.length);
-  setStat("tile-activity", activityTotal(MODEL.activity));
-  setStat("tile-focus", MODEL.focus.support.items.length);
-}
-
-renderAll();
 
 
 // ---------------------------------------------------------------------------
-// Controls — wired after render so every handler sees the rendered rows.
+// Staleness — turn the cache's ageSeconds into the "cached Nm ago" label the
+// tile header shows, matching the server's own relative-time buckets.
+// ---------------------------------------------------------------------------
+
+function formatAge(sec) {
+  if (sec < 45) {
+    return "just now";
+  }
+
+  var min = Math.round(sec / 60);
+  if (min < 60) {
+    return min + "m ago";
+  }
+
+  var hr = Math.round(min / 60);
+  if (hr < 24) {
+    return hr + "h ago";
+  }
+
+  var day = Math.round(hr / 24);
+  return day + "d ago";
+}
+
+function staleLabelNode(key) {
+  var stale = tile(key).querySelector(".stale");
+  return stale.childNodes[stale.childNodes.length - 1];
+}
+
+function setStale(key, data) {
+  var stale = tile(key).querySelector(".stale");
+  var label = staleLabelNode(key);
+
+  stale.classList.remove("busy");
+
+  if (data && typeof data.ageSeconds === "number") {
+    label.textContent = "cached " + formatAge(data.ageSeconds);
+    stale.classList.toggle("warn", !!data.stale);
+  } else {
+    label.textContent = "sample data";
+    stale.classList.remove("warn");
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Data layer — cheap GET on load, expensive POST /refresh on demand. Both hit
+// the same-origin local server; on any failure (offline preview, no backend)
+// the tile falls back to the embedded sample MODEL so the page still renders.
+// ---------------------------------------------------------------------------
+
+var API = "/api/tiles/";
+
+function fetchJson(url, options) {
+  return fetch(url, options).then(function (res) {
+    if (!res.ok) {
+      throw new Error("HTTP " + res.status);
+    }
+    return res.json();
+  });
+}
+
+function paintTile(key, model, data) {
+  var conf = TILE_BY_KEY[key];
+  renderTileBody(key, model);
+  setStat(conf.stat, conf.statCount(model || {}));
+  setStale(key, data);
+}
+
+function loadTile(key) {
+  return fetchJson(API + key, { headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      paintTile(key, data.items || {}, data);
+    })
+    .catch(function () {
+      paintTile(key, MODEL[key], null);
+    });
+}
+
+
+// ---------------------------------------------------------------------------
+// Controls — announce, expand/collapse, per-tile + all refresh, stat jump,
+// theme, live filter. Wired once; all handlers query the DOM at event time so
+// they see whatever the async render produced.
 // ---------------------------------------------------------------------------
 
 // Named liveRegion, not `status`: a top-level `var status` in a classic script
@@ -391,10 +516,9 @@ document.getElementById("collapseAll").addEventListener("click", function () {
 });
 
 
-// Per-tile refresh: the only expensive path. Cheap render is already on screen
-// from cache; this is where the real build would fire that tile's az CLI calls.
-var REFRESH_MS = 900;
-
+// Per-tile refresh: the only expensive path. The cheap render is already on
+// screen from cache; this re-runs that tile's az / Outlook query server-side
+// via POST and swaps in the fresh data, count, and "cached just now" stamp.
 function tileNameFromButton(btn) {
   var label = btn.getAttribute("aria-label") || "This tile";
   var name = label.replace(/^Refresh\s+/, "");
@@ -402,10 +526,13 @@ function tileNameFromButton(btn) {
 }
 
 function refreshTile(btn) {
-  if (btn.disabled) return;
+  if (btn.disabled) {
+    return Promise.resolve();
+  }
 
-  var stale = btn.parentElement.querySelector(".stale");
-  var label = stale.childNodes[stale.childNodes.length - 1];
+  var key = btn.getAttribute("data-tile");
+  var stale = tile(key).querySelector(".stale");
+  var label = staleLabelNode(key);
   var name = tileNameFromButton(btn);
 
   btn.disabled = true;
@@ -415,13 +542,23 @@ function refreshTile(btn) {
   label.textContent = "refreshing…";
   announce("Refreshing " + name + "…");
 
-  window.setTimeout(function () {
-    btn.classList.remove("spinning");
-    btn.disabled = false;
-    stale.classList.remove("busy");
-    label.textContent = "cached just now";
-    announce(name + " updated — cached just now.");
-  }, REFRESH_MS);
+  return fetchJson(API + key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      paintTile(key, data.items || {}, data);
+      rememberOpenState();
+      applyFilter(searchBox.value);
+      announce(name + " updated — cached just now.");
+    })
+    .catch(function () {
+      stale.classList.remove("busy");
+      stale.classList.add("warn");
+      label.textContent = "refresh failed";
+      announce(name + " refresh failed.");
+    })
+    .then(function () {
+      btn.classList.remove("spinning");
+      btn.disabled = false;
+    });
 }
 
 document.querySelectorAll(".refresh-btn").forEach(function (btn) {
@@ -441,7 +578,9 @@ document.getElementById("refreshAll").addEventListener("click", function () {
 document.querySelectorAll(".stat").forEach(function (stat) {
   stat.addEventListener("click", function () {
     var target = document.getElementById(stat.dataset.target);
-    if (!target) return;
+    if (!target) {
+      return;
+    }
 
     var details = target.querySelector("details");
     if (details) {
@@ -460,7 +599,9 @@ var iconMoon = document.getElementById("icon-moon");
 
 function currentTheme() {
   var t = root.getAttribute("data-theme");
-  if (t) return t;
+  if (t) {
+    return t;
+  }
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -481,19 +622,19 @@ paintThemeIcon();
 
 
 // Live filter across every work-item and event row. Remembers each tile's
-// open/closed state so clearing the box restores the original layout.
-var allDetails = document.querySelectorAll("details");
-allDetails.forEach(function (d) { d.dataset.open0 = d.open ? "1" : "0"; });
-
-document.querySelectorAll(".tile .body").forEach(function (body) {
-  var note = document.createElement("p");
-  note.className = "nomatch";
-  note.textContent = "No matching items in this tile.";
-  body.appendChild(note);
-});
+// original open/closed state (recorded lazily, since rows render async) so
+// clearing the box restores the layout the data produced.
+function rememberOpenState() {
+  document.querySelectorAll("details").forEach(function (d) {
+    if (d.dataset.open0 === undefined) {
+      d.dataset.open0 = d.open ? "1" : "0";
+    }
+  });
+}
 
 function applyFilter(raw) {
   var q = raw.trim().toLowerCase();
+  var allDetails = document.querySelectorAll("details");
 
   if (q) {
     allDetails.forEach(function (d) { d.open = true; });
@@ -536,4 +677,14 @@ searchBox.addEventListener("keydown", function (e) {
     searchBox.value = "";
     applyFilter("");
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Boot — load every tile from cache (falling back to the sample model), then
+// record open state so the filter can restore it.
+// ---------------------------------------------------------------------------
+
+Promise.all(TILES.map(function (t) { return loadTile(t.key); })).then(function () {
+  rememberOpenState();
 });
