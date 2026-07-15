@@ -419,26 +419,24 @@ function Get-AzDevOpsDailyViewerCurrentSprintRows {
     # the cache-only Resolve-AzDevOpsCurrentIterationFromCache (no live `az`
     # callout, honoring the viewer's read path), falling back to $env:AZ_ITERATION;
     # when neither resolves, the group renders empty rather than guessing a sprint.
-    # Exact-path match mirrors Get-AzDevOpsDayViewRows.
+    # Exact-path match mirrors Get-AzDevOpsDayViewRows. Comma-wrapped returns so an
+    # empty result stays an empty array through the caller's assignment instead of
+    # unrolling to $null (which the -Rows [object[]] bind would reject).
     param(
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows
     )
 
     $current = Resolve-AzDevOpsCurrentIterationFromCache
 
-    $iterationPath = if ($null -ne $current) {
-        $current.Path
-    } else {
-        $env:AZ_ITERATION
-    }
+    $iterationPath = Resolve-AzDevOpsIterationPathOrEnv -Current $current
 
     if (-not $iterationPath) {
-        return @()
+        return ,@()
     }
 
     $inSprint = @($Rows | Where-Object { $_.Iteration -eq $iterationPath })
 
-    return $inSprint
+    return ,$inSprint
 }
 
 

@@ -1851,6 +1851,23 @@ function Resolve-AzDevOpsCurrentIteration {
 }
 
 
+function Resolve-AzDevOpsIterationPathOrEnv {
+    # Private. Given a resolved current-iteration row (or $null), return its Path,
+    # falling back to $env:AZ_ITERATION when no row bracketed today. Shared by the
+    # current-sprint callers so the env-fallback branch lives in one place,
+    # regardless of which resolver (live vs cache-only) produced $Current.
+    param([object] $Current)
+
+    $iterationPath = if ($null -ne $Current) {
+        $Current.Path
+    } else {
+        $env:AZ_ITERATION
+    }
+
+    return $iterationPath
+}
+
+
 function Write-AzDevOpsCurrentSprintBanner {
     # Prints the one-line "which sprint am I looking at" banner for
     # az-Show-CurrentSprint. When the iteration was resolved from dated cache
@@ -1943,11 +1960,7 @@ function az-Show-CurrentSprint {
     # so this view does not print a second one.
     $current = Resolve-AzDevOpsCurrentIteration
 
-    $iterationPath = if ($null -ne $current) {
-        $current.Path
-    } else {
-        $env:AZ_ITERATION
-    }
+    $iterationPath = Resolve-AzDevOpsIterationPathOrEnv -Current $current
 
     if (-not $iterationPath) {
         Write-Host "No current sprint: no iteration brackets today and `$env:AZ_ITERATION is unset." -ForegroundColor Yellow
