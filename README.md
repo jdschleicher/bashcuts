@@ -701,7 +701,7 @@ Each tile is populated from a real source, reusing the same WIQL defaults and Ou
 
 - **Today's Agenda** — today's calendar events from `ol-Get-OutlookAgenda` (desktop Outlook), with the Teams join link when the meeting carries one.
 - **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus a prep checklist derived from today's meetings.
-- **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and sprint-close candidates.
+- **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and your current-sprint items (the `activity` rows scoped to the iteration that brackets today). The current-sprint group reads `[System.IterationPath]` off the `activity` WIQL; the seeded default already selects it, but if you seeded your `activity.wiql` before this field was added, open `o-az-devops-queries-config-dir`, add `[System.IterationPath]` to the `SELECT` in `activity.wiql`, and re-run `az-Sync-AzDevOpsCache` so the group can populate.
 - **Today's Focus** — the pinned work item you set in `$global:AzDevOpsDailyFocus` (a work-item id), plus an "assigned & unplanned support" bucket. Set it in your `$profile`, e.g. `$global:AzDevOpsDailyFocus = 1234`; leave it unset and the tile shows the support bucket alone.
 
 Any tile whose source is unavailable (not logged in to `az`, Outlook not reachable, or nothing to show) renders a friendly empty state rather than erroring, and the page falls back to sample data when opened directly (without the local server). Opening the viewer off Windows still works — the Outlook-backed agenda simply comes up empty.

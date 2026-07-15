@@ -387,7 +387,8 @@ function New-AzDevOpsDailyViewerActivityGroup {
     param(
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows,
-        [Parameter(Mandatory)] [string] $DateField
+        [Parameter(Mandatory)] [string] $DateField,
+        [switch] $Open
     )
 
     $sorted = Sort-AzDevOpsByDateDesc -Items $Rows -Field $DateField
@@ -405,11 +406,37 @@ function New-AzDevOpsDailyViewerActivityGroup {
 
     $group = [ordered]@{
         label = $Label
-        open  = $false
+        open  = [bool]$Open
         items = $items
     }
 
     return $group
+}
+
+
+function Get-AzDevOpsDailyViewerCurrentSprintRows {
+    # Filter activity rows to the current sprint. The iteration path comes from
+    # the cache-only Resolve-AzDevOpsCurrentIterationFromCache (no live `az`
+    # callout, honoring the viewer's read path), falling back to $env:AZ_ITERATION;
+    # when neither resolves, the group renders empty rather than guessing a sprint.
+    # Exact-path match mirrors Get-AzDevOpsDayViewRows. Comma-wrapped returns so an
+    # empty result stays an empty array through the caller's assignment instead of
+    # unrolling to $null (which the -Rows [object[]] bind would reject).
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows
+    )
+
+    $current = Resolve-AzDevOpsCurrentIterationFromCache
+
+    $iterationPath = Resolve-AzDevOpsIterationPathOrEnv -Current $current
+
+    if (-not $iterationPath) {
+        return ,@()
+    }
+
+    $inSprint = @($Rows | Where-Object { $_.Iteration -eq $iterationPath })
+
+    return ,$inSprint
 }
 
 
@@ -421,16 +448,14 @@ function Get-AzDevOpsDailyViewerActivityItems {
         param($r) ConvertFrom-AzDevOpsActivityItem -Raw $r
     })
 
-    $closedStates = Get-AzDevOpsClosedStates
-
-    $taggedRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $mentions
-    $updateRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $activity
-    $closingRows = @($activity | Where-Object { $_.State -in $closedStates })
+    $taggedRows = Get-AzDevOpsDailyViewerActiveRows -Rows $mentions
+    $updateRows = Get-AzDevOpsDailyViewerActiveRows -Rows $activity
+    $sprintRows = Get-AzDevOpsDailyViewerCurrentSprintRows -Rows $activity
 
     $groups = New-Object System.Collections.Generic.List[object]
-    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Tagged discussions'      -Rows $taggedRows  -DateField 'MentionedAt'))
-    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Recent updates'          -Rows $updateRows  -DateField 'ChangedDate'))
-    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Sprint-close candidates' -Rows $closingRows -DateField 'ChangedDate'))
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Tagged discussions' -Rows $taggedRows -DateField 'MentionedAt' -Open))
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Recent updates'     -Rows $updateRows -DateField 'ChangedDate'))
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Current sprint'      -Rows $sprintRows -DateField 'ChangedDate'))
 
     $items = [ordered]@{
         groups = $groups

@@ -938,6 +938,7 @@ graph LR
     DVPrep[Get-AzDevOpsDailyViewerPrepItems]:::priv
     DVWeek[Get-AzDevOpsDailyViewerWeekItems]:::priv
     DVActivity[Get-AzDevOpsDailyViewerActivityItems]:::priv
+    DVSprint[Get-AzDevOpsDailyViewerCurrentSprintRows]:::priv
     DVFocus[Get-AzDevOpsDailyViewerFocusItems]:::priv
     DVWiNode[New-AzDevOpsDailyViewerWorkItemNode]:::priv
 
@@ -1037,6 +1038,7 @@ graph LR
     SprintGrid[Show-AzDevOpsSprintGrid]:::priv
     SprintPool[Get-AzDevOpsSprintItemPool]:::priv
     SprintCur[Resolve-AzDevOpsCurrentIteration]:::priv
+    IterPathEnv[Resolve-AzDevOpsIterationPathOrEnv]:::priv
     SprintBanner[Write-AzDevOpsCurrentSprintBanner]:::priv
     SprintSort[Sort-AzDevOpsByClosedLast]:::priv
     SelIterRow[Select-AzDevOpsCurrentIterationRow]:::priv
@@ -1177,6 +1179,9 @@ graph LR
     DVActive --> DVQuery
     DVAgenda --> DVQuery
     DVActivity --> DVQuery
+    DVActivity --> DVSprint
+    DVSprint --> CurCache
+    DVSprint --> IterPathEnv
     DVFocus --> DVQuery
     DVWeek --> DVAssigned
     DVFocus --> DVAssigned
@@ -1319,6 +1324,7 @@ graph LR
     %% Sprint views — both delegate the pool→filter→sort→render→dispatch body to SprintGrid
     CurSprint --> SprintCur --> ReadRows
     SprintCur --> FmtDate
+    CurSprint --> IterPathEnv
     CurSprint --> SprintBanner
     CurSprint --> SprintGrid
     BySprint --> PKind
