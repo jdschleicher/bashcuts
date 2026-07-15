@@ -30,6 +30,10 @@ $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
 
+$script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
+$script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
+$script:AzDevOpsDailyViewerJoinLabel = "Join meeting $([char]0x2192)"   # right arrow
+
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
     '.css'  = 'text/css; charset=utf-8'
@@ -97,54 +101,276 @@ function Get-AzDevOpsDailyViewerTilePath {
 
 
 # ---------------------------------------------------------------------------
-# Placeholder tile payloads — the EXPENSIVE seam
+# Per-tile query + normalization — the EXPENSIVE seam
 #
-# Each builder returns the "items" payload for one tile, shaped like the
-# front-end model in daily-viewer/app.js so the eventual "wire real data" issue
-# can swap the body for real az boards / Outlook output without changing the
-# transport or the cache contract. Nothing here touches the network yet.
+# Each builder runs its real source (the Outlook module for the agenda tile,
+# `az boards query` via the shared WIQL defaults for the rest) and normalizes
+# the result into the "items" payload shaped like the front-end model in
+# daily-viewer/app.js. The transport and cache contract above/below this block
+# stay put. Every builder fails soft: a missing az login, an Outlook that isn't
+# reachable, or a parse error yields an empty payload (logged server-side) so
+# the tile renders a clean empty state instead of taking down the serving loop.
 # ---------------------------------------------------------------------------
 
-function Get-AzDevOpsDailyViewerAgendaPlaceholder {
+function Get-AzDevOpsDailyViewerQueryRows {
+    # Run a named WIQL default (assigned / mentions / activity) through
+    # Invoke-AzDevOpsBoardsQuery and map each row with $Converter (the same
+    # ConvertFrom-AzDevOps* projections the az-Show-* views use). Returns @() on
+    # any failure so a tile fails soft to an empty state — the expensive refresh
+    # path must never surface a 500 for a query the user simply isn't logged in
+    # for. Failures are recorded in the sync log for later diagnosis.
+    param(
+        [Parameter(Mandatory)] [string]      $Name,
+        [Parameter(Mandatory)] [scriptblock] $Converter
+    )
+
+    try {
+        $wiql   = Get-AzDevOpsWiql -Name $Name
+        $result = Invoke-AzDevOpsBoardsQuery -Wiql $wiql
+
+        if ($result.ExitCode -ne 0) {
+            Write-AzDevOpsSyncLog "daily-viewer: query '$Name' failed (exit $($result.ExitCode)): $($result.Error)"
+            return @()
+        }
+
+        $raw = $result.Json | ConvertFrom-Json
+        if ($null -eq $raw) {
+            return @()
+        }
+
+        $rows = @($raw | ForEach-Object { & $Converter $_ })
+        return $rows
+    }
+    catch {
+        Write-AzDevOpsSyncLog "daily-viewer: query '$Name' error: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+
+function New-AzDevOpsDailyViewerWorkItemNode {
+    # Map a normalized { Id; Type; State; Title } row (as emitted by the
+    # ConvertFrom-AzDevOps* projections) to the front-end work-item row shape.
+    # Both the id chip and — with -LinkTitle — the title link to the item's
+    # dev.azure.com/.../_workitems/edit/<id> page. Get-AzDevOpsWorkItemUrl
+    # returns $null when az devops defaults are unset; the view drops the href
+    # and still renders the id/title as inert text, so no link is never a crash.
+    param(
+        [Parameter(Mandatory)] $Row,
+        [switch] $LinkTitle
+    )
+
+    $id  = [int]$Row.Id
+    $url = Get-AzDevOpsWorkItemUrl -Id $id
+
+    $node = [ordered]@{
+        type  = $Row.Type
+        id    = $id
+        url   = $url
+        title = $Row.Title
+        state = $Row.State
+    }
+
+    if ($LinkTitle -and $url) {
+        $node.titleUrl = $url
+    }
+
+    return $node
+}
+
+
+function Get-AzDevOpsDailyViewerActiveRows {
+    # Drop closed / removed / done rows — the "still open" filter every tile
+    # applies to its query output before projecting. Comma-wrapped so an
+    # all-closed result stays an empty array through the caller's assignment
+    # instead of unrolling to $null. Private helper (unapproved verb is fine).
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows)
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $active = @($Rows | Where-Object { $_.State -notin $closedStates })
+
+    return ,$active
+}
+
+
+function Get-AzDevOpsDailyViewerRelativeTime {
+    # Compact "how long ago" label for the activity tile's note column
+    # (e.g. "2h ago"). Mirrors the front-end formatAge buckets so cached notes
+    # and freshly-refreshed ones read the same.
+    param([Parameter(Mandatory)] [datetime] $When)
+
+    $span = (Get-Date) - $When
+
+    if ($span.TotalMinutes -lt 1) {
+        return 'just now'
+    }
+
+    if ($span.TotalMinutes -lt 60) {
+        $mins = [int]$span.TotalMinutes
+        return "${mins}m ago"
+    }
+
+    if ($span.TotalHours -lt 24) {
+        $hours = [int]$span.TotalHours
+        return "${hours}h ago"
+    }
+
+    $days = [int]$span.TotalDays
+    return "${days}d ago"
+}
+
+
+function Get-AzDevOpsDailyViewerAssignedRows {
+    # Shared source of the user's assigned work items for the week + focus
+    # tiles (each refreshes independently, so both run the query on their own
+    # refresh). Reuses the 'assigned' WIQL default and the assigned projection.
+    $rows = Get-AzDevOpsDailyViewerQueryRows -Name 'assigned' -Converter {
+        param($r) ConvertFrom-AzDevOpsAssignedItem -Raw $r
+    }
+
+    return $rows
+}
+
+
+function Get-AzDevOpsDailyViewerAgendaEvents {
+    # Shared source of today's calendar events for the agenda tile and the week
+    # tile's prep list. ol-Get-OutlookAgenda fails soft to $null off Windows /
+    # desktop Outlook (or when the module isn't loaded); normalize that to an
+    # empty array so callers render a clean empty state instead of tripping on
+    # $null.
+    if (-not (Get-Command ol-Get-OutlookAgenda -ErrorAction SilentlyContinue)) {
+        return @()
+    }
+
+    $events = ol-Get-OutlookAgenda
+    if ($null -eq $events) {
+        return @()
+    }
+
+    return @($events)
+}
+
+
+# --- Agenda tile ------------------------------------------------------------
+
+function New-AzDevOpsDailyViewerLocation {
+    # Build the front-end location object for one calendar event: a Teams join
+    # link when the meeting carries one, the room/place text otherwise, and a
+    # neutral badge when neither is set. The badge is always present because the
+    # view renders it unconditionally.
+    param([Parameter(Mandatory)] $CalendarEvent)
+
+    $joinUrl = $CalendarEvent.MeetingUrl
+    if ($joinUrl) {
+        $location = [ordered]@{
+            badge    = 'Teams'
+            url      = $joinUrl
+            urlLabel = $script:AzDevOpsDailyViewerJoinLabel
+        }
+        return $location
+    }
+
+    $place = [string]$CalendarEvent.Location
+    if ($place) {
+        $location = [ordered]@{ badge = 'In person'; text = $place }
+        return $location
+    }
+
+    $location = [ordered]@{ badge = 'No location' }
+    return $location
+}
+
+
+function New-AzDevOpsDailyViewerAgendaNode {
+    # Normalize one ol-Get-OutlookAgenda row into the front-end event shape.
+    param([Parameter(Mandatory)] $CalendarEvent)
+
+    $start = $CalendarEvent.Start
+
+    $timeLabel = if ($CalendarEvent.IsAllDay) {
+        'All day'
+    } else {
+        $start.ToString('h:mm tt')
+    }
+
+    $time = [ordered]@{
+        label    = $timeLabel
+        datetime = $start.ToString('o')
+    }
+
+    $location = New-AzDevOpsDailyViewerLocation -CalendarEvent $CalendarEvent
+
+    $details = New-Object System.Collections.Generic.List[object]
+    if ($CalendarEvent.Organizer) {
+        $details.Add([ordered]@{ label = 'With'; text = [string]$CalendarEvent.Organizer })
+    }
+
+    $node = [ordered]@{
+        time     = $time
+        title    = [string]$CalendarEvent.Subject
+        location = $location
+        details  = $details
+    }
+
+    return $node
+}
+
+
+function Get-AzDevOpsDailyViewerAgendaItems {
+    $events = @(Get-AzDevOpsDailyViewerAgendaEvents)
+
+    $eventNodes = @($events | ForEach-Object { New-AzDevOpsDailyViewerAgendaNode -CalendarEvent $_ })
+
     $items = [ordered]@{
-        events = @(
-            [ordered]@{
-                time     = [ordered]@{ label = '9:00 AM'; tz = 'EST'; datetime = '2026-07-14T09:00:00-05:00' }
-                title    = 'Sprint Planning Sync'
-                location = [ordered]@{ badge = 'Teams'; url = 'https://teams.microsoft.com/l/meetup-join/example'; urlLabel = 'Join meeting' }
-                details  = @(
-                    [ordered]@{ label = 'With'; text = 'Platform Team - 6 attendees' }
-                )
-            },
-            [ordered]@{
-                time     = [ordered]@{ label = '11:00 AM'; tz = 'EST'; datetime = '2026-07-14T11:00:00-05:00' }
-                title    = 'Architecture Design Review'
-                location = [ordered]@{ badge = 'In person'; text = 'Room 132' }
-                details  = @()
-            }
-        )
+        events = $eventNodes
     }
 
     return $items
 }
 
 
-function Get-AzDevOpsDailyViewerWeekPlaceholder {
+# --- This week's focus tile -------------------------------------------------
+
+function Get-AzDevOpsDailyViewerPrepItems {
+    # "Events to prepare for" = today's meetings, each a checklist line that
+    # links to the Teams join when there is one. Derived from the same agenda
+    # source so the week tile shares the agenda pull rather than a second query.
+    $events = @(Get-AzDevOpsDailyViewerAgendaEvents)
+
+    $prep = @($events | ForEach-Object {
+        $node = [ordered]@{ title = "Prep for $($_.Subject)" }
+
+        if ($_.MeetingUrl) {
+            $node.link = [ordered]@{ text = 'Join meeting'; url = $_.MeetingUrl }
+        }
+
+        $node
+    })
+
+    return $prep
+}
+
+
+function Get-AzDevOpsDailyViewerWeekItems {
+    $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
+
+    $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
+    $storyItems = @($activeRows | ForEach-Object {
+        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
+    })
+
+    $prepItems = Get-AzDevOpsDailyViewerPrepItems
+
     $items = [ordered]@{
         stories = [ordered]@{
             label = 'Stories to complete'
             open  = $true
-            items = @(
-                [ordered]@{ type = 'Story'; id = 1234; url = 'https://dev.azure.com/org/project/_workitems/edit/1234'; title = 'Wire agenda tile to az boards query'; state = 'In progress' },
-                [ordered]@{ type = 'Bug';   id = 1251; url = 'https://dev.azure.com/org/project/_workitems/edit/1251'; title = 'Timezone offset on EST agenda rows'; state = 'In review' }
-            )
+            items = $storyItems
         }
         prep = [ordered]@{
             label = 'Events to prepare for'
             open  = $true
-            items = @(
-                [ordered]@{ title = 'Confirm demo build is deployed before Thu review' }
-            )
+            items = $prepItems
         }
     }
 
@@ -152,43 +378,146 @@ function Get-AzDevOpsDailyViewerWeekPlaceholder {
 }
 
 
-function Get-AzDevOpsDailyViewerActivityPlaceholder {
+# --- Recent activity tile ---------------------------------------------------
+
+function New-AzDevOpsDailyViewerActivityGroup {
+    # One collapsible activity group: sort the rows newest-first, project each
+    # to a work-item node, and stamp a relative-time note from $DateField (the
+    # per-source timestamp — MentionedAt for mentions, ChangedDate for activity).
+    param(
+        [Parameter(Mandatory)] [string] $Label,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows,
+        [Parameter(Mandatory)] [string] $DateField
+    )
+
+    $sorted = Sort-AzDevOpsByDateDesc -Items $Rows -Field $DateField
+
+    $items = @($sorted | ForEach-Object {
+        $node = New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
+
+        $when = $_.$DateField
+        if ($when) {
+            $node.note = Get-AzDevOpsDailyViewerRelativeTime -When $when
+        }
+
+        $node
+    })
+
+    $group = [ordered]@{
+        label = $Label
+        open  = $false
+        items = $items
+    }
+
+    return $group
+}
+
+
+function Get-AzDevOpsDailyViewerActivityItems {
+    $mentions = @(Get-AzDevOpsDailyViewerQueryRows -Name 'mentions' -Converter {
+        param($r) ConvertFrom-AzDevOpsMentionItem -Raw $r
+    })
+    $activity = @(Get-AzDevOpsDailyViewerQueryRows -Name 'activity' -Converter {
+        param($r) ConvertFrom-AzDevOpsActivityItem -Raw $r
+    })
+
+    $closedStates = Get-AzDevOpsClosedStates
+
+    $taggedRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $mentions
+    $updateRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $activity
+    $closingRows = @($activity | Where-Object { $_.State -in $closedStates })
+
+    $groups = New-Object System.Collections.Generic.List[object]
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Tagged discussions'      -Rows $taggedRows  -DateField 'MentionedAt'))
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Recent updates'          -Rows $updateRows  -DateField 'ChangedDate'))
+    $groups.Add((New-AzDevOpsDailyViewerActivityGroup -Label 'Sprint-close candidates' -Rows $closingRows -DateField 'ChangedDate'))
+
     $items = [ordered]@{
-        groups = @(
-            [ordered]@{
-                label = 'Tagged discussions'
-                open  = $false
-                items = @(
-                    [ordered]@{ type = 'Feature'; id = 1180; url = 'https://dev.azure.com/org/project/_workitems/edit/1180'; title = 'Can you confirm the WIQL scope?' }
-                )
-            },
-            [ordered]@{
-                label = 'Active story updates'
-                open  = $false
-                items = @(
-                    [ordered]@{ type = 'Story'; id = 1234; url = 'https://dev.azure.com/org/project/_workitems/edit/1234'; title = 'State -> In progress'; note = '2h ago' }
-                )
-            }
-        )
+        groups = $groups
     }
 
     return $items
 }
 
 
-function Get-AzDevOpsDailyViewerFocusPlaceholder {
+# --- Today's focus tile -----------------------------------------------------
+
+function Get-AzDevOpsDailyFocusId {
+    # The pinned "today's focus" work item is a user-set config value
+    # ($global:AzDevOpsDailyFocus) rather than a query, so the tile shows the one
+    # thing you chose to commit to. Returns $null when it is unset or not a
+    # positive integer, and the focus tile then renders its support bucket only.
+    $raw = $global:AzDevOpsDailyFocus
+    if (-not $raw) {
+        return $null
+    }
+
+    $id = 0
+    if ([int]::TryParse([string]$raw, [ref] $id) -and $id -gt 0) {
+        return $id
+    }
+
+    return $null
+}
+
+
+function New-AzDevOpsDailyViewerFocusPrimary {
+    # Build the pinned-item header from the configured focus id, enriching the
+    # title + state from the assigned rows when the id is one of them. Returns
+    # $null when no focus id is configured so the view renders support only.
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Assigned)
+
+    $focusId = Get-AzDevOpsDailyFocusId
+    if (-not $focusId) {
+        return $null
+    }
+
+    $match = $Assigned | Where-Object { [int]$_.Id -eq $focusId } | Select-Object -First 1
+
+    $title = if ($match) {
+        "$($match.Type) #$focusId $script:AzDevOpsDailyViewerTitleDash $($match.Title)"
+    } else {
+        "Work item #$focusId"
+    }
+
+    $sub = if ($match) {
+        "Primary commitment for today $script:AzDevOpsDailyViewerMiddot $($match.State)"
+    } else {
+        'Primary commitment for today'
+    }
+
+    $url = Get-AzDevOpsWorkItemUrl -Id $focusId
+
+    $primary = [ordered]@{
+        title = $title
+        url   = $url
+        sub   = $sub
+    }
+
+    return $primary
+}
+
+
+function Get-AzDevOpsDailyViewerFocusItems {
+    $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
+
+    $primary = New-AzDevOpsDailyViewerFocusPrimary -Assigned $assigned
+    $focusId = Get-AzDevOpsDailyFocusId
+
+    $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
+    $supportRows = @($activeRows | Where-Object {
+        -not $focusId -or [int]$_.Id -ne $focusId
+    })
+    $supportItems = @($supportRows | ForEach-Object {
+        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
+    })
+
     $items = [ordered]@{
-        primary = [ordered]@{
-            title = 'User Story #1234 - Wire agenda tile to az boards'
-            url   = 'https://dev.azure.com/org/project/_workitems/edit/1234'
-            sub   = 'Primary commitment for today - In progress'
-        }
+        primary = $primary
         support = [ordered]@{
-            label = 'SF devs - unplanned support'
+            label = 'Assigned & unplanned support'
             open  = $true
-            items = @(
-                [ordered]@{ type = 'Bug'; id = 1260; url = 'https://dev.azure.com/org/project/_workitems/edit/1260'; title = 'Deploy failing on scratch org spin-up'; state = 'Active' }
-            )
+            items = $supportItems
         }
     }
 
@@ -197,29 +526,28 @@ function Get-AzDevOpsDailyViewerFocusPlaceholder {
 
 
 function New-AzDevOpsDailyViewerTileItems {
-    # Dispatch to the per-tile builder. This is the single seam the next issue
-    # replaces with real az boards / Outlook queries — everything above and
-    # below it (cache read/write, HTTP transport) stays put.
+    # Dispatch to the per-tile builder. Each returns the tile's normalized
+    # "items" payload; Write-AzDevOpsDailyViewerTile stamps + persists it.
     param([Parameter(Mandatory)] [string] $Tile)
 
     switch ($Tile) {
         'agenda' {
-            $items = Get-AzDevOpsDailyViewerAgendaPlaceholder
+            $items = Get-AzDevOpsDailyViewerAgendaItems
             return $items
         }
 
         'week' {
-            $items = Get-AzDevOpsDailyViewerWeekPlaceholder
+            $items = Get-AzDevOpsDailyViewerWeekItems
             return $items
         }
 
         'activity' {
-            $items = Get-AzDevOpsDailyViewerActivityPlaceholder
+            $items = Get-AzDevOpsDailyViewerActivityItems
             return $items
         }
 
         'focus' {
-            $items = Get-AzDevOpsDailyViewerFocusPlaceholder
+            $items = Get-AzDevOpsDailyViewerFocusItems
             return $items
         }
 

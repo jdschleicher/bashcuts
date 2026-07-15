@@ -64,6 +64,7 @@ flowchart LR
         NewTask["az-New-Task"]
         ShowFeats["az-Show-Features"]
         Help["az-help"]
+        DailyViewer["daily-viewer backend<br/>(daily_viewer.ps1)<br/>per-tile live query"]
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-*)"]
@@ -166,6 +167,8 @@ flowchart LR
     NewTask --> IterJson
     NewTask --> AreasJson
     NewTask --> AzBoards
+
+    DailyViewer -.per-tile refresh.-> AzBoards
 
     BgSync -.spawns hidden pwsh when stale.-> Sync
 
@@ -927,6 +930,17 @@ graph LR
     EchoLn[Write-AzDevOpsQueryEcho]:::priv
     ConvNative[ConvertTo-AzDevOpsNativeArgList]:::priv
 
+    %% Daily-viewer backend (daily_viewer.ps1) — live per-tile query seam
+    DVQuery[Get-AzDevOpsDailyViewerQueryRows]:::priv
+    DVAssigned[Get-AzDevOpsDailyViewerAssignedRows]:::priv
+    DVActive[Get-AzDevOpsDailyViewerActiveRows]:::priv
+    DVAgenda[Get-AzDevOpsDailyViewerAgendaItems]:::priv
+    DVPrep[Get-AzDevOpsDailyViewerPrepItems]:::priv
+    DVWeek[Get-AzDevOpsDailyViewerWeekItems]:::priv
+    DVActivity[Get-AzDevOpsDailyViewerActivityItems]:::priv
+    DVFocus[Get-AzDevOpsDailyViewerFocusItems]:::priv
+    DVWiNode[New-AzDevOpsDailyViewerWorkItemNode]:::priv
+
     %% Cross-cutting console spinner (pow_common.ps1)
     Spinner[Invoke-WithSpinner]:::priv
 
@@ -1157,6 +1171,23 @@ graph LR
     InvHier --> QNames --> QDefaults --> QPaths
     InvHier --> QWiql --> QInit
     InvHier --> Boards
+
+    %% Daily-viewer per-tile builders share one query seam into the data-plane
+    DVAssigned --> DVQuery
+    DVActive --> DVQuery
+    DVAgenda --> DVQuery
+    DVActivity --> DVQuery
+    DVFocus --> DVQuery
+    DVWeek --> DVAssigned
+    DVFocus --> DVAssigned
+    DVQuery --> QWiql
+    DVQuery --> Boards
+    DVQuery -.logs failures.-> LogFn
+    DVWiNode --> WiUrl
+    DVQuery -.converter.-> ConvA
+    DVQuery -.converter.-> ConvM
+    DVQuery -.converter.-> ConvAct
+
     QInit --> QDefaults
     QInit --> QPaths
     QInit --> SeedFiles

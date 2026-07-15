@@ -385,6 +385,15 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 }
 .tile.empty .nomatch { display: block; }
 
+/* Friendly note for a tile whose cache genuinely has no items (distinct from
+   .nomatch, which the live filter shows when a search hides every row). */
+.empty-note {
+  padding: var(--space-6) var(--space-0) var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--fs-md);
+}
+.tile.empty .empty-note { display: none; }
+
 /* ---------- per-tile freshness + refresh ---------- */
 .tile-meta {
   flex: none;
