@@ -28,6 +28,7 @@ $script:AzDevOpsDailyViewerDefaultPort     = 8770
 $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past which a tile reads "stale"
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
+$script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
 
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
@@ -255,7 +256,7 @@ function Write-AzDevOpsDailyViewerTile {
         items     = $items
     }
 
-    $json = $record | ConvertTo-Json -Depth 10
+    $json = $record | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
     Write-AzDevOpsCacheFile -Path $path -Content $json
 
     $model = Read-AzDevOpsDailyViewerTile -Tile $Tile
@@ -399,6 +400,7 @@ function Write-AzDevOpsDailyViewerBytes {
     }
 
     $Response.OutputStream.Close()
+    $Response.Close()
 }
 
 
@@ -409,7 +411,7 @@ function Write-AzDevOpsDailyViewerJson {
         [Parameter(Mandatory)] [AllowNull()] $Object
     )
 
-    $json = $Object | ConvertTo-Json -Depth 10
+    $json = $Object | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
 
     Write-AzDevOpsDailyViewerBytes -Response $Response -StatusCode $StatusCode `
@@ -555,8 +557,12 @@ function Invoke-AzDevOpsDailyViewerRequest {
         }
     }
     catch {
+        # Keep the exception detail (which can name filesystem paths) server-side;
+        # hand the browser a generic message only.
+        Write-Host "Daily viewer request error: $($_.Exception.Message)" -ForegroundColor Red
+
         try {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 500 -Message $_.Exception.Message
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 500 -Message 'Internal server error.'
         }
         catch {
             # response already closed / client gone — nothing more we can do
@@ -581,7 +587,7 @@ function Open-AzDevOpsDailyViewerBrowser {
     param([Parameter(Mandatory)] [string] $Url)
 
     try {
-        if ($IsWindows -or ($env:OS -eq 'Windows_NT')) {
+        if (Test-WpfIsWindows) {
             Start-Process $Url
         } elseif ($IsMacOS) {
             & open $Url
@@ -595,7 +601,7 @@ function Open-AzDevOpsDailyViewerBrowser {
 }
 
 
-function Start-AzDevOpsDailyViewer {
+function az-Start-AzDevOpsDailyViewer {
     <#
     .SYNOPSIS
         Serve the Azure DevOps daily viewer on 127.0.0.1 with a per-tile cache API.
