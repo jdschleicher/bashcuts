@@ -340,11 +340,13 @@ function renderFocus(model) {
 }
 
 
-
 // ---------------------------------------------------------------------------
 // Tile registry — the render function, stat target, and stat count for each
 // tile in one place, so mount and refresh iterate a single list.
 // ---------------------------------------------------------------------------
+
+// What counts as a "row" across mount, count badges, and the live filter.
+var ROW_SELECTOR = ".wi, .event";
 
 function activityTotal(model) {
   return asArray(model.groups).reduce(function (sum, group) {
@@ -396,7 +398,7 @@ function renderTileBody(key, model) {
 
   // "empty" counts the primary too so a focus tile with a pinned item but no
   // support rows isn't mislabeled as empty; the count badge stays row-only.
-  var meaningful = body.querySelectorAll(".wi, .event, .primary").length;
+  var meaningful = body.querySelectorAll(ROW_SELECTOR + ", .primary").length;
   if (meaningful === 0) {
     body.appendChild(el("p", { class: "empty-note", text: conf.empty }));
   }
@@ -406,7 +408,7 @@ function renderTileBody(key, model) {
   body.appendChild(el("p", { class: "nomatch", text: "No matching items in this tile." }));
 
   tile(key).querySelector(".tt .count").textContent =
-    String(body.querySelectorAll(".wi, .event").length);
+    String(body.querySelectorAll(ROW_SELECTOR).length);
 }
 
 
@@ -645,7 +647,7 @@ function applyFilter(raw) {
   var matchTotal = 0;
 
   document.querySelectorAll(".tile").forEach(function (t) {
-    var rows = t.querySelectorAll(".wi, .event");
+    var rows = t.querySelectorAll(ROW_SELECTOR);
     var anyVisible = false;
 
     rows.forEach(function (row) {

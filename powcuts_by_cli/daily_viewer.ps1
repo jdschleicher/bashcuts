@@ -179,6 +179,20 @@ function New-AzDevOpsDailyViewerWorkItemNode {
 }
 
 
+function Get-AzDevOpsDailyViewerActiveRows {
+    # Drop closed / removed / done rows — the "still open" filter every tile
+    # applies to its query output before projecting. Comma-wrapped so an
+    # all-closed result stays an empty array through the caller's assignment
+    # instead of unrolling to $null. Private helper (unapproved verb is fine).
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows)
+
+    $closedStates = Get-AzDevOpsClosedStates
+    $active = @($Rows | Where-Object { $_.State -notin $closedStates })
+
+    return ,$active
+}
+
+
 function Get-AzDevOpsDailyViewerRelativeTime {
     # Compact "how long ago" label for the activity tile's note column
     # (e.g. "2h ago"). Mirrors the front-end formatAge buckets so cached notes
@@ -339,9 +353,8 @@ function Get-AzDevOpsDailyViewerPrepItems {
 
 function Get-AzDevOpsDailyViewerWeekItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
-    $closedStates = Get-AzDevOpsClosedStates
 
-    $activeRows = @($assigned | Where-Object { $_.State -notin $closedStates })
+    $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
     $storyItems = @($activeRows | ForEach-Object {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
     })
@@ -410,8 +423,8 @@ function Get-AzDevOpsDailyViewerActivityItems {
 
     $closedStates = Get-AzDevOpsClosedStates
 
-    $taggedRows  = @($mentions | Where-Object { $_.State -notin $closedStates })
-    $updateRows  = @($activity | Where-Object { $_.State -notin $closedStates })
+    $taggedRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $mentions
+    $updateRows  = Get-AzDevOpsDailyViewerActiveRows -Rows $activity
     $closingRows = @($activity | Where-Object { $_.State -in $closedStates })
 
     $groups = New-Object System.Collections.Generic.List[object]
@@ -487,13 +500,13 @@ function New-AzDevOpsDailyViewerFocusPrimary {
 
 function Get-AzDevOpsDailyViewerFocusItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
-    $closedStates = Get-AzDevOpsClosedStates
 
     $primary = New-AzDevOpsDailyViewerFocusPrimary -Assigned $assigned
     $focusId = Get-AzDevOpsDailyFocusId
 
-    $supportRows = @($assigned | Where-Object {
-        $_.State -notin $closedStates -and (-not $focusId -or [int]$_.Id -ne $focusId)
+    $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
+    $supportRows = @($activeRows | Where-Object {
+        -not $focusId -or [int]$_.Id -ne $focusId
     })
     $supportItems = @($supportRows | ForEach-Object {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
