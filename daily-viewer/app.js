@@ -258,6 +258,7 @@ function markerText(pressed) {
   return pressed ? MARKER_SET_LABEL : MARKER_NEEDED_LABEL;
 }
 
+
 function prepMarkerButton(item) {
   var pressed = item.marker === MARKER_SET;
 
@@ -279,6 +280,7 @@ function prepMarkerButton(item) {
 
   return btn;
 }
+
 
 function prepRow(item) {
   var title = [ item.title ];
