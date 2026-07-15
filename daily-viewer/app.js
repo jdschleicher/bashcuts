@@ -39,9 +39,9 @@ var MODEL = {
       label: "Stories to complete",
       open: true,
       items: [
-        { type: "Story", id: 1234, url: "https://dev.azure.com/org/project/_workitems/edit/1234", title: "Wire agenda tile to az boards query", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1234", state: "In progress" },
-        { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "Outlook calendar pull for daily events", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240", state: "Active" },
-        { type: "Bug", id: 1251, url: "https://dev.azure.com/org/project/_workitems/edit/1251", title: "Timezone offset on EST agenda rows", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1251", state: "In review" }
+        { type: "Story", id: 1234, url: "https://dev.azure.com/org/project/_workitems/edit/1234", title: "Wire agenda tile to az boards query", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1234", state: "In progress", priority: 2, date: "Jul 18" },
+        { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "Outlook calendar pull for daily events", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240", state: "Active", priority: 3, date: "Jul 17" },
+        { type: "Bug", id: 1251, url: "https://dev.azure.com/org/project/_workitems/edit/1251", title: "Timezone offset on EST agenda rows", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1251", state: "In review", priority: 1, date: "Jul 16" }
       ]
     },
     prep: {
@@ -60,8 +60,8 @@ var MODEL = {
         label: "Tagged discussions",
         open: true,
         items: [
-          { type: "Feature", id: 1180, url: "https://dev.azure.com/org/project/_workitems/edit/1180", title: "@you — “can you confirm the WIQL scope?”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1180?discussion" },
-          { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "@you — “ready for review whenever”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240?discussion" }
+          { type: "Feature", id: 1180, url: "https://dev.azure.com/org/project/_workitems/edit/1180", title: "@you — “can you confirm the WIQL scope?”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1180?discussion", priority: 2, note: "1d ago" },
+          { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "@you — “ready for review whenever”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240?discussion", priority: 3, note: "3h ago" }
         ]
       },
       {
@@ -76,8 +76,8 @@ var MODEL = {
         label: "Current sprint",
         open: false,
         items: [
-          { type: "Task", id: 1209, url: "https://dev.azure.com/org/project/_workitems/edit/1209", title: "Update release notes", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1209", state: "In progress" },
-          { type: "Story", id: 1222, url: "https://dev.azure.com/org/project/_workitems/edit/1222", title: "Verify acceptance criteria signed off", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1222", state: "Active" }
+          { type: "Task", id: 1209, url: "https://dev.azure.com/org/project/_workitems/edit/1209", title: "Update release notes", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1209", state: "In progress", priority: 2, note: "2h ago" },
+          { type: "Story", id: 1222, url: "https://dev.azure.com/org/project/_workitems/edit/1222", title: "Verify acceptance criteria signed off", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1222", state: "Active", priority: 1, note: "1d ago" }
         ]
       }
     ]
@@ -93,8 +93,8 @@ var MODEL = {
       label: "SF devs — unplanned support",
       open: true,
       items: [
-        { type: "Bug", id: 1260, url: "https://dev.azure.com/org/project/_workitems/edit/1260", title: "Deploy failing on scratch org spin-up", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1260", state: "Active" },
-        { type: "Task", id: 1263, url: "https://dev.azure.com/org/project/_workitems/edit/1263", title: "Help triage permission set assignment", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1263", state: "New" }
+        { type: "Bug", id: 1260, url: "https://dev.azure.com/org/project/_workitems/edit/1260", title: "Deploy failing on scratch org spin-up", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1260", state: "Active", priority: 1, date: "Jul 15" },
+        { type: "Task", id: 1263, url: "https://dev.azure.com/org/project/_workitems/edit/1263", title: "Help triage permission set assignment", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1263", state: "New", priority: 3, date: "Jul 21" }
       ]
     }
   }
@@ -194,6 +194,19 @@ function externalLink(text, url, className) {
 // Row builders — one per row shape. Each returns a single <li>/element.
 // ---------------------------------------------------------------------------
 
+// Priority is the ADO 1-4 field. Anything outside that range (including an
+// absent/`null` value) yields no chip, so a work item without a priority set
+// renders cleanly. The aria-label spells out "Priority N" so the terse "P2"
+// visible label isn't cryptic to a screen reader.
+function priorityChip(priority) {
+  var n = parseInt(priority, 10);
+  if (!(n >= 1 && n <= 4)) {
+    return null;
+  }
+
+  return el("span", { class: "priority p" + n, "aria-label": "Priority " + n }, [ "P" + n ]);
+}
+
 function workItemRow(wi) {
   var children = [];
 
@@ -206,8 +219,17 @@ function workItemRow(wi) {
     children.push(el("span", { class: "wtitle", text: wi.title }));
   }
 
+  var pri = priorityChip(wi.priority);
+  if (pri) {
+    children.push(pri);
+  }
+
   if (wi.state) {
     children.push(el("span", { class: "state " + (STATE_CLASS[wi.state] || ""), text: wi.state }));
+  }
+
+  if (wi.date) {
+    children.push(el("span", { class: "date", text: wi.date }));
   }
 
   if (wi.note) {

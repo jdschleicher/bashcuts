@@ -101,6 +101,41 @@ function Read-AzDevOpsGridPick {
 # Out-ConsoleGridView to re-sort by Id, State, etc.
 # ---------------------------------------------------------------------------
 
+function Get-AzDevOpsPriorityField {
+    # Parse the ADO Priority field (Microsoft.VSTS.Common.Priority) to an int, or
+    # $null when unset. Shared by the assigned / mentions / activity projections
+    # so the "priority or null" branch lives in one place.
+    param($Fields)
+
+    $priority = if ($null -ne $Fields.'Microsoft.VSTS.Common.Priority') {
+        [int]$Fields.'Microsoft.VSTS.Common.Priority'
+    } else {
+        $null
+    }
+
+    return $priority
+}
+
+
+function Get-AzDevOpsDateField {
+    # Parse a work-item date field to [datetime], or $null when it is absent or
+    # empty. Sibling to Get-AzDevOpsPriorityField — keeps the "date or null"
+    # branch in one place across the assigned / mentions / activity projections.
+    param(
+        $Fields,
+        [Parameter(Mandatory)] [string] $Name
+    )
+
+    $value = if ($Fields.$Name) {
+        [datetime]$Fields.$Name
+    } else {
+        $null
+    }
+
+    return $value
+}
+
+
 function ConvertFrom-AzDevOpsAssignedItem {
     param([Parameter(Mandatory)] $Raw)
 
@@ -112,17 +147,11 @@ function ConvertFrom-AzDevOpsAssignedItem {
         [int]$Raw.id
     }
 
-    $assignedAt = if ($f.'System.ChangedDate') {
-        [datetime]$f.'System.ChangedDate'
-    } else {
-        $null
-    }
+    $assignedAt = Get-AzDevOpsDateField -Fields $f -Name 'System.ChangedDate'
 
-    $priority = if ($null -ne $f.'Microsoft.VSTS.Common.Priority') {
-        [int]$f.'Microsoft.VSTS.Common.Priority'
-    } else {
-        $null
-    }
+    $targetAt = Get-AzDevOpsDateField -Fields $f -Name 'Microsoft.VSTS.Scheduling.TargetDate'
+
+    $priority = Get-AzDevOpsPriorityField -Fields $f
 
     return [PSCustomObject]@{
         Id         = $id
@@ -131,6 +160,7 @@ function ConvertFrom-AzDevOpsAssignedItem {
         Title      = $f.'System.Title'
         Iteration  = $f.'System.IterationPath'
         Priority   = $priority
+        TargetDate = $targetAt
         AssignedAt = $assignedAt
     }
 }
@@ -586,14 +616,11 @@ function ConvertFrom-AzDevOpsMentionItem {
         [int]$Raw.id
     }
 
-    $mentionedAt = if ($f.'System.ChangedDate') {
-        [datetime]$f.'System.ChangedDate'
-    }
-    else {
-        $null
-    }
+    $mentionedAt = Get-AzDevOpsDateField -Fields $f -Name 'System.ChangedDate'
 
     $mentionedBy = Get-AzDevOpsMentionedByDisplayName -ChangedBy $f.'System.ChangedBy'
+
+    $priority = Get-AzDevOpsPriorityField -Fields $f
 
     return [PSCustomObject]@{
         Id          = $id
@@ -601,6 +628,7 @@ function ConvertFrom-AzDevOpsMentionItem {
         State       = $f.'System.State'
         Title       = $f.'System.Title'
         MentionedBy = $mentionedBy
+        Priority    = $priority
         MentionedAt = $mentionedAt
     }
 }
@@ -720,12 +748,9 @@ function ConvertFrom-AzDevOpsActivityItem {
         [int]$Raw.id
     }
 
-    $changedAt = if ($f.'System.ChangedDate') {
-        [datetime]$f.'System.ChangedDate'
-    }
-    else {
-        $null
-    }
+    $changedAt = Get-AzDevOpsDateField -Fields $f -Name 'System.ChangedDate'
+
+    $priority = Get-AzDevOpsPriorityField -Fields $f
 
     return [PSCustomObject]@{
         Id          = $id
@@ -733,6 +758,7 @@ function ConvertFrom-AzDevOpsActivityItem {
         State       = $f.'System.State'
         Title       = $f.'System.Title'
         Iteration   = $f.'System.IterationPath'
+        Priority    = $priority
         ChangedDate = $changedAt
     }
 }
