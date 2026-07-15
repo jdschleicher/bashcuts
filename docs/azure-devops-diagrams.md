@@ -941,6 +941,7 @@ graph LR
     DVSprint[Get-AzDevOpsDailyViewerCurrentSprintRows]:::priv
     DVFocus[Get-AzDevOpsDailyViewerFocusItems]:::priv
     DVWiNode[New-AzDevOpsDailyViewerWorkItemNode]:::priv
+    DVShortDate[Format-AzDevOpsDailyViewerShortDate]:::priv
 
     %% Cross-cutting console spinner (pow_common.ps1)
     Spinner[Invoke-WithSpinner]:::priv
@@ -958,6 +959,8 @@ graph LR
     ConvA[ConvertFrom-AzDevOpsAssignedItem]:::priv
     ConvM[ConvertFrom-AzDevOpsMentionItem]:::priv
     ConvAct[ConvertFrom-AzDevOpsActivityItem]:::priv
+    PriField[Get-AzDevOpsPriorityField]:::priv
+    DateField[Get-AzDevOpsDateField]:::priv
     ConvH[ConvertFrom-AzDevOpsHierarchyItem]:::priv
     HtmlText[ConvertFrom-AzDevOpsHtmlText]:::priv
     ReadA[Read-AzDevOpsAssignedCache]:::priv
@@ -1189,6 +1192,7 @@ graph LR
     DVQuery --> Boards
     DVQuery -.logs failures.-> LogFn
     DVWiNode --> WiUrl
+    DVWiNode --> DVShortDate
     DVQuery -.converter.-> ConvA
     DVQuery -.converter.-> ConvM
     DVQuery -.converter.-> ConvAct
@@ -1234,6 +1238,12 @@ graph LR
     ReadA --> ConvA
     ReadM --> ReadJson
     ReadM --> ConvM --> MentDN
+    ConvA --> PriField
+    ConvA --> DateField
+    ConvM --> PriField
+    ConvM --> DateField
+    ConvAct --> PriField
+    ConvAct --> DateField
     ReadH --> ReadJson
     ReadH --> ConvH
     ConvH --> HtmlText
