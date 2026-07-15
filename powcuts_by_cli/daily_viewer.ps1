@@ -17,10 +17,10 @@
 #
 # SECURITY: the listener binds to 127.0.0.1 only (never 0.0.0.0), and the
 # az login / PAT stays in this server process — responses carry only work-item
-# and agenda data. The per-tile query is the seam where the real az boards /
-# Outlook calls land (next issue); today New-AzDevOpsDailyViewerTileItems emits
-# placeholder payloads shaped like the front-end model so the transport and
-# cache contract can be stood up and verified first.
+# and agenda data. Every response also ships a strict Content-Security-Policy
+# (default-src 'self', no unsafe-inline) plus nosniff / no-referrer / DENY
+# framing headers, so even a work-item title carrying markup renders inert:
+# the page has no inline-script/style path for it to escape into.
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
@@ -29,6 +29,21 @@ $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past wh
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
+
+# Strict Content-Security-Policy for the served app. The page loads styles.css +
+# app.js as external same-origin assets and fetches /api/tiles/* same-origin;
+# there are no inline handlers/styles, CDN scripts, or webfonts, so 'self' with
+# no 'unsafe-inline' loads clean. Inline <svg> in the markup uses presentation
+# attributes (fill/stroke), which CSP does not gate. base-uri/object/frame/form
+# are locked down so an injected <base>/<object>/framing can't reroute the page.
+$script:AzDevOpsDailyViewerContentSecurityPolicy = @(
+    "default-src 'self'"
+    "base-uri 'none'"
+    "object-src 'none'"
+    "frame-ancestors 'none'"
+    "form-action 'self'"
+    "img-src 'self' data:"
+) -join '; '
 
 $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
@@ -711,6 +726,20 @@ function Resolve-AzDevOpsDailyViewerAssetPath {
 # HTTP response writers
 # ---------------------------------------------------------------------------
 
+function Add-AzDevOpsDailyViewerSecurityHeaders {
+    # Stamp the hardening headers on every response — HTML, static asset, JSON,
+    # and error alike — since all of them funnel through the byte writer below.
+    # A strict same-origin CSP is the anchor; nosniff stops MIME-confusion,
+    # no-referrer keeps local URLs off the wire, and DENY refuses any framing.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response)
+
+    $Response.Headers['Content-Security-Policy'] = $script:AzDevOpsDailyViewerContentSecurityPolicy
+    $Response.Headers['X-Content-Type-Options']  = 'nosniff'
+    $Response.Headers['Referrer-Policy']         = 'no-referrer'
+    $Response.Headers['X-Frame-Options']         = 'DENY'
+}
+
+
 function Write-AzDevOpsDailyViewerBytes {
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
@@ -718,6 +747,8 @@ function Write-AzDevOpsDailyViewerBytes {
         [Parameter(Mandatory)] [string] $ContentType,
         [byte[]] $Body = @()
     )
+
+    Add-AzDevOpsDailyViewerSecurityHeaders -Response $Response
 
     $Response.StatusCode  = $StatusCode
     $Response.ContentType = $ContentType
