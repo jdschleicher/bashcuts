@@ -679,6 +679,26 @@ Schema file format (one entry per work-item type, each with `required` and `opti
 
 Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline`. Unknown types are treated as `string` with a warning from `az-Test-AzDevOpsSchema`.
 
+### Daily viewer (local dashboard)
+
+`Start-AzDevOpsDailyViewer` (in `powcuts_by_cli/daily_viewer.ps1`) serves the `daily-viewer/` dashboard from your machine so the four agenda tiles (Today's Agenda, This Week's Focus, Recent Activity, Today's Focus) render instantly from a local cache and only hit Azure DevOps when you refresh a tile.
+
+```powershell
+Start-AzDevOpsDailyViewer            # serve on http://127.0.0.1:8770/ and open the browser
+Start-AzDevOpsDailyViewer -Port 9000 # pick a different loopback port
+Start-AzDevOpsDailyViewer -NoBrowser # serve without auto-opening the browser (scripted / curl checks)
+```
+
+The server is a built-in `System.Net.HttpListener` (no external modules) bound to `127.0.0.1` only — never `0.0.0.0` — and your `az login` / PAT stays inside the server process; responses carry only work-item and agenda data. Press `Ctrl+C` to stop it.
+
+Each tile is backed by one JSON file under the active project's cache slice — `~/.bashcuts-az-devops-app/cache/<project-slug>/daily-viewer/{agenda,week,activity,focus}.json` (or the unsegmented `cache/daily-viewer/` for single-project use) — so it follows `az-Use-AzDevOpsProject` exactly like the synced datasets. Staleness is derived from each file's modified time and returned to the page. The API keeps the cheap and expensive paths distinct:
+
+- `GET /` — the page and its static assets.
+- `GET /api/tiles/<name>` — that tile's cached JSON, plus its `ageSeconds` / `stale` staleness (cheap read).
+- `POST /api/tiles/<name>/refresh` — re-runs that tile's query, rewrites its cache, and returns the fresh JSON (expensive; per-tile).
+
+> On Windows, `HttpListener` may need a one-time URL reservation the first time you bind a port — if `Start-AzDevOpsDailyViewer` reports it could not bind, run the `netsh http add urlacl` line it prints (or just pick another `-Port`).
+
 <br>
 
 ***

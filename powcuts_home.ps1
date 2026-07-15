@@ -177,6 +177,13 @@ if ($azdevops_help -ne $NULL) {
     Write-Host "no azdevops_help.ps1"
 }
 
+$daily_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
+if ($daily_viewer -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
+} else {
+    Write-Host "no daily_viewer.ps1"
+}
+
 # On shell open: silently refresh the Azure DevOps cache in the background when
 # it's stale. Invoked here (after every azdevops_*.ps1 file is dot-sourced) so
 # Get-AzDevOpsActiveProjectSlug is defined and the staleness check targets the
