@@ -209,15 +209,15 @@ Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [Syst
 "@
 
 $script:AzDevOpsDefaultAssignedWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.AssignedTo] = @Me
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority], [Microsoft.VSTS.Scheduling.TargetDate] From WorkItems Where [System.AssignedTo] = @Me
 "@
 
 $script:AzDevOpsDefaultMentionsWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.History] Contains '{{AZ_USER_EMAIL}}'
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.History] Contains '{{AZ_USER_EMAIL}}'
 "@
 
 $script:AzDevOpsDefaultActivityWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.ChangedBy] = @Me
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.IterationPath], [System.ChangedDate], [Microsoft.VSTS.Common.Priority] From WorkItems Where [System.ChangedBy] = @Me
 "@
 
 

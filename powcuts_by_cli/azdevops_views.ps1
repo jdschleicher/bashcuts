@@ -101,6 +101,22 @@ function Read-AzDevOpsGridPick {
 # Out-ConsoleGridView to re-sort by Id, State, etc.
 # ---------------------------------------------------------------------------
 
+function Get-AzDevOpsPriorityField {
+    # Parse the ADO Priority field (Microsoft.VSTS.Common.Priority) to an int, or
+    # $null when unset. Shared by the assigned / mentions / activity projections
+    # so the "priority or null" branch lives in one place.
+    param($Fields)
+
+    $priority = if ($null -ne $Fields.'Microsoft.VSTS.Common.Priority') {
+        [int]$Fields.'Microsoft.VSTS.Common.Priority'
+    } else {
+        $null
+    }
+
+    return $priority
+}
+
+
 function ConvertFrom-AzDevOpsAssignedItem {
     param([Parameter(Mandatory)] $Raw)
 
@@ -118,11 +134,13 @@ function ConvertFrom-AzDevOpsAssignedItem {
         $null
     }
 
-    $priority = if ($null -ne $f.'Microsoft.VSTS.Common.Priority') {
-        [int]$f.'Microsoft.VSTS.Common.Priority'
+    $targetAt = if ($f.'Microsoft.VSTS.Scheduling.TargetDate') {
+        [datetime]$f.'Microsoft.VSTS.Scheduling.TargetDate'
     } else {
         $null
     }
+
+    $priority = Get-AzDevOpsPriorityField -Fields $f
 
     return [PSCustomObject]@{
         Id         = $id
@@ -131,6 +149,7 @@ function ConvertFrom-AzDevOpsAssignedItem {
         Title      = $f.'System.Title'
         Iteration  = $f.'System.IterationPath'
         Priority   = $priority
+        TargetDate = $targetAt
         AssignedAt = $assignedAt
     }
 }
@@ -595,12 +614,15 @@ function ConvertFrom-AzDevOpsMentionItem {
 
     $mentionedBy = Get-AzDevOpsMentionedByDisplayName -ChangedBy $f.'System.ChangedBy'
 
+    $priority = Get-AzDevOpsPriorityField -Fields $f
+
     return [PSCustomObject]@{
         Id          = $id
         Type        = $f.'System.WorkItemType'
         State       = $f.'System.State'
         Title       = $f.'System.Title'
         MentionedBy = $mentionedBy
+        Priority    = $priority
         MentionedAt = $mentionedAt
     }
 }
@@ -727,12 +749,15 @@ function ConvertFrom-AzDevOpsActivityItem {
         $null
     }
 
+    $priority = Get-AzDevOpsPriorityField -Fields $f
+
     return [PSCustomObject]@{
         Id          = $id
         Type        = $f.'System.WorkItemType'
         State       = $f.'System.State'
         Title       = $f.'System.Title'
         Iteration   = $f.'System.IterationPath'
+        Priority    = $priority
         ChangedDate = $changedAt
     }
 }

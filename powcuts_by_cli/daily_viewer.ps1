@@ -172,7 +172,8 @@ function New-AzDevOpsDailyViewerWorkItemNode {
     # and still renders the id/title as inert text, so no link is never a crash.
     param(
         [Parameter(Mandatory)] $Row,
-        [switch] $LinkTitle
+        [switch] $LinkTitle,
+        $Date
     )
 
     $id  = [int]$Row.Id
@@ -184,6 +185,14 @@ function New-AzDevOpsDailyViewerWorkItemNode {
         url   = $url
         title = $Row.Title
         state = $Row.State
+    }
+
+    if ($null -ne $Row.Priority) {
+        $node.priority = [int]$Row.Priority
+    }
+
+    if ($Date) {
+        $node.date = Format-AzDevOpsDailyViewerShortDate -When $Date
     }
 
     if ($LinkTitle -and $url) {
@@ -232,6 +241,25 @@ function Get-AzDevOpsDailyViewerRelativeTime {
 
     $days = [int]$span.TotalDays
     return "${days}d ago"
+}
+
+
+function Format-AzDevOpsDailyViewerShortDate {
+    # Compact date for a work-item row's date chip (e.g. "Jul 18"), matching the
+    # front-end model's short-date look. The year is appended only when the date
+    # falls outside the current year, so near-term due dates stay terse.
+    param([Parameter(Mandatory)] [datetime] $When)
+
+    $sameYear = $When.Year -eq (Get-Date).Year
+
+    $format = if ($sameYear) {
+        'MMM d'
+    } else {
+        'MMM d, yyyy'
+    }
+
+    $short = $When.ToString($format)
+    return $short
 }
 
 
@@ -371,7 +399,7 @@ function Get-AzDevOpsDailyViewerWeekItems {
 
     $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
     $storyItems = @($activeRows | ForEach-Object {
-        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
+        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
     $prepItems = Get-AzDevOpsDailyViewerPrepItems
@@ -549,7 +577,7 @@ function Get-AzDevOpsDailyViewerFocusItems {
         -not $focusId -or [int]$_.Id -ne $focusId
     })
     $supportItems = @($supportRows | ForEach-Object {
-        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle
+        New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
     $items = [ordered]@{
