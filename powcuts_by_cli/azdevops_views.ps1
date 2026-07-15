@@ -732,6 +732,7 @@ function ConvertFrom-AzDevOpsActivityItem {
         Type        = $f.'System.WorkItemType'
         State       = $f.'System.State'
         Title       = $f.'System.Title'
+        Iteration   = $f.'System.IterationPath'
         ChangedDate = $changedAt
     }
 }

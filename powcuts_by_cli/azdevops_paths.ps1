@@ -217,7 +217,7 @@ Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [Syst
 "@
 
 $script:AzDevOpsDefaultActivityWiql = @"
-Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.ChangedDate] From WorkItems Where [System.ChangedBy] = @Me
+Select [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedBy], [System.AreaPath], [System.IterationPath], [System.ChangedDate] From WorkItems Where [System.ChangedBy] = @Me
 "@
 
 
