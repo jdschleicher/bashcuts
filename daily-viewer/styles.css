@@ -593,6 +593,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   background: color-mix(in srgb, var(--good) 15%, transparent);
 }
 .prep .marker:hover { border-color: currentColor; }
+.prep .marker[aria-disabled="true"] { cursor: progress; opacity: .6; }
 @media (prefers-reduced-motion: reduce) {
   .prep .marker { transition: none; }
 }

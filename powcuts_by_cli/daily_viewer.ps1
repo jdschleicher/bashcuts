@@ -1009,7 +1009,19 @@ function Read-AzDevOpsDailyViewerRequestJson {
 
     $maxBytes = $script:AzDevOpsDailyViewerMaxRequestBytes
 
-    if ($Request.ContentLength64 -gt $maxBytes) {
+    # A chunked / unknown-length body reports ContentLength64 -1 and would skip
+    # the size guard (ReadToEnd would buffer it all first), so reject it up front
+    # along with anything over the cap.
+    if ($Request.ContentLength64 -lt 0 -or $Request.ContentLength64 -gt $maxBytes) {
+        return $null
+    }
+
+    # Require a JSON content type. Beyond correctness this blunts cross-site POSTs:
+    # a browser can't set application/json cross-origin without a preflight this
+    # loopback server never satisfies, so a simple-request forgery can't reach the
+    # store — it lands here as a rejected body instead.
+    $contentType = [string]$Request.ContentType
+    if ($contentType -notlike '*application/json*') {
         return $null
     }
 

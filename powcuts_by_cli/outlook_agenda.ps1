@@ -219,10 +219,13 @@ function Get-OutlookAppointmentId {
     # callers (the daily viewer's prep markers) can pin per-meeting state across
     # cache reloads. GlobalAppointmentID is preferred — it survives a rename or
     # reschedule and is identical across the organizer/attendee copies; EntryID
-    # is the fallback when the global id is unreadable. Each COM read is wrapped
-    # so a transient fault fails soft to the next candidate (and ultimately
-    # $null) rather than aborting the agenda pull. Unapproved verb is fine — not
-    # user-facing.
+    # is the fallback when the global id is unreadable. Note it is series-level:
+    # every occurrence of a recurring meeting shares one id, so marking one
+    # occurrence "all set" marks the series within the prep window — acceptable
+    # for the current two-week look-ahead; per-occurrence markers would be a
+    # follow-up. Each COM read is wrapped so a transient fault fails soft to the
+    # next candidate (and ultimately $null) rather than aborting the agenda pull.
+    # Unapproved verb is fine — not user-facing.
     param([Parameter(Mandatory)] $Appointment)
 
     $candidates = @('GlobalAppointmentID', 'EntryID')

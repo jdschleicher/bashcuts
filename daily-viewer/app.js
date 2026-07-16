@@ -287,7 +287,17 @@ function prepMarkerButton(item) {
     text: markerText(pressed)
   });
 
+  // Guard re-clicks with a flag (plus aria-disabled) rather than the native
+  // `disabled` property: toggling `disabled` synchronously punts keyboard focus
+  // to <body>, so a keyboard user loses their place in the list. aria-disabled
+  // keeps focus on the button while the save is in flight.
+  var saving = false;
+
   btn.addEventListener("click", function () {
+    if (saving) {
+      return;
+    }
+
     var next = btn.getAttribute("aria-pressed") !== "true";
     setMarkerPressed(btn, next);
 
@@ -301,14 +311,17 @@ function prepMarkerButton(item) {
       return;
     }
 
-    btn.disabled = true;
+    saving = true;
+    btn.setAttribute("aria-disabled", "true");
     savePrepMarker(item.id, next)
       .then(function () {
-        btn.disabled = false;
+        saving = false;
+        btn.removeAttribute("aria-disabled");
       })
       .catch(function () {
+        saving = false;
+        btn.removeAttribute("aria-disabled");
         setMarkerPressed(btn, !next);
-        btn.disabled = false;
         announce(label + " — couldn't save, change reverted.");
       });
   });
