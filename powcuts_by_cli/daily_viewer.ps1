@@ -826,19 +826,25 @@ function Update-AzDevOpsDailyViewerAllTiles {
     # isolated in its own try/catch so one failing source (a lapsed az login,
     # Outlook unreachable) rebuilds the rest and never aborts startup; the
     # per-tile builders already fail soft, this guards the rare hard throw.
-    # Per-tile failures are logged server-side for later diagnosis.
+    # Per-tile failures are logged server-side for later diagnosis. The day is
+    # stamped only when at least one tile rebuilt, so a startup where every tile
+    # hard-throws doesn't burn the day's refresh — the next startup retries.
     $names = Get-AzDevOpsDailyViewerTileNames
 
+    $rebuilt = 0
     foreach ($name in $names) {
         try {
             $null = Write-AzDevOpsDailyViewerTile -Tile $name
+            $rebuilt++
         }
         catch {
             Write-AzDevOpsSyncLog "daily-viewer: full refresh of tile '$name' failed: $($_.Exception.Message)"
         }
     }
 
-    Write-AzDevOpsDailyViewerRefreshStamp
+    if ($rebuilt -gt 0) {
+        Write-AzDevOpsDailyViewerRefreshStamp
+    }
 }
 
 
