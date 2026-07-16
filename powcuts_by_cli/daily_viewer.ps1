@@ -298,7 +298,7 @@ function Get-AzDevOpsDailyViewerAgendaEvents {
         return @()
     }
 
-    return @($events)
+    return $events
 }
 
 
