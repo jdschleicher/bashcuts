@@ -55,6 +55,10 @@ $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story 
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
 $script:AzDevOpsDailyViewerJoinLabel = "Join meeting $([char]0x2192)"   # right arrow
 
+# The week tile is "Stories to complete" — the work the user personally finishes.
+# Assigned Tasks/Features are excluded; only these completable types survive the filter.
+$script:AzDevOpsDailyViewerWeekTypes = @('User Story', 'Bug')
+
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
     '.css'  = 'text/css; charset=utf-8'
@@ -432,7 +436,10 @@ function Get-AzDevOpsDailyViewerWeekItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
 
     $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
-    $storyItems = @($activeRows | ForEach-Object {
+
+    $completableRows = @($activeRows | Where-Object { $_.Type -in $script:AzDevOpsDailyViewerWeekTypes })
+
+    $storyItems = @($completableRows | ForEach-Object {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
