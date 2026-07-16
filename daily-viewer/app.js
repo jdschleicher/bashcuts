@@ -260,11 +260,12 @@ function prepKey(item) {
 }
 
 
-// Per-bucket config: the single source of truth for BOTH the filter and the
-// dismiss button. Filtering reads windowed/keyOf/changedOf; the button reads
-// className/labels/tileKey and builds its announcements from the row label.
-// Keeping the bucket name and its behavior in one object is what lets the
-// "activity"/"prep" string live in exactly one place.
+// Per-bucket config: one object holds BOTH the filter inputs and the dismiss
+// button inputs so the two can't drift. Filtering reads windowed/keyOf/changedOf;
+// the button reads className/labels/tileKey and builds its announcements from the
+// row label. (The tile key still surfaces literally in viewModel's dispatch and
+// the toolbar handler; the spec keeps the per-item behavior together, not every
+// mention of the name.)
 var ACTIVITY_SPEC = {
   bucket: "activity",
   windowed: true,
@@ -459,14 +460,40 @@ function applyDismissalToggle(opts) {
 }
 
 
+// Repainting a tile rebuilds its body, so the just-clicked control is destroyed
+// and focus falls to <body>. Return focus to the same-position control of the
+// same kind (the row that slid into the removed row's place), falling back to the
+// tile's summary — so a keyboard user keeps their place in the list.
+function focusTileControl(tileKey, controlClass, index) {
+  var scope = tile(tileKey);
+  if (!scope) {
+    return;
+  }
+
+  var controls = scope.querySelectorAll("." + controlClass);
+  if (controls.length) {
+    controls[Math.min(index, controls.length - 1)].focus();
+  } else {
+    var summary = scope.querySelector("summary");
+    if (summary) {
+      summary.focus();
+    }
+  }
+}
+
+
 // One builder for both dismiss controls, driven by the bucket spec — the review
 // toggle and the prep remove differ only in that data, so they share this body.
 function dismissToggleButton(item, spec) {
   var pressed = item._dismissed === true;
   var label = item.title || "This item";
   var ariaLabel = (pressed ? spec.labels.on : spec.labels.off) + " — " + label;
+  var controlClass = spec.className.split(" ").pop();
 
   var btn = dismissButton(spec.className, pressed, spec.labels, ariaLabel, function () {
+    var peers = tile(spec.tileKey).querySelectorAll("." + controlClass);
+    var index = Array.prototype.indexOf.call(peers, btn);
+
     applyDismissalToggle({
       bucket: spec.bucket,
       key: spec.keyOf(item),
@@ -475,9 +502,19 @@ function dismissToggleButton(item, spec) {
       doneMessage: spec.doneMessage(label),
       undoMessage: spec.undoMessage(label)
     });
+
+    focusTileControl(spec.tileKey, controlClass, index < 0 ? 0 : index);
   });
 
   return btn;
+}
+
+
+// Dim a row whose item is dismissed (only reachable under "Show reviewed").
+function flagDismissed(li, item) {
+  if (item._dismissed) {
+    li.classList.add("dismissed");
+  }
 }
 
 
@@ -486,10 +523,7 @@ function dismissToggleButton(item, spec) {
 function activityRow(item) {
   var li = workItemRow(item);
 
-  if (item._dismissed) {
-    li.classList.add("dismissed");
-  }
-
+  flagDismissed(li, item);
   li.appendChild(dismissToggleButton(item, ACTIVITY_SPEC));
 
   return li;
@@ -632,9 +666,7 @@ function prepRow(item) {
 
   var li = el("li", { class: "wi prep" }, children);
 
-  if (item._dismissed) {
-    li.classList.add("dismissed");
-  }
+  flagDismissed(li, item);
 
   return li;
 }
