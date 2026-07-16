@@ -768,13 +768,13 @@ function Initialize-AzDevOpsDailyViewerCache {
 # ---------------------------------------------------------------------------
 # Prep "all set" marker store — durable per-project toggle state
 #
-# The week tile's prep rows carry an "all set" / "prep still needed" marker the
+# The prep tile's rows carry an "all set" / "prep still needed" marker the
 # viewer flips per meeting. That choice has to outlive a cache reload, so it
 # lives in its own tiny JSON file beside the tile cache (the set of "all set"
 # event ids), keyed by the stable Outlook event id. It sits under the same
 # active-project cache slice as the tiles, so it follows az-Use-AzDevOpsProject
 # and never leaks one project's choices into another. The read path overlays it
-# onto the week payload, so the store — not the tile cache — is the single
+# onto the prep payload, so the store — not the tile cache — is the single
 # source of truth for markers.
 # ---------------------------------------------------------------------------
 
