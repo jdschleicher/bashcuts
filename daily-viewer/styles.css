@@ -565,11 +565,37 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 }
 
 .note { font-size: var(--fs-smd); color: var(--text-dim); }
-.check {
+
+/* Prep marker toggle — "prep still needed" (warn) flips to "all set" (good) on
+   aria-pressed. State drives the color, so the JS only toggles the attribute;
+   both palettes carry over through the same theme tokens the chips already use. */
+.prep .marker {
+  flex: none;
+  font-family: inherit;
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
+  cursor: pointer;
   display: inline-flex; align-items: center; gap: var(--space-2);
-  font-size: var(--fs-sm); font-weight: 600; color: var(--warn);
+  padding: var(--space-0) var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
 }
-.check::before { content: "\25CB"; }        /* open circle = to confirm */
+.prep .marker::before {
+  content: ""; width: 0.4375rem; height: 0.4375rem; border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.prep .marker[aria-pressed="true"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  background: color-mix(in srgb, var(--good) 15%, transparent);
+}
+.prep .marker:hover { border-color: currentColor; }
+@media (prefers-reduced-motion: reduce) {
+  .prep .marker { transition: none; }
+}
 
 .primary {
   display: flex; gap: var(--space-5); align-items: flex-start;

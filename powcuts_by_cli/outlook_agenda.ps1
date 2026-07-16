@@ -215,11 +215,15 @@ function Get-OutlookMeetingJoinUrl {
 
 
 function ol-Get-OutlookAgenda {
-    # Today's calendar events (recurrences expanded) as objects. Emits data
-    # only — formatting lives in ol-Show-OutlookAgenda.
+    # Calendar events (recurrences expanded) as objects, from $Date's day start
+    # through $Days days later. -Days defaults to 1 (today only), so the daily
+    # agenda callers are unchanged; the daily viewer's prep tile passes a wider
+    # window for its two-week look-ahead. Emits data only — formatting lives in
+    # ol-Show-OutlookAgenda.
     [CmdletBinding()]
     param(
-        [datetime] $Date = (Get-Date)
+        [datetime] $Date = (Get-Date),
+        [int]      $Days = 1
     )
 
     $calendar = Get-OutlookDefaultFolder -FolderId $script:OutlookFolderCalendar
@@ -232,7 +236,7 @@ function ol-Get-OutlookAgenda {
     $items.Sort('[Start]')
 
     $dayStart = $Date.Date
-    $dayEnd = $Date.Date.AddDays(1).AddSeconds(-1)
+    $dayEnd = $Date.Date.AddDays($Days).AddSeconds(-1)
 
     $startText = $dayStart.ToString($script:OutlookRestrictDateFormat)
     $endText = $dayEnd.ToString($script:OutlookRestrictDateFormat)

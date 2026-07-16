@@ -700,7 +700,7 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
 
 - **Today's Agenda** — today's calendar events from `ol-Get-OutlookAgenda` (desktop Outlook), with the Teams join link when the meeting carries one.
-- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus a prep checklist derived from today's meetings.
+- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus an "events to prepare for" list spanning the next two weeks of meetings, each row carrying a date and a marker you can toggle between "prep still needed" and "all set."
 - **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and your current-sprint items (the `activity` rows scoped to the iteration that brackets today). The current-sprint group reads `[System.IterationPath]` off the `activity` WIQL; the seeded default already selects it, but if you seeded your `activity.wiql` before this field was added, open `o-az-devops-queries-config-dir`, add `[System.IterationPath]` to the `SELECT` in `activity.wiql`, and re-run `az-Sync-AzDevOpsCache` so the group can populate.
 - **Today's Focus** — the pinned work item you set in `$global:AzDevOpsDailyFocus` (a work-item id), plus an "assigned & unplanned support" bucket. Set it in your `$profile`, e.g. `$global:AzDevOpsDailyFocus = 1234`; leave it unset and the tile shows the support bucket alone.
 
