@@ -566,10 +566,12 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 
 .note { font-size: var(--fs-smd); color: var(--text-dim); }
 
-/* Prep marker toggle — "prep still needed" (warn) flips to "all set" (good) on
-   aria-pressed. State drives the color, so the JS only toggles the attribute;
-   both palettes carry over through the same theme tokens the chips already use. */
-.prep .marker {
+/* Dismissal toggles — the prep marker and the reviewed toggle are one control
+   (JS builds both from a bucket spec). This is their shared shape: layout, the
+   pressed="handled" green treatment, and the reduced-motion opt-out all live
+   here once; each variant below only sets its resting color and hover. State
+   drives color through theme tokens, so both palettes carry over untouched. */
+.pill-toggle {
   flex: none;
   font-family: inherit;
   font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
@@ -577,53 +579,39 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-0) var(--space-3);
   border-radius: var(--radius-pill);
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.pill-toggle[aria-pressed="true"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  background: color-mix(in srgb, var(--good) 15%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill-toggle { transition: none; }
+}
+
+/* Prep marker — "prep still needed" (warn) resting, with a status dot. */
+.prep .marker {
   color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   background: color-mix(in srgb, var(--warn) 15%, transparent);
-  transition: color .15s ease, background .15s ease, border-color .15s ease;
 }
 .prep .marker::before {
   content: ""; width: 0.4375rem; height: 0.4375rem; border-radius: 50%;
   background: currentColor;
   flex: none;
 }
-.prep .marker[aria-pressed="true"] {
-  color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 35%, transparent);
-  background: color-mix(in srgb, var(--good) 15%, transparent);
-}
 .prep .marker:hover { border-color: currentColor; }
-@media (prefers-reduced-motion: reduce) {
-  .prep .marker { transition: none; }
-}
 
-/* Reviewed toggle on recent-update rows — same control shape as the prep
-   marker: aria-pressed carries state and drives the color through the shared
-   theme tokens. Pressed (reviewed) rows are only visible under "Show reviewed",
-   where .dismissed dims them to read as already handled. */
+/* Reviewed toggle on recent-update rows — neutral resting. Pressed (reviewed)
+   rows are only visible under "Show reviewed", where .dismissed dims them. */
 .wi .review {
-  flex: none;
-  font-family: inherit;
-  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
-  cursor: pointer;
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-0) var(--space-3);
-  border-radius: var(--radius-pill);
   color: var(--text-dim);
   border: 1px solid var(--border);
   background: var(--surface-2);
-  transition: color .15s ease, background .15s ease, border-color .15s ease;
 }
 .wi .review:hover { color: var(--text); border-color: var(--border-strong); }
-.wi .review[aria-pressed="true"] {
-  color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 35%, transparent);
-  background: color-mix(in srgb, var(--good) 15%, transparent);
-}
 .wi.dismissed { opacity: .55; }
-@media (prefers-reduced-motion: reduce) {
-  .wi .review { transition: none; }
-}
 
 /* Toolbar toggle (Show reviewed) reuses .btn; aria-pressed marks it active. */
 .btn[aria-pressed="true"] {

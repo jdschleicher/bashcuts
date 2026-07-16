@@ -233,6 +233,48 @@ function prepKey(item) {
 }
 
 
+// Per-bucket config: the single source of truth for BOTH the filter and the
+// toggle button. Filtering reads windowed/keyOf/changedOf; the button reads
+// className/labels/tileKey and builds its announcements from the row label.
+// Keeping the bucket name and its behavior in one object is what lets the
+// "activity"/"prep" string live in exactly one place.
+var ACTIVITY_SPEC = {
+  bucket: "activity",
+  windowed: true,
+  keyOf: activityKey,
+  changedOf: function (item) {
+    return item.changedDate;
+  },
+  className: "pill-toggle review",
+  labels: REVIEW_LABELS,
+  tileKey: "activity",
+  doneMessage: function (label) {
+    return label + " marked reviewed.";
+  },
+  undoMessage: function (label) {
+    return label + " restored to recent updates.";
+  }
+};
+
+var PREP_SPEC = {
+  bucket: "prep",
+  windowed: false,
+  keyOf: prepKey,
+  changedOf: function () {
+    return null;
+  },
+  className: "pill-toggle marker",
+  labels: PREP_LABELS,
+  tileKey: "week",
+  doneMessage: function (label) {
+    return label + " marked all set.";
+  },
+  undoMessage: function (label) {
+    return label + " marked prep still needed.";
+  }
+};
+
+
 // ---------------------------------------------------------------------------
 // DOM builder — the single, escaping-safe path from model to page. `text` sets
 // textContent and every other key goes through setAttribute, so a malicious
@@ -363,21 +405,24 @@ function activityRow(item) {
     li.classList.add("dismissed");
   }
 
-  li.appendChild(reviewToggleButton(item));
+  li.appendChild(dismissToggleButton(item, ACTIVITY_SPEC));
 
   return li;
 }
 
 
 // Both toggles are the same control: a pill button whose aria-pressed is its
-// state and whose text is its accessible name. The click hands off to onToggle,
-// which updates the store and repaints the tile — so the button is rebuilt from
-// the fresh view model rather than mutating itself. One render path, no drift.
-function dismissButton(className, pressed, labels, onToggle) {
+// state and whose visible text is the action. An explicit aria-label folds in
+// the item title so a screen reader can tell one row's toggle from the next
+// (visible text alone would read as a wall of identical "Mark reviewed"s). The
+// click hands off to onToggle, which updates the store and repaints the tile —
+// the button is rebuilt from the fresh view model rather than mutating itself.
+function dismissButton(className, pressed, labels, ariaLabel, onToggle) {
   var btn = el("button", {
     type: "button",
     class: className,
     "aria-pressed": pressed ? "true" : "false",
+    "aria-label": ariaLabel,
     text: pressed ? labels.on : labels.off
   });
 
@@ -403,37 +448,21 @@ function applyDismissalToggle(opts) {
 }
 
 
-function reviewToggleButton(item) {
+// One builder for both toggles, driven by the bucket spec — the review toggle
+// and the prep marker differ only in that data, so they share this body.
+function dismissToggleButton(item, spec) {
   var pressed = item._dismissed === true;
+  var label = item.title || "This item";
+  var ariaLabel = (pressed ? spec.labels.on : spec.labels.off) + " — " + label;
 
-  var btn = dismissButton("review", pressed, REVIEW_LABELS, function () {
-    var label = item.title || "This item";
+  var btn = dismissButton(spec.className, pressed, spec.labels, ariaLabel, function () {
     applyDismissalToggle({
-      bucket: "activity",
-      key: activityKey(item),
+      bucket: spec.bucket,
+      key: spec.keyOf(item),
       pressed: pressed,
-      tileKey: "activity",
-      doneMessage: label + " marked reviewed.",
-      undoMessage: label + " restored to recent updates."
-    });
-  });
-
-  return btn;
-}
-
-
-function prepMarkerButton(item) {
-  var pressed = item._dismissed === true;
-
-  var btn = dismissButton("marker", pressed, PREP_LABELS, function () {
-    var label = item.title || "This item";
-    applyDismissalToggle({
-      bucket: "prep",
-      key: prepKey(item),
-      pressed: pressed,
-      tileKey: "week",
-      doneMessage: label + " marked all set.",
-      undoMessage: label + " marked prep still needed."
+      tileKey: spec.tileKey,
+      doneMessage: spec.doneMessage(label),
+      undoMessage: spec.undoMessage(label)
     });
   });
 
@@ -455,7 +484,7 @@ function prepRow(item) {
     children.push(el("span", { class: "date", text: item.date }));
   }
 
-  children.push(prepMarkerButton(item));
+  children.push(dismissToggleButton(item, PREP_SPEC));
 
   var li = el("li", { class: "wi prep" }, children);
 
@@ -627,24 +656,6 @@ function filterItems(items, spec) {
 
   return out;
 }
-
-var ACTIVITY_SPEC = {
-  bucket: "activity",
-  windowed: true,
-  keyOf: activityKey,
-  changedOf: function (item) {
-    return item.changedDate;
-  }
-};
-
-var PREP_SPEC = {
-  bucket: "prep",
-  windowed: false,
-  keyOf: prepKey,
-  changedOf: function () {
-    return null;
-  }
-};
 
 
 function activityView(model) {
