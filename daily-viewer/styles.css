@@ -270,7 +270,7 @@ button:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -296,9 +296,45 @@ button:focus-visible {
 }
 .stat .l { font-size: var(--fs-sm); color: var(--text-dim); }
 .stat.a { --stat: var(--accent); }
+.stat.p { --stat: var(--epic); }
 .stat.f { --stat: var(--feature); }
 .stat.s { --stat: var(--story); }
 .stat.g { --stat: var(--warn); }
+
+/* ---------- parent sections (Calendar / Azure DevOps) ---------- */
+.section { margin-bottom: var(--space-8); }
+.section:last-of-type { margin-bottom: 0; }
+.section.section-empty { display: none; }
+.section.cal { --tint: var(--epic); }
+.section.ado { --tint: var(--story); }
+
+.section > details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-1);
+  margin-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.section > details > summary::-webkit-details-marker { display: none; }
+.section > details > summary:hover .section-title { color: var(--text); }
+
+.section .sicon {
+  flex: none;
+  width: var(--icon); height: var(--icon);
+  color: var(--tint, var(--accent));
+}
+.section-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
 
 /* ---------- grid ---------- */
 .grid {
@@ -321,6 +357,7 @@ button:focus-visible {
   overflow: hidden;
 }
 .tile[data-tile="agenda"]   { --tint: var(--accent); }
+.tile[data-tile="prep"]     { --tint: var(--epic); }
 .tile[data-tile="week"]     { --tint: var(--feature); }
 .tile[data-tile="activity"] { --tint: var(--story); }
 .tile[data-tile="focus"]    { --tint: var(--warn); }
@@ -357,7 +394,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   width: var(--icon); height: var(--icon);
   color: var(--tint, var(--accent));
 }
-.tt h2 {
+.tt h3 {
   margin: 0;
   font-size: var(--fs-smd);
   font-weight: 700;
@@ -566,12 +603,10 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 
 .note { font-size: var(--fs-smd); color: var(--text-dim); }
 
-/* Dismissal toggles — the prep marker and the reviewed toggle are one control
-   (JS builds both from a bucket spec). This is their shared shape: layout, the
-   pressed="handled" green treatment, and the reduced-motion opt-out all live
-   here once; each variant below only sets its resting color and hover. State
-   drives color through theme tokens, so both palettes carry over untouched. */
-.pill-toggle {
+/* Prep marker toggle — "prep still needed" (warn) flips to "all set" (good) on
+   aria-pressed. State drives the color, so the JS only toggles the attribute;
+   both palettes carry over through the same theme tokens the chips already use. */
+.prep .marker {
   flex: none;
   font-family: inherit;
   font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
@@ -579,46 +614,61 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-0) var(--space-3);
   border-radius: var(--radius-pill);
-  transition: color .15s ease, background .15s ease, border-color .15s ease;
-}
-.pill-toggle[aria-pressed="true"] {
-  color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 35%, transparent);
-  background: color-mix(in srgb, var(--good) 15%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .pill-toggle { transition: none; }
-}
-
-/* Prep marker — "prep still needed" (warn) resting, with a status dot. */
-.prep .marker {
   color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   background: color-mix(in srgb, var(--warn) 15%, transparent);
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
 }
 .prep .marker::before {
   content: ""; width: 0.4375rem; height: 0.4375rem; border-radius: 50%;
   background: currentColor;
   flex: none;
 }
+.prep .marker[aria-pressed="true"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  background: color-mix(in srgb, var(--good) 15%, transparent);
+}
 .prep .marker:hover { border-color: currentColor; }
+@media (prefers-reduced-motion: reduce) {
+  .prep .marker { transition: none; }
+}
 
-/* Reviewed toggle on recent-update rows — neutral resting. Pressed (reviewed)
-   rows are only visible under "Show reviewed", where .dismissed dims them. */
-.wi .review {
+/* Prep tile list — a flat chronological list (the tile header already names the
+   group). Each row stacks title over an agenda-style time/location meta line. */
+.plist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.prep .wtitle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.prep .ptitle { font-weight: 600; color: var(--text); }
+.prep .meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.prep .meta .time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
   color: var(--text-dim);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
 }
-.wi .review:hover { color: var(--text); border-color: var(--border-strong); }
-.wi.dismissed { opacity: .55; }
-
-/* Toolbar toggle (Show reviewed) reuses .btn; aria-pressed marks it active. */
-.btn[aria-pressed="true"] {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  background: var(--accent-weak);
+.prep .tz {
+  margin-left: var(--space-1);
+  font-weight: 400;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
 }
+.prep .meta a { color: var(--accent); }
 
 .primary {
   display: flex; gap: var(--space-5); align-items: flex-start;
