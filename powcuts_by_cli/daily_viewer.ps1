@@ -31,6 +31,10 @@ $script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
 $script:AzDevOpsDailyViewerPrepWindowDays  = 14      # "events to prepare for" look-ahead: the next two weeks
 $script:AzDevOpsDailyViewerMarkerNeeded    = 'needed'  # a newly-pulled meeting starts "prep still needed"
+$script:AzDevOpsDailyViewerMarkerSet       = 'set'     # the viewer toggled this meeting to "all set"
+$script:AzDevOpsDailyViewerPrepTile        = 'prep'    # the tile whose prep list carries the toggle
+$script:AzDevOpsDailyViewerMarkerStoreFile = 'prep-markers.json'  # durable "all set" ids, beside the tile cache
+$script:AzDevOpsDailyViewerMaxRequestBytes = 4096      # cap on an API request body (the marker POST is tiny)
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
@@ -70,7 +74,7 @@ $script:AzDevOpsDailyViewerMimeTypes = @{
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsDailyViewerTileNames {
-    $names = @('agenda', 'week', 'activity', 'focus')
+    $names = @('agenda', 'prep', 'week', 'activity', 'focus')
     return $names
 }
 
@@ -296,7 +300,7 @@ function Get-AzDevOpsDailyViewerAgendaEvents {
         return @()
     }
 
-    return @($events)
+    return $events
 }
 
 
@@ -378,19 +382,21 @@ function Get-AzDevOpsDailyViewerAgendaItems {
 }
 
 
-# --- This week's focus tile -------------------------------------------------
+# --- Events-to-prepare-for tile ---------------------------------------------
 
 function Get-AzDevOpsDailyViewerPrepItems {
     # "Events to prepare for" = the next two weeks of meetings, widened from
     # today so nothing on the calendar sneaks up unprepared. Each row carries a
-    # short date chip, the meeting's ISO datetime, a default "prep still needed"
-    # marker the viewer can toggle to "all set", and a Teams join link when the
-    # meeting has one. Durable marker state is a follow-up — the model ships the
-    # default and the page owns the toggle.
+    # stable event id, a short date chip, the meeting's ISO datetime, a default
+    # "prep still needed" marker, and a Teams join link when the meeting has one.
+    # The builder always writes the default marker; the durable "all set" choice
+    # is overlaid by id on the way out (see Set-AzDevOpsDailyViewerPrepMarkersFromStore)
+    # so it survives a cache reload.
     $events = @(Get-AzDevOpsDailyViewerAgendaEvents -Days $script:AzDevOpsDailyViewerPrepWindowDays)
 
     $prep = @($events | ForEach-Object {
         $node = [ordered]@{
+            id       = [string]$_.Id
             title    = [string]$_.Subject
             date     = Format-AzDevOpsDailyViewerShortDate -When $_.Start
             datetime = $_.Start.ToString('o')
@@ -408,6 +414,22 @@ function Get-AzDevOpsDailyViewerPrepItems {
 }
 
 
+function Get-AzDevOpsDailyViewerPrepTileItems {
+    # The prep tile is a flat "items" payload (the front-end renderPrep reads
+    # model.items directly). The durable "all set" markers are overlaid by id on
+    # read, so the builder just emits the default-marker rows here.
+    $prepItems = Get-AzDevOpsDailyViewerPrepItems
+
+    $items = [ordered]@{
+        items = $prepItems
+    }
+
+    return $items
+}
+
+
+# --- This week's focus tile -------------------------------------------------
+
 function Get-AzDevOpsDailyViewerWeekItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
 
@@ -416,18 +438,11 @@ function Get-AzDevOpsDailyViewerWeekItems {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
-    $prepItems = Get-AzDevOpsDailyViewerPrepItems
-
     $items = [ordered]@{
         stories = [ordered]@{
             label = 'Stories to complete'
             open  = $true
             items = $storyItems
-        }
-        prep = [ordered]@{
-            label = 'Events to prepare for'
-            open  = $true
-            items = $prepItems
         }
     }
 
@@ -618,6 +633,11 @@ function New-AzDevOpsDailyViewerTileItems {
             return $items
         }
 
+        'prep' {
+            $items = Get-AzDevOpsDailyViewerPrepTileItems
+            return $items
+        }
+
         'week' {
             $items = Get-AzDevOpsDailyViewerWeekItems
             return $items
@@ -711,6 +731,14 @@ function Read-AzDevOpsDailyViewerTile {
         $null
     }
 
+    # The prep tile's markers live in their own store, not the tile cache, so a
+    # toggle survives a reload without a re-query. Overlay it here — the one seam
+    # both the cheap GET and the POST /refresh return through (refresh ends by
+    # re-reading) — so every response reflects the marker the user last chose.
+    if ($Tile -eq $script:AzDevOpsDailyViewerPrepTile) {
+        Set-AzDevOpsDailyViewerPrepMarkersFromStore -Items $items
+    }
+
     $model = [ordered]@{
         tile       = $Tile
         writtenAt  = $writtenAt
@@ -734,6 +762,134 @@ function Initialize-AzDevOpsDailyViewerCache {
 
         if ($path -and -not (Test-Path -LiteralPath $path)) {
             $null = Write-AzDevOpsDailyViewerTile -Tile $name
+        }
+    }
+}
+
+
+# ---------------------------------------------------------------------------
+# Prep "all set" marker store — durable per-project toggle state
+#
+# The prep tile's rows carry an "all set" / "prep still needed" marker the
+# viewer flips per meeting. That choice has to outlive a cache reload, so it
+# lives in its own tiny JSON file beside the tile cache (the set of "all set"
+# event ids), keyed by the stable Outlook event id. It sits under the same
+# active-project cache slice as the tiles, so it follows az-Use-AzDevOpsProject
+# and never leaks one project's choices into another. The read path overlays it
+# onto the prep payload, so the store — not the tile cache — is the single
+# source of truth for markers.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerMarkerStorePath {
+    $dir = Get-AzDevOpsDailyViewerCacheDir
+    if (-not $dir) {
+        return $null
+    }
+
+    $path = Join-Path $dir $script:AzDevOpsDailyViewerMarkerStoreFile
+    return $path
+}
+
+
+function Read-AzDevOpsDailyViewerMarkerStore {
+    # The set of "all set" event ids as a hashtable used as a set (id -> $true),
+    # so callers test membership with .ContainsKey. Fails soft to an empty set
+    # when the file is missing or unreadable — a corrupt store never blocks a
+    # render, it just falls back to "nothing marked".
+    $set = @{}
+
+    $path = Get-AzDevOpsDailyViewerMarkerStorePath
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+        return $set
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $path -Raw
+        $record = $raw | ConvertFrom-Json
+
+        foreach ($id in @($record.setIds)) {
+            $key = [string]$id
+            if ($key) {
+                $set[$key] = $true
+            }
+        }
+    }
+    catch {
+        return @{}
+    }
+
+    return $set
+}
+
+
+function Save-AzDevOpsDailyViewerMarkerStore {
+    # Persist the "all set" id set wholesale — the set is small and the write is
+    # atomic through Write-AzDevOpsCacheFile. Throws when there's no active cache
+    # dir so the POST handler can answer rather than silently drop the toggle.
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $SetIds)
+
+    $path = Get-AzDevOpsDailyViewerMarkerStorePath
+    if (-not $path) {
+        throw "Save-AzDevOpsDailyViewerMarkerStore: no active cache dir (run az-Connect-AzDevOps first)."
+    }
+
+    $dir = Split-Path -Parent $path
+    New-AzDevOpsDirectoryIfMissing -Path $dir
+
+    $record = [ordered]@{
+        setIds    = @($SetIds)
+        updatedAt = (Get-Date).ToString('o')
+    }
+
+    $json = $record | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
+    Write-AzDevOpsCacheFile -Path $path -Content $json
+}
+
+
+function Set-AzDevOpsDailyViewerPrepMarker {
+    # Flip one meeting's durable marker: add its id to the "all set" set, or drop
+    # it back to "prep still needed". Returns the marker that was stored so the
+    # caller can echo it back to the client.
+    param(
+        [Parameter(Mandatory)] [string] $Id,
+        [Parameter(Mandatory)] [string] $Marker
+    )
+
+    $store = Read-AzDevOpsDailyViewerMarkerStore
+
+    if ($Marker -eq $script:AzDevOpsDailyViewerMarkerSet) {
+        $store[$Id] = $true
+    } else {
+        $store.Remove($Id)
+    }
+
+    $ids = @($store.Keys)
+    Save-AzDevOpsDailyViewerMarkerStore -SetIds $ids
+
+    return $Marker
+}
+
+
+function Set-AzDevOpsDailyViewerPrepMarkersFromStore {
+    # Overlay the durable "all set" set onto the prep tile's rows in place, so the
+    # marker the user last chose wins over the default the builder wrote. The prep
+    # tile payload is a flat { items = @(rows) }; no-op when it has no rows (an
+    # empty or legacy cache).
+    param([Parameter(Mandatory)] [AllowNull()] $Items)
+
+    if ($null -eq $Items -or $null -eq $Items.items) {
+        return
+    }
+
+    $store = Read-AzDevOpsDailyViewerMarkerStore
+
+    foreach ($item in @($Items.items)) {
+        $id = [string]$item.id
+
+        $item.marker = if ($id -and $store.ContainsKey($id)) {
+            $script:AzDevOpsDailyViewerMarkerSet
+        } else {
+            $script:AzDevOpsDailyViewerMarkerNeeded
         }
     }
 }
@@ -970,9 +1126,58 @@ function Write-AzDevOpsDailyViewerError {
 # Request routing — cheap GET vs expensive POST /refresh kept distinct
 # ---------------------------------------------------------------------------
 
+function Read-AzDevOpsDailyViewerRequestJson {
+    # Parse a small JSON request body, bounded so a runaway/oversized POST can't
+    # exhaust memory. Returns the parsed object, or $null when the body is too
+    # large, empty, or not valid JSON — the caller answers 400 on $null. The
+    # store is never touched here, so a rejected body can't corrupt it.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $maxBytes = $script:AzDevOpsDailyViewerMaxRequestBytes
+
+    # A chunked / unknown-length body reports ContentLength64 -1 and would skip
+    # the size guard (ReadToEnd would buffer it all first), so reject it up front
+    # along with anything over the cap.
+    if ($Request.ContentLength64 -lt 0 -or $Request.ContentLength64 -gt $maxBytes) {
+        return $null
+    }
+
+    # Require a JSON content type. Beyond correctness this blunts cross-site POSTs:
+    # a browser can't set application/json cross-origin without a preflight this
+    # loopback server never satisfies, so a simple-request forgery can't reach the
+    # store — it lands here as a rejected body instead.
+    $contentType = [string]$Request.ContentType
+    if ($contentType -notlike '*application/json*') {
+        return $null
+    }
+
+    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
+    try {
+        $text = $reader.ReadToEnd()
+    }
+    finally {
+        $reader.Dispose()
+    }
+
+    if (-not $text -or $text.Length -gt $maxBytes) {
+        return $null
+    }
+
+    try {
+        $parsed = $text | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    return $parsed
+}
+
+
 function Get-AzDevOpsDailyViewerTileRoute {
-    # Parse an /api/tiles/... path into { Tile; IsRefresh } or $null when it
-    # isn't a tile route. Keeps the router readable and the two API verbs apart.
+    # Parse an /api/tiles/... path into { Tile; IsRefresh; IsPrepMarker } or
+    # $null when it isn't a tile route. Keeps the router readable and the API
+    # verbs (cheap GET, expensive refresh, prep-marker write) apart.
     param([Parameter(Mandatory)] [string] $Path)
 
     $prefix = '/api/tiles/'
@@ -988,16 +1193,18 @@ function Get-AzDevOpsDailyViewerTileRoute {
     $segments = $rest -split '/'
     $tile = $segments[0]
 
-    $isRefresh = ($segments.Count -eq 2 -and $segments[1] -eq 'refresh')
-    $isPlain   = ($segments.Count -eq 1)
+    $isRefresh    = ($segments.Count -eq 2 -and $segments[1] -eq 'refresh')
+    $isPrepMarker = ($segments.Count -eq 2 -and $segments[1] -eq 'prep-marker')
+    $isPlain      = ($segments.Count -eq 1)
 
-    if (-not $isRefresh -and -not $isPlain) {
+    if (-not $isRefresh -and -not $isPrepMarker -and -not $isPlain) {
         return $null
     }
 
     $route = [PSCustomObject]@{
-        Tile      = $tile
-        IsRefresh = $isRefresh
+        Tile         = $tile
+        IsRefresh    = $isRefresh
+        IsPrepMarker = $isPrepMarker
     }
     return $route
 }
@@ -1026,6 +1233,31 @@ function Invoke-AzDevOpsDailyViewerApiRequest {
 
         $model = Write-AzDevOpsDailyViewerTile -Tile $Route.Tile
         Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $model
+        return
+    }
+
+    if ($Route.IsPrepMarker) {
+        if ($method -ne 'POST') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Prep marker requires POST.'
+            return
+        }
+
+        $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request
+
+        $id     = [string]$payload.id
+        $marker = [string]$payload.marker
+
+        $isKnownMarker = ($marker -eq $script:AzDevOpsDailyViewerMarkerSet -or $marker -eq $script:AzDevOpsDailyViewerMarkerNeeded)
+
+        if (-not $id -or -not $isKnownMarker) {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 400 -Message 'Prep marker needs an id and a marker of "set" or "needed".'
+            return
+        }
+
+        $stored = Set-AzDevOpsDailyViewerPrepMarker -Id $id -Marker $marker
+
+        $ack = [ordered]@{ id = $id; marker = $stored }
+        Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $ack
         return
     }
 
