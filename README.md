@@ -687,9 +687,12 @@ Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline
 az-Start-AzDevOpsDailyViewer            # serve on http://127.0.0.1:8770/ and open the browser
 az-Start-AzDevOpsDailyViewer -Port 9000 # pick a different loopback port
 az-Start-AzDevOpsDailyViewer -NoBrowser # serve without auto-opening the browser (scripted / curl checks)
+az-Start-AzDevOpsDailyViewer -Refresh   # force-rebuild all four tiles at startup, regardless of the daily refresh
 ```
 
 The server is a built-in `System.Net.HttpListener` (no external modules) bound to `127.0.0.1` only — never `0.0.0.0` — and your `az login` / PAT stays inside the server process; responses carry only work-item and agenda data. Press `Ctrl+C` to stop it.
+
+The **first startup of each calendar day** rebuilds all four tiles before serving, so the dashboard opens on today's real agenda and work instead of yesterday's cache (a small `refreshed-on.json` stamp beside the tile cache records the day). Same-day restarts skip the rebuild and only fill any missing tile, so they stay instant; pass `-Refresh` to force a full rebuild on demand. A tile whose source is unavailable during the daily rebuild fails soft — the other tiles still refresh and the server still starts.
 
 Each tile is backed by one JSON file under the active project's cache slice — `~/.bashcuts-az-devops-app/cache/<project-slug>/daily-viewer/{agenda,week,activity,focus}.json` (or the unsegmented `cache/daily-viewer/` for single-project use) — so it follows `az-Use-AzDevOpsProject` exactly like the synced datasets. Staleness is derived from each file's modified time and returned to the page. The API keeps the cheap and expensive paths distinct:
 
