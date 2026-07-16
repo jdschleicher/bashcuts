@@ -597,6 +597,41 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   .prep .marker { transition: none; }
 }
 
+/* Reviewed toggle on recent-update rows — same control shape as the prep
+   marker: aria-pressed carries state and drives the color through the shared
+   theme tokens. Pressed (reviewed) rows are only visible under "Show reviewed",
+   where .dismissed dims them to read as already handled. */
+.wi .review {
+  flex: none;
+  font-family: inherit;
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-0) var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.wi .review:hover { color: var(--text); border-color: var(--border-strong); }
+.wi .review[aria-pressed="true"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  background: color-mix(in srgb, var(--good) 15%, transparent);
+}
+.wi.dismissed { opacity: .55; }
+@media (prefers-reduced-motion: reduce) {
+  .wi .review { transition: none; }
+}
+
+/* Toolbar toggle (Show reviewed) reuses .btn; aria-pressed marks it active. */
+.btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-weak);
+}
+
 .primary {
   display: flex; gap: var(--space-5); align-items: flex-start;
   padding: var(--space-5) var(--space-6); margin: var(--space-5) 0 var(--space-1);
