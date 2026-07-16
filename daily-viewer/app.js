@@ -316,7 +316,7 @@ function prepMarkerButton(item) {
     announce(label + (next ? " marked all set." : " marked prep still needed."));
 
     // Only persist rows backed by the live server: they carry a real event id
-    // and the week tile loaded from the backend, not the offline sample model.
+    // and the prep tile loaded from the backend, not the offline sample model.
     // In sample mode the toggle stays an in-memory preview, as it was before.
     if (!item.id || !tileFromBackend.prep) {
       return;
