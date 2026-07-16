@@ -394,7 +394,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   width: var(--icon); height: var(--icon);
   color: var(--tint, var(--accent));
 }
-.tt h2 {
+.tt h3 {
   margin: 0;
   font-size: var(--fs-smd);
   font-weight: 700;
@@ -662,7 +662,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   font-weight: 600;
   color: var(--text-dim);
 }
-.prep .meta .time .tz {
+.prep .tz {
   margin-left: var(--space-1);
   font-weight: 400;
   font-size: var(--fs-2xs);

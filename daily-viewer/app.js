@@ -454,6 +454,19 @@ function renderWeek(model) {
 }
 
 
+// A start time in epoch millis, or Infinity when the datetime is absent or
+// unparseable — so a missing/garbled value sorts last instead of throwing or
+// (for NaN) leaving the row wherever it happened to sit.
+function startMillis(datetime) {
+  if (!datetime) {
+    return Infinity;
+  }
+
+  var ms = new Date(datetime).getTime();
+  return isNaN(ms) ? Infinity : ms;
+}
+
+
 // Prep events read as a chronological upcoming-meetings list, so sort a copy by
 // start time ascending; an item missing a datetime sorts last rather than
 // throwing. The tile header already names the group, so rows render as a flat
@@ -462,8 +475,8 @@ function sortByDatetime(items) {
   var copy = items.slice();
 
   copy.sort(function (a, b) {
-    var ta = a.datetime ? new Date(a.datetime).getTime() : Infinity;
-    var tb = b.datetime ? new Date(b.datetime).getTime() : Infinity;
+    var ta = startMillis(a.datetime);
+    var tb = startMillis(b.datetime);
     return ta - tb;
   });
 
