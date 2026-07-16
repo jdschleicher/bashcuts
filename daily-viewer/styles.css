@@ -270,7 +270,7 @@ button:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -296,9 +296,45 @@ button:focus-visible {
 }
 .stat .l { font-size: var(--fs-sm); color: var(--text-dim); }
 .stat.a { --stat: var(--accent); }
+.stat.p { --stat: var(--epic); }
 .stat.f { --stat: var(--feature); }
 .stat.s { --stat: var(--story); }
 .stat.g { --stat: var(--warn); }
+
+/* ---------- parent sections (Calendar / Azure DevOps) ---------- */
+.section { margin-bottom: var(--space-8); }
+.section:last-of-type { margin-bottom: 0; }
+.section.section-empty { display: none; }
+.section.cal { --tint: var(--epic); }
+.section.ado { --tint: var(--story); }
+
+.section > details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-1);
+  margin-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.section > details > summary::-webkit-details-marker { display: none; }
+.section > details > summary:hover .section-title { color: var(--text); }
+
+.section .sicon {
+  flex: none;
+  width: var(--icon); height: var(--icon);
+  color: var(--tint, var(--accent));
+}
+.section-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
 
 /* ---------- grid ---------- */
 .grid {
@@ -321,6 +357,7 @@ button:focus-visible {
   overflow: hidden;
 }
 .tile[data-tile="agenda"]   { --tint: var(--accent); }
+.tile[data-tile="prep"]     { --tint: var(--epic); }
 .tile[data-tile="week"]     { --tint: var(--feature); }
 .tile[data-tile="activity"] { --tint: var(--story); }
 .tile[data-tile="focus"]    { --tint: var(--warn); }
@@ -596,6 +633,42 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
   .prep .marker { transition: none; }
 }
+
+/* Prep tile list — a flat chronological list (the tile header already names the
+   group). Each row stacks title over an agenda-style time/location meta line. */
+.plist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.prep .wtitle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.prep .ptitle { font-weight: 600; color: var(--text); }
+.prep .meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.prep .meta .time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.prep .meta .time .tz {
+  margin-left: var(--space-1);
+  font-weight: 400;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+.prep .meta a { color: var(--accent); }
 
 .primary {
   display: flex; gap: var(--space-5); align-items: flex-start;
