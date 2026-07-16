@@ -43,17 +43,28 @@ var MODEL = {
         { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "Outlook calendar pull for daily events", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240", state: "Active", priority: 3, date: "Jul 17" },
         { type: "Bug", id: 1251, url: "https://dev.azure.com/org/project/_workitems/edit/1251", title: "Timezone offset on EST agenda rows", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1251", state: "In review", priority: 1, date: "Jul 16" }
       ]
-    },
-    prep: {
-      label: "Events to prepare for",
-      open: true,
-      items: [
-        { id: "sample-planning", title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed" },
-        { id: "sample-arch", title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set" },
-        { id: "sample-api", title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed", link: { text: "Join meeting", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
-        { id: "sample-roadmap", title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
-      ]
     }
+  },
+
+  // Prep is its own calendar tile. Items carry the same optional time/location
+  // shape as agenda events, so a prep row can surface meeting detail when the
+  // Outlook pull provides it and degrade to just title + date when it doesn't.
+  // Each carries a stable event id so its "all set" marker persists across reloads.
+  prep: {
+    label: "Events to prepare for",
+    open: true,
+    items: [
+      { id: "sample-planning", title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed",
+        time: { label: "9:00 AM", tz: "EST" },
+        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example" } },
+      { id: "sample-arch", title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set",
+        time: { label: "11:00 AM", tz: "EST" },
+        location: { badge: "In person", text: "Room 132" } },
+      { id: "sample-api", title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed",
+        time: { label: "2:00 PM", tz: "EST" },
+        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
+      { id: "sample-roadmap", title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
+    ]
   },
 
   activity: {
@@ -269,7 +280,7 @@ function setMarkerPressed(btn, pressed) {
 // Returns the fetch promise; the caller reverts the optimistic flip on reject.
 function savePrepMarker(id, pressed) {
   var marker = pressed ? MARKER_SET : MARKER_NEEDED;
-  return fetchJson(API + WEEK_TILE + "/prep-marker", {
+  return fetchJson(API + PREP_TILE + "/prep-marker", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
     body: JSON.stringify({ id: id, marker: marker })
@@ -307,7 +318,7 @@ function prepMarkerButton(item) {
     // Only persist rows backed by the live server: they carry a real event id
     // and the week tile loaded from the backend, not the offline sample model.
     // In sample mode the toggle stays an in-memory preview, as it was before.
-    if (!item.id || !tileFromBackend.week) {
+    if (!item.id || !tileFromBackend.prep) {
       return;
     }
 
@@ -330,15 +341,53 @@ function prepMarkerButton(item) {
 }
 
 
-function prepRow(item) {
-  var title = [ item.title ];
+// Agenda-style detail on a prep row: the meeting time and location share one meta
+// line under the title, joined by the middle-dot separator. Both are optional, so
+// a prep item that carries neither renders as just its title.
+var META_SEP = "·";
 
-  if (item.link) {
-    title.push(" ");
-    title.push(externalLink(item.link.text, item.link.url));
+function prepMetaLine(item) {
+  var bits = [];
+
+  if (item.time) {
+    bits.push(timeNode({ label: item.time.label, tz: item.time.tz, datetime: item.datetime }));
+  }
+  if (item.location) {
+    bits.push(whereLine(item.location));
   }
 
-  var children = [ el("span", { class: "wtitle" }, title) ];
+  if (bits.length === 0) {
+    return null;
+  }
+
+  var children = [];
+  bits.forEach(function (bit, i) {
+    if (i > 0) {
+      children.push(META_SEP);
+    }
+    children.push(bit);
+  });
+
+  return el("p", { class: "meta" }, children);
+}
+
+
+function prepRow(item) {
+  var titleLine = [ item.title ];
+
+  if (item.link) {
+    titleLine.push(" ");
+    titleLine.push(externalLink(item.link.text, item.link.url));
+  }
+
+  var column = [ el("p", { class: "ptitle" }, titleLine) ];
+
+  var meta = prepMetaLine(item);
+  if (meta) {
+    column.push(meta);
+  }
+
+  var children = [ el("div", { class: "wtitle" }, column) ];
 
   if (item.date) {
     children.push(el("span", { class: "date", text: item.date }));
@@ -350,24 +399,44 @@ function prepRow(item) {
 }
 
 
+// Shared time + location renderers — the agenda tile and the prep tile both
+// surface a meeting's start time and place, so the escaping-safe markup for each
+// lives in one helper. The datetime attribute is optional: agenda events carry it
+// on the time object, prep passes the item-level datetime, and a row without one
+// renders a plain <time> label rather than a literal "undefined" attribute.
+function timeNode(time) {
+  var opts = { class: "time" };
+  if (time.datetime) {
+    opts.datetime = time.datetime;
+  }
+
+  var children = [ time.label ];
+  if (time.tz) {
+    children.push(el("span", { class: "tz", text: time.tz }));
+  }
+
+  return el("time", opts, children);
+}
+
+
+function whereLine(location) {
+  var children = [ el("span", { class: "badge-loc", text: location.badge }) ];
+
+  if (location.text) {
+    children.push(" ");
+    children.push(location.text);
+  }
+  if (location.url) {
+    children.push(" ");
+    children.push(externalLink(location.urlLabel, location.url));
+  }
+
+  return el("span", { class: "where" }, children);
+}
+
+
 function eventRow(ev) {
-  var timeChildren = [ ev.time.label ];
-  if (ev.time.tz) {
-    timeChildren.push(el("span", { class: "tz", text: ev.time.tz }));
-  }
-  var time = el("time", { class: "time", datetime: ev.time.datetime }, timeChildren);
-
-  var whereChildren = [ el("span", { class: "badge-loc", text: ev.location.badge }) ];
-  if (ev.location.text) {
-    whereChildren.push(" ");
-    whereChildren.push(ev.location.text);
-  }
-  if (ev.location.url) {
-    whereChildren.push(" ");
-    whereChildren.push(externalLink(ev.location.urlLabel, ev.location.url));
-  }
-
-  var metaLines = [ el("p", { class: "meta" }, [ el("span", { class: "where" }, whereChildren) ]) ];
+  var metaLines = [ el("p", { class: "meta" }, [ whereLine(ev.location) ]) ];
 
   (ev.details || []).forEach(function (detail) {
     var line = [ el("span", { class: "k", text: detail.label }), " " ];
@@ -381,7 +450,7 @@ function eventRow(ev) {
 
   var content = el("div", null, [ el("p", { class: "etitle", text: ev.title }) ].concat(metaLines));
 
-  return el("li", { class: "event" }, [ time, content ]);
+  return el("li", { class: "event" }, [ timeNode(ev.time), content ]);
 }
 
 
@@ -430,10 +499,44 @@ function renderAgenda(model) {
 
 
 function renderWeek(model) {
-  return [
-    groupBlock(model.stories || {}, workItemRow),
-    groupBlock(model.prep || {}, prepRow, "No meetings to prepare for in the next two weeks.")
-  ];
+  return [ groupBlock(model.stories || {}, workItemRow) ];
+}
+
+
+// A start time in epoch millis, or Infinity when the datetime is absent or
+// unparseable — so a missing/garbled value sorts last instead of throwing or
+// (for NaN) leaving the row wherever it happened to sit.
+function startMillis(datetime) {
+  if (!datetime) {
+    return Infinity;
+  }
+
+  var ms = new Date(datetime).getTime();
+  return isNaN(ms) ? Infinity : ms;
+}
+
+
+// Prep events read as a chronological upcoming-meetings list, so sort a copy by
+// start time ascending; an item missing a datetime sorts last rather than
+// throwing. The tile header already names the group, so rows render as a flat
+// list (no nested group label to duplicate it).
+function sortByDatetime(items) {
+  var copy = items.slice();
+
+  copy.sort(function (a, b) {
+    var ta = startMillis(a.datetime);
+    var tb = startMillis(b.datetime);
+    return ta - tb;
+  });
+
+  return copy;
+}
+
+
+function renderPrep(model) {
+  var items = sortByDatetime(asArray(model.items));
+  var list = el("ul", { class: "plist" }, items.map(prepRow));
+  return [ list ];
 }
 
 
@@ -482,8 +585,11 @@ var TILES = [
   { key: "agenda",   render: renderAgenda,   stat: "tile-agenda",
     empty: "No meetings today.",
     statCount: function (m) { return asArray(m.events).length; } },
+  { key: "prep",     render: renderPrep,     stat: "tile-prep",
+    empty: "No meetings to prepare for in the next two weeks.",
+    statCount: function (m) { return asArray(m.items).length; } },
   { key: "week",     render: renderWeek,     stat: "tile-week",
-    empty: "No stories or prep items this week.",
+    empty: "No stories to complete this week.",
     statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
   { key: "activity", render: renderActivity, stat: "tile-activity",
     empty: "No recent activity.",
@@ -588,7 +694,7 @@ function setStale(key, data) {
 // ---------------------------------------------------------------------------
 
 var API = "/api/tiles/";
-var WEEK_TILE = "week";
+var PREP_TILE = "prep";
 
 // Which tiles this session actually loaded from the backend (vs. the offline
 // sample fallback). The prep-marker POST only fires for backend-backed rows, so
@@ -711,12 +817,21 @@ document.getElementById("refreshAll").addEventListener("click", function () {
 });
 
 
-// Stat strip: open and scroll to the tile a stat summarizes.
+// Stat strip: open and scroll to the tile a stat summarizes. Open the parent
+// section first so a collapsed Calendar / Azure DevOps group reveals the tile.
 document.querySelectorAll(".stat").forEach(function (stat) {
   stat.addEventListener("click", function () {
     var target = document.getElementById(stat.dataset.target);
     if (!target) {
       return;
+    }
+
+    var section = target.closest(".section");
+    if (section) {
+      var sectionDetails = section.querySelector("details");
+      if (sectionDetails) {
+        sectionDetails.open = true;
+      }
     }
 
     var details = target.querySelector("details");
@@ -802,6 +917,20 @@ function applyFilter(raw) {
     t.classList.toggle("empty", !!q && !anyVisible);
   });
 
+  // A whole parent section drops out when a search empties every tile inside it,
+  // so the filtered view isn't padded with empty Calendar / Azure DevOps headers.
+  document.querySelectorAll(".section").forEach(function (section) {
+    var anyTileVisible = false;
+
+    section.querySelectorAll(".tile").forEach(function (t) {
+      if (!t.classList.contains("empty")) {
+        anyTileVisible = true;
+      }
+    });
+
+    section.classList.toggle("section-empty", !!q && !anyTileVisible);
+  });
+
   if (q) {
     announce(matchTotal + (matchTotal === 1 ? " item matches." : " items match."));
   }
@@ -815,6 +944,21 @@ searchBox.addEventListener("keydown", function (e) {
     applyFilter("");
   }
 });
+
+
+// Header date — rendered live so the dashboard always names the current day,
+// replacing the static fallback baked into the markup for the JS-off case.
+function paintTodayDate() {
+  var node = document.getElementById("today-date");
+  if (!node) {
+    return;
+  }
+
+  var today = new Date();
+  node.textContent = today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+paintTodayDate();
 
 
 // ---------------------------------------------------------------------------

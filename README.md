@@ -696,7 +696,7 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 - `GET /` — the page and its static assets.
 - `GET /api/tiles/<name>` — that tile's cached JSON, plus its `ageSeconds` / `stale` staleness (cheap read).
 - `POST /api/tiles/<name>/refresh` — re-runs that tile's query, rewrites its cache, and returns the fresh JSON (expensive; per-tile).
-- `POST /api/tiles/week/prep-marker` — persists one prep row's "all set" / "prep still needed" marker (body `{ "id", "marker" }`, keyed by the meeting's stable event id) so the choice survives a refresh or reload.
+- `POST /api/tiles/prep/prep-marker` — persists one prep row's "all set" / "prep still needed" marker (body `{ "id", "marker" }`, keyed by the meeting's stable event id) so the choice survives a refresh or reload.
 
 Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
 

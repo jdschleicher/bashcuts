@@ -32,7 +32,7 @@ $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads
 $script:AzDevOpsDailyViewerPrepWindowDays  = 14      # "events to prepare for" look-ahead: the next two weeks
 $script:AzDevOpsDailyViewerMarkerNeeded    = 'needed'  # a newly-pulled meeting starts "prep still needed"
 $script:AzDevOpsDailyViewerMarkerSet       = 'set'     # the viewer toggled this meeting to "all set"
-$script:AzDevOpsDailyViewerWeekTile        = 'week'    # the tile whose prep list carries the toggle
+$script:AzDevOpsDailyViewerPrepTile        = 'prep'    # the tile whose prep list carries the toggle
 $script:AzDevOpsDailyViewerMarkerStoreFile = 'prep-markers.json'  # durable "all set" ids, beside the tile cache
 $script:AzDevOpsDailyViewerMaxRequestBytes = 4096      # cap on an API request body (the marker POST is tiny)
 
@@ -72,7 +72,7 @@ $script:AzDevOpsDailyViewerMimeTypes = @{
 # ---------------------------------------------------------------------------
 
 function Get-AzDevOpsDailyViewerTileNames {
-    $names = @('agenda', 'week', 'activity', 'focus')
+    $names = @('agenda', 'prep', 'week', 'activity', 'focus')
     return $names
 }
 
@@ -380,7 +380,7 @@ function Get-AzDevOpsDailyViewerAgendaItems {
 }
 
 
-# --- This week's focus tile -------------------------------------------------
+# --- Events-to-prepare-for tile ---------------------------------------------
 
 function Get-AzDevOpsDailyViewerPrepItems {
     # "Events to prepare for" = the next two weeks of meetings, widened from
@@ -412,6 +412,22 @@ function Get-AzDevOpsDailyViewerPrepItems {
 }
 
 
+function Get-AzDevOpsDailyViewerPrepTileItems {
+    # The prep tile is a flat "items" payload (the front-end renderPrep reads
+    # model.items directly). The durable "all set" markers are overlaid by id on
+    # read, so the builder just emits the default-marker rows here.
+    $prepItems = Get-AzDevOpsDailyViewerPrepItems
+
+    $items = [ordered]@{
+        items = $prepItems
+    }
+
+    return $items
+}
+
+
+# --- This week's focus tile -------------------------------------------------
+
 function Get-AzDevOpsDailyViewerWeekItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
 
@@ -420,18 +436,11 @@ function Get-AzDevOpsDailyViewerWeekItems {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
-    $prepItems = Get-AzDevOpsDailyViewerPrepItems
-
     $items = [ordered]@{
         stories = [ordered]@{
             label = 'Stories to complete'
             open  = $true
             items = $storyItems
-        }
-        prep = [ordered]@{
-            label = 'Events to prepare for'
-            open  = $true
-            items = $prepItems
         }
     }
 
@@ -622,6 +631,11 @@ function New-AzDevOpsDailyViewerTileItems {
             return $items
         }
 
+        'prep' {
+            $items = Get-AzDevOpsDailyViewerPrepTileItems
+            return $items
+        }
+
         'week' {
             $items = Get-AzDevOpsDailyViewerWeekItems
             return $items
@@ -715,11 +729,11 @@ function Read-AzDevOpsDailyViewerTile {
         $null
     }
 
-    # The week tile's prep markers live in their own store, not the tile cache,
-    # so a toggle survives a reload without a re-query. Overlay it here — the one
-    # seam both the cheap GET and the POST /refresh return through (refresh ends
-    # by re-reading) — so every response reflects the marker the user last chose.
-    if ($Tile -eq $script:AzDevOpsDailyViewerWeekTile) {
+    # The prep tile's markers live in their own store, not the tile cache, so a
+    # toggle survives a reload without a re-query. Overlay it here — the one seam
+    # both the cheap GET and the POST /refresh return through (refresh ends by
+    # re-reading) — so every response reflects the marker the user last chose.
+    if ($Tile -eq $script:AzDevOpsDailyViewerPrepTile) {
         Set-AzDevOpsDailyViewerPrepMarkersFromStore -Items $items
     }
 
@@ -855,18 +869,19 @@ function Set-AzDevOpsDailyViewerPrepMarker {
 
 
 function Set-AzDevOpsDailyViewerPrepMarkersFromStore {
-    # Overlay the durable "all set" set onto a week payload's prep rows in place,
-    # so the marker the user last chose wins over the default the builder wrote.
-    # No-op when the payload has no prep list (an empty or legacy cache).
+    # Overlay the durable "all set" set onto the prep tile's rows in place, so the
+    # marker the user last chose wins over the default the builder wrote. The prep
+    # tile payload is a flat { items = @(rows) }; no-op when it has no rows (an
+    # empty or legacy cache).
     param([Parameter(Mandatory)] [AllowNull()] $Items)
 
-    if ($null -eq $Items -or $null -eq $Items.prep -or $null -eq $Items.prep.items) {
+    if ($null -eq $Items -or $null -eq $Items.items) {
         return
     }
 
     $store = Read-AzDevOpsDailyViewerMarkerStore
 
-    foreach ($item in @($Items.prep.items)) {
+    foreach ($item in @($Items.items)) {
         $id = [string]$item.id
 
         $item.marker = if ($id -and $store.ContainsKey($id)) {
