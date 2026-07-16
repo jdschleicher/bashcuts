@@ -12,16 +12,6 @@
 // live `az boards` / Outlook output is a data change, not markup surgery.
 // ---------------------------------------------------------------------------
 
-var MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-// Sample activity timestamps are expressed relative to "now" so the 30-day
-// window demonstrates itself whenever the mock is opened: the six-week-old row
-// is always filtered out and the rest always land inside the window. Live data
-// ships real ISO dates from the server, so this helper is sample-only.
-function daysAgoISO(days) {
-  return new Date(Date.now() - days * MS_PER_DAY).toISOString();
-}
-
 var MODEL = {
   agenda: {
     events: [
@@ -59,20 +49,21 @@ var MODEL = {
   // Prep is its own calendar tile. Items carry the same optional time/location
   // shape as agenda events, so a prep row can surface meeting detail when the
   // Outlook pull provides it and degrade to just title + date when it doesn't.
+  // Each carries a stable event id so its "all set" marker persists across reloads.
   prep: {
     label: "Events to prepare for",
     open: true,
     items: [
-      { title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00",
+      { id: "sample-planning", title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed",
         time: { label: "9:00 AM", tz: "EST" },
         location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example" } },
-      { title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00",
+      { id: "sample-arch", title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set",
         time: { label: "11:00 AM", tz: "EST" },
         location: { badge: "In person", text: "Room 132" } },
-      { title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00",
+      { id: "sample-api", title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed",
         time: { label: "2:00 PM", tz: "EST" },
         location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
-      { title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00" }
+      { id: "sample-roadmap", title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
     ]
   },
 
@@ -82,25 +73,24 @@ var MODEL = {
         label: "Tagged discussions",
         open: true,
         items: [
-          { type: "Feature", id: 1180, url: "https://dev.azure.com/org/project/_workitems/edit/1180", title: "@you — “can you confirm the WIQL scope?”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1180?discussion", priority: 2, note: "1d ago", changedDate: daysAgoISO(1) },
-          { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "@you — “ready for review whenever”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240?discussion", priority: 3, note: "3h ago", changedDate: daysAgoISO(0) }
+          { type: "Feature", id: 1180, url: "https://dev.azure.com/org/project/_workitems/edit/1180", title: "@you — “can you confirm the WIQL scope?”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1180?discussion", priority: 2, note: "1d ago" },
+          { type: "Story", id: 1240, url: "https://dev.azure.com/org/project/_workitems/edit/1240", title: "@you — “ready for review whenever”", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1240?discussion", priority: 3, note: "3h ago" }
         ]
       },
       {
         label: "Active story updates",
         open: false,
         items: [
-          { type: "Story", id: 1234, url: "https://dev.azure.com/org/project/_workitems/edit/1234", title: "State → In progress by A. Rivera", note: "2h ago", changedDate: daysAgoISO(0) },
-          { type: "Bug", id: 1251, url: "https://dev.azure.com/org/project/_workitems/edit/1251", title: "Moved to In review", note: "4h ago", changedDate: daysAgoISO(0) },
-          { type: "Story", id: 1188, url: "https://dev.azure.com/org/project/_workitems/edit/1188", title: "Closed after release cut", note: "6w ago", changedDate: daysAgoISO(45) }
+          { type: "Story", id: 1234, url: "https://dev.azure.com/org/project/_workitems/edit/1234", title: "State → In progress by A. Rivera", note: "2h ago" },
+          { type: "Bug", id: 1251, url: "https://dev.azure.com/org/project/_workitems/edit/1251", title: "Moved to In review", note: "4h ago" }
         ]
       },
       {
         label: "Current sprint",
         open: false,
         items: [
-          { type: "Task", id: 1209, url: "https://dev.azure.com/org/project/_workitems/edit/1209", title: "Update release notes", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1209", state: "In progress", priority: 2, note: "2h ago", changedDate: daysAgoISO(0) },
-          { type: "Story", id: 1222, url: "https://dev.azure.com/org/project/_workitems/edit/1222", title: "Verify acceptance criteria signed off", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1222", state: "Active", priority: 1, note: "1d ago", changedDate: daysAgoISO(1) }
+          { type: "Task", id: 1209, url: "https://dev.azure.com/org/project/_workitems/edit/1209", title: "Update release notes", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1209", state: "In progress", priority: 2, note: "2h ago" },
+          { type: "Story", id: 1222, url: "https://dev.azure.com/org/project/_workitems/edit/1222", title: "Verify acceptance criteria signed off", titleUrl: "https://dev.azure.com/org/project/_workitems/edit/1222", state: "Active", priority: 1, note: "1d ago" }
         ]
       }
     ]
@@ -141,148 +131,14 @@ var STATE_CLASS = {
 
 var STAR_GLYPH = "★";
 
-// Dismissal labels for the two toggles. Both are the same control shape (a pill
-// button whose aria-pressed carries state); only the words and the bucket
-// differ. Pressed means "handled" — the row leaves the list.
-var REVIEW_LABELS = { off: "Mark reviewed", on: "Reviewed" };
-var PREP_LABELS = { off: "Prep still needed", on: "All set" };
-
-// Recent updates only surface activity from the last 30 days.
-var ACTIVITY_WINDOW_DAYS = 30;
-
-// When true, dismissed rows stay visible (dimmed, with an undo control) instead
-// of being filtered out — the toolbar's "Show reviewed" toggle flips this.
-var showReviewed = false;
-
-
-// ---------------------------------------------------------------------------
-// Dismissal store — "reviewed" recent updates and "all set" prep items persist
-// here so a handled item stays gone across refresh and reload. State is keyed by
-// item identity and namespaced by bucket; a recent update reappears only if it
-// changed after the moment it was reviewed (an inbox, not a permanent blocklist).
-// This is the model's persistence seam: swap localStorage for the server cache
-// later and nothing above this block has to change.
-// ---------------------------------------------------------------------------
-
-var DISMISS_STORE_KEY = "dailyViewer.dismissed.v1";
-
-var dismissStore = {
-  _load: function () {
-    try {
-      var raw = window.localStorage.getItem(DISMISS_STORE_KEY);
-      var parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object") {
-        return parsed;
-      }
-    } catch (err) {
-      // Corrupt or blocked storage — start clean rather than throw on boot.
-    }
-
-    return {};
-  },
-
-  _save: function (data) {
-    try {
-      window.localStorage.setItem(DISMISS_STORE_KEY, JSON.stringify(data));
-    } catch (err) {
-      // Storage full or blocked (private mode) — dismissal degrades to
-      // in-memory for this session instead of breaking the toggle.
-    }
-  },
-
-  _bucket: function (data, bucket) {
-    if (!data[bucket] || typeof data[bucket] !== "object") {
-      data[bucket] = {};
-    }
-
-    return data[bucket];
-  },
-
-  isDismissed: function (bucket, key, changedDate) {
-    var map = this._bucket(this._load(), bucket);
-    if (!Object.prototype.hasOwnProperty.call(map, key)) {
-      return false;
-    }
-
-    // Reappear when the item changed after it was reviewed (inbox model).
-    if (changedDate) {
-      var changed = Date.parse(changedDate);
-      var reviewed = Date.parse(map[key]);
-      if (!isNaN(changed) && !isNaN(reviewed) && changed > reviewed) {
-        return false;
-      }
-    }
-
-    return true;
-  },
-
-  dismiss: function (bucket, key) {
-    var data = this._load();
-    this._bucket(data, bucket)[key] = new Date().toISOString();
-    this._save(data);
-  },
-
-  restore: function (bucket, key) {
-    var data = this._load();
-    delete this._bucket(data, bucket)[key];
-    this._save(data);
-  }
-};
-
-
-// Identity keys for the two buckets. Recent updates key by work-item id (so a
-// later change to the same item can bring it back); prep items have no id, so
-// they key by title + time — which also means a rescheduled meeting reads as a
-// new item.
-function activityKey(item) {
-  return String(item.id != null ? item.id : (item.title || ""));
-}
-
-function prepKey(item) {
-  return (item.title || "") + "|" + (item.datetime || item.date || "");
-}
-
-
-// Per-bucket config: the single source of truth for BOTH the filter and the
-// toggle button. Filtering reads windowed/keyOf/changedOf; the button reads
-// className/labels/tileKey and builds its announcements from the row label.
-// Keeping the bucket name and its behavior in one object is what lets the
-// "activity"/"prep" string live in exactly one place.
-var ACTIVITY_SPEC = {
-  bucket: "activity",
-  windowed: true,
-  keyOf: activityKey,
-  changedOf: function (item) {
-    return item.changedDate;
-  },
-  className: "pill-toggle review",
-  labels: REVIEW_LABELS,
-  tileKey: "activity",
-  doneMessage: function (label) {
-    return label + " marked reviewed.";
-  },
-  undoMessage: function (label) {
-    return label + " restored to recent updates.";
-  }
-};
-
-var PREP_SPEC = {
-  bucket: "prep",
-  windowed: false,
-  keyOf: prepKey,
-  changedOf: function () {
-    return null;
-  },
-  className: "pill-toggle marker",
-  labels: PREP_LABELS,
-  tileKey: "prep",
-  doneMessage: function (label) {
-    return label + " marked all set.";
-  },
-  undoMessage: function (label) {
-    return label + " marked prep still needed.";
-  }
-};
+// Prep-marker states. Meetings arrive "needed" (unprepared) and the user toggles
+// each to "set" (all set). The flip is optimistic in the UI and POSTed to the
+// backend, which stores it by event id — so a cache reload re-reads the saved
+// state, not the model default (see prepMarkerButton / savePrepMarker).
+var MARKER_SET = "set";
+var MARKER_NEEDED = "needed";
+var MARKER_SET_LABEL = "All set";
+var MARKER_NEEDED_LABEL = "Prep still needed";
 
 
 // ---------------------------------------------------------------------------
@@ -406,74 +262,79 @@ function workItemRow(wi) {
 }
 
 
-// A recent-update row is a work-item row plus the reviewed toggle. Dismissed
-// rows (only visible under "Show reviewed") render dimmed via .dismissed.
-function activityRow(item) {
-  var li = workItemRow(item);
+// The prep marker is a real toggle button: aria-pressed carries the state (and
+// drives the chip color in CSS), the visible text is its accessible name, and
+// every flip is announced through the shared aria-live region so a screen reader
+// hears which meeting changed. The flip is optimistic and then persisted by
+// event id, so it survives a cache reload; if the save fails the button reverts.
+function markerText(pressed) {
+  return pressed ? MARKER_SET_LABEL : MARKER_NEEDED_LABEL;
+}
 
-  if (item._dismissed) {
-    li.classList.add("dismissed");
-  }
+function setMarkerPressed(btn, pressed) {
+  btn.setAttribute("aria-pressed", pressed ? "true" : "false");
+  btn.textContent = markerText(pressed);
+}
 
-  li.appendChild(dismissToggleButton(item, ACTIVITY_SPEC));
-
-  return li;
+// Persist one meeting's marker to the backend so it outlives the tile cache.
+// Returns the fetch promise; the caller reverts the optimistic flip on reject.
+function savePrepMarker(id, pressed) {
+  var marker = pressed ? MARKER_SET : MARKER_NEEDED;
+  return fetchJson(API + PREP_TILE + "/prep-marker", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ id: id, marker: marker })
+  });
 }
 
 
-// Both toggles are the same control: a pill button whose aria-pressed is its
-// state and whose visible text is the action. An explicit aria-label folds in
-// the item title so a screen reader can tell one row's toggle from the next
-// (visible text alone would read as a wall of identical "Mark reviewed"s). The
-// click hands off to onToggle, which updates the store and repaints the tile —
-// the button is rebuilt from the fresh view model rather than mutating itself.
-function dismissButton(className, pressed, labels, ariaLabel, onToggle) {
+function prepMarkerButton(item) {
+  var pressed = item.marker === MARKER_SET;
+
   var btn = el("button", {
     type: "button",
-    class: className,
+    class: "marker",
     "aria-pressed": pressed ? "true" : "false",
-    "aria-label": ariaLabel,
-    text: pressed ? labels.on : labels.off
+    text: markerText(pressed)
   });
 
-  btn.addEventListener("click", onToggle);
+  // Guard re-clicks with a flag (plus aria-disabled) rather than the native
+  // `disabled` property: toggling `disabled` synchronously punts keyboard focus
+  // to <body>, so a keyboard user loses their place in the list. aria-disabled
+  // keeps focus on the button while the save is in flight.
+  var saving = false;
 
-  return btn;
-}
+  btn.addEventListener("click", function () {
+    if (saving) {
+      return;
+    }
 
+    var next = btn.getAttribute("aria-pressed") !== "true";
+    setMarkerPressed(btn, next);
 
-// Pressed means "handled" (reviewed / all set): restore brings the row back,
-// dismiss removes it. Every flip is announced through the shared aria-live
-// region so a screen reader hears which item changed, then the tile repaints.
-function applyDismissalToggle(opts) {
-  if (opts.pressed) {
-    dismissStore.restore(opts.bucket, opts.key);
-    announce(opts.undoMessage);
-  } else {
-    dismissStore.dismiss(opts.bucket, opts.key);
-    announce(opts.doneMessage);
-  }
+    var label = item.title || "This item";
+    announce(label + (next ? " marked all set." : " marked prep still needed."));
 
-  repaintTile(opts.tileKey);
-}
+    // Only persist rows backed by the live server: they carry a real event id
+    // and the prep tile loaded from the backend, not the offline sample model.
+    // In sample mode the toggle stays an in-memory preview, as it was before.
+    if (!item.id || !tileFromBackend.prep) {
+      return;
+    }
 
-
-// One builder for both toggles, driven by the bucket spec — the review toggle
-// and the prep marker differ only in that data, so they share this body.
-function dismissToggleButton(item, spec) {
-  var pressed = item._dismissed === true;
-  var label = item.title || "This item";
-  var ariaLabel = (pressed ? spec.labels.on : spec.labels.off) + " — " + label;
-
-  var btn = dismissButton(spec.className, pressed, spec.labels, ariaLabel, function () {
-    applyDismissalToggle({
-      bucket: spec.bucket,
-      key: spec.keyOf(item),
-      pressed: pressed,
-      tileKey: spec.tileKey,
-      doneMessage: spec.doneMessage(label),
-      undoMessage: spec.undoMessage(label)
-    });
+    saving = true;
+    btn.setAttribute("aria-disabled", "true");
+    savePrepMarker(item.id, next)
+      .then(function () {
+        saving = false;
+        btn.removeAttribute("aria-disabled");
+      })
+      .catch(function () {
+        saving = false;
+        btn.removeAttribute("aria-disabled");
+        setMarkerPressed(btn, !next);
+        announce(label + " — couldn't save, change reverted.");
+      });
   });
 
   return btn;
@@ -532,15 +393,9 @@ function prepRow(item) {
     children.push(el("span", { class: "date", text: item.date }));
   }
 
-  children.push(dismissToggleButton(item, PREP_SPEC));
+  children.push(prepMarkerButton(item));
 
-  var li = el("li", { class: "wi prep" }, children);
-
-  if (item._dismissed) {
-    li.classList.add("dismissed");
-  }
-
-  return li;
+  return el("li", { class: "wi prep" }, children);
 }
 
 
@@ -687,7 +542,7 @@ function renderPrep(model) {
 
 function renderActivity(model) {
   return asArray(model.groups).map(function (group) {
-    return groupBlock(group, activityRow);
+    return groupBlock(group, workItemRow);
   });
 }
 
@@ -709,87 +564,6 @@ function renderFocus(model) {
 
   nodes.push(groupBlock(model.support || {}, workItemRow));
   return nodes;
-}
-
-
-// ---------------------------------------------------------------------------
-// View model — the recent-updates and prep collections are filtered before
-// render: the 30-day window and dismissed items are applied here, so the render
-// layer, the count badges, and the stat numbers all read the same post-filter
-// data and can't drift from each other.
-// ---------------------------------------------------------------------------
-
-function withinActivityWindow(item) {
-  if (!item.changedDate) {
-    return true;
-  }
-
-  var changed = Date.parse(item.changedDate);
-  if (isNaN(changed)) {
-    return true;
-  }
-
-  var cutoff = Date.now() - ACTIVITY_WINDOW_DAYS * MS_PER_DAY;
-  return changed >= cutoff;
-}
-
-
-// Drop items outside the window, then either hide dismissed items or — under
-// "show reviewed" — keep them flagged so the row can render dimmed with an undo.
-// Items are shallow-copied before flagging so the source MODEL (reused as the
-// offline fallback) is never mutated.
-function filterItems(items, spec) {
-  var out = [];
-
-  asArray(items).forEach(function (item) {
-    if (spec.windowed && !withinActivityWindow(item)) {
-      return;
-    }
-
-    var dismissed = dismissStore.isDismissed(spec.bucket, spec.keyOf(item), spec.changedOf(item));
-    if (dismissed && !showReviewed) {
-      return;
-    }
-
-    var copy = Object.assign({}, item);
-    copy._dismissed = dismissed;
-    out.push(copy);
-  });
-
-  return out;
-}
-
-
-function activityView(model) {
-  var groups = asArray(model.groups).map(function (group) {
-    var copy = Object.assign({}, group);
-    copy.items = filterItems(group.items, ACTIVITY_SPEC);
-    return copy;
-  });
-
-  return { groups: groups };
-}
-
-
-function prepView(model) {
-  var view = Object.assign({}, model);
-  view.items = filterItems(model.items, PREP_SPEC);
-  return view;
-}
-
-
-function viewModel(key, model) {
-  if (key === "activity") {
-    var av = activityView(model);
-    return av;
-  }
-
-  if (key === "prep") {
-    var pv = prepView(model);
-    return pv;
-  }
-
-  return model;
 }
 
 
@@ -827,10 +601,6 @@ var TILES = [
 
 var TILE_BY_KEY = {};
 TILES.forEach(function (t) { TILE_BY_KEY[t.key] = t; });
-
-// The last model + staleness each tile was painted with, so a dismissal toggle
-// or a "show reviewed" flip can repaint from data without re-fetching.
-var TILE_STATE = {};
 
 
 // ---------------------------------------------------------------------------
@@ -924,6 +694,12 @@ function setStale(key, data) {
 // ---------------------------------------------------------------------------
 
 var API = "/api/tiles/";
+var PREP_TILE = "prep";
+
+// Which tiles this session actually loaded from the backend (vs. the offline
+// sample fallback). The prep-marker POST only fires for backend-backed rows, so
+// an offline preview toggles in-memory instead of trying — and failing — to save.
+var tileFromBackend = {};
 
 function fetchJson(url, options) {
   return fetch(url, options).then(function (res) {
@@ -935,38 +711,21 @@ function fetchJson(url, options) {
 }
 
 function paintTile(key, model, data) {
-  TILE_STATE[key] = { model: model, data: data };
-
   var conf = TILE_BY_KEY[key];
-  var view = viewModel(key, model || {});
-
-  renderTileBody(key, view);
-  setStat(conf.stat, conf.statCount(view));
+  renderTileBody(key, model);
+  setStat(conf.stat, conf.statCount(model || {}));
   setStale(key, data);
-}
-
-// Repaint a tile from its last-loaded model — after a dismissal toggle or a
-// "show reviewed" flip. Re-deriving the view model reapplies the 30-day window
-// and dismissals, then the open-state and active search filter the full render
-// dropped are restored (the same post-render fix-up the refresh path does).
-function repaintTile(key) {
-  var st = TILE_STATE[key];
-  if (!st) {
-    return;
-  }
-
-  paintTile(key, st.model, st.data);
-  rememberOpenState();
-  applyFilter(searchBox.value);
 }
 
 function loadTile(key) {
   return fetchJson(API + key, { headers: { "Accept": "application/json" } })
     .then(function (data) {
+      tileFromBackend[key] = true;
       paintTile(key, data.items || {}, data);
       return true;
     })
     .catch(function () {
+      tileFromBackend[key] = false;
       paintTile(key, MODEL[key], null);
       return false;
     });
@@ -999,21 +758,6 @@ document.getElementById("collapseAll").addEventListener("click", function () {
 });
 
 
-// "Show reviewed" reveals dismissed rows (dimmed, with an undo) across the two
-// tiles that support dismissal — recent updates and prep — instead of filtering
-// them out.
-var showReviewedBtn = document.getElementById("showReviewed");
-showReviewedBtn.addEventListener("click", function () {
-  showReviewed = !showReviewed;
-  showReviewedBtn.setAttribute("aria-pressed", showReviewed ? "true" : "false");
-
-  repaintTile("activity");
-  repaintTile("prep");
-
-  announce(showReviewed ? "Showing reviewed and completed items." : "Hiding reviewed and completed items.");
-});
-
-
 // Per-tile refresh: the only expensive path. The cheap render is already on
 // screen from cache; this re-runs that tile's az / Outlook query server-side
 // via POST and swaps in the fresh data, count, and "cached just now" stamp.
@@ -1042,6 +786,7 @@ function refreshTile(btn) {
 
   return fetchJson(API + key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
     .then(function (data) {
+      tileFromBackend[key] = true;
       paintTile(key, data.items || {}, data);
       rememberOpenState();
       applyFilter(searchBox.value);
