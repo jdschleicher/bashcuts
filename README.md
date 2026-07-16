@@ -696,11 +696,12 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 - `GET /` — the page and its static assets.
 - `GET /api/tiles/<name>` — that tile's cached JSON, plus its `ageSeconds` / `stale` staleness (cheap read).
 - `POST /api/tiles/<name>/refresh` — re-runs that tile's query, rewrites its cache, and returns the fresh JSON (expensive; per-tile).
+- `POST /api/tiles/week/prep-marker` — persists one prep row's "all set" / "prep still needed" marker (body `{ "id", "marker" }`, keyed by the meeting's stable event id) so the choice survives a refresh or reload.
 
 Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
 
 - **Today's Agenda** — today's calendar events from `ol-Get-OutlookAgenda` (desktop Outlook), with the Teams join link when the meeting carries one.
-- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus an "events to prepare for" list spanning the next two weeks of meetings, each row carrying a date and a marker you can toggle between "prep still needed" and "all set."
+- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus an "events to prepare for" list spanning the next two weeks of meetings, each row carrying a date and a marker you can toggle between "prep still needed" and "all set." That choice is saved server-side by the meeting's event id (a small `prep-markers.json` beside the tile cache), so a meeting you mark "all set" stays that way when the cache reloads.
 - **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and your current-sprint items (the `activity` rows scoped to the iteration that brackets today). The current-sprint group reads `[System.IterationPath]` off the `activity` WIQL; the seeded default already selects it, but if you seeded your `activity.wiql` before this field was added, open `o-az-devops-queries-config-dir`, add `[System.IterationPath]` to the `SELECT` in `activity.wiql`, and re-run `az-Sync-AzDevOpsCache` so the group can populate.
 - **Today's Focus** — the pinned work item you set in `$global:AzDevOpsDailyFocus` (a work-item id), plus an "assigned & unplanned support" bucket. Set it in your `$profile`, e.g. `$global:AzDevOpsDailyFocus = 1234`; leave it unset and the tile shows the support bucket alone.
 
