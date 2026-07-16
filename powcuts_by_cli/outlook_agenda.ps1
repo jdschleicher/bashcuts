@@ -214,6 +214,39 @@ function Get-OutlookMeetingJoinUrl {
 }
 
 
+function Get-OutlookAppointmentId {
+    # Private. A stable identifier for a calendar appointment so downstream
+    # callers (the daily viewer's prep markers) can pin per-meeting state across
+    # cache reloads. GlobalAppointmentID is preferred — it survives a rename or
+    # reschedule and is identical across the organizer/attendee copies; EntryID
+    # is the fallback when the global id is unreadable. Note it is series-level:
+    # every occurrence of a recurring meeting shares one id, so marking one
+    # occurrence "all set" marks the series within the prep window — acceptable
+    # for the current two-week look-ahead; per-occurrence markers would be a
+    # follow-up. Each COM read is wrapped so a transient fault fails soft to the
+    # next candidate (and ultimately $null) rather than aborting the agenda pull.
+    # Unapproved verb is fine — not user-facing.
+    param([Parameter(Mandatory)] $Appointment)
+
+    $candidates = @('GlobalAppointmentID', 'EntryID')
+
+    foreach ($prop in $candidates) {
+        try {
+            $value = [string]$Appointment.$prop
+        }
+        catch {
+            $value = ''
+        }
+
+        if ($value) {
+            return $value
+        }
+    }
+
+    return $null
+}
+
+
 function ol-Get-OutlookAgenda {
     # Calendar events (recurrences expanded) as objects, from $Date's day start
     # through $Days days later. -Days defaults to 1 (today only), so the daily
@@ -253,8 +286,10 @@ function ol-Get-OutlookAgenda {
     foreach ($appointment in $restricted) {
         $responseText = ConvertFrom-OutlookResponseStatus -Status ([int]$appointment.ResponseStatus)
         $joinUrl = Get-OutlookMeetingJoinUrl -Appointment $appointment
+        $eventId = Get-OutlookAppointmentId -Appointment $appointment
 
         $row = [PSCustomObject]@{
+            Id             = $eventId
             Start          = $appointment.Start
             End            = $appointment.End
             Subject        = $appointment.Subject

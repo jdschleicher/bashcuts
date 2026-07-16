@@ -49,20 +49,21 @@ var MODEL = {
   // Prep is its own calendar tile. Items carry the same optional time/location
   // shape as agenda events, so a prep row can surface meeting detail when the
   // Outlook pull provides it and degrade to just title + date when it doesn't.
+  // Each carries a stable event id so its "all set" marker persists across reloads.
   prep: {
     label: "Events to prepare for",
     open: true,
     items: [
-      { title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed",
+      { id: "sample-planning", title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed",
         time: { label: "9:00 AM", tz: "EST" },
         location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example" } },
-      { title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set",
+      { id: "sample-arch", title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set",
         time: { label: "11:00 AM", tz: "EST" },
         location: { badge: "In person", text: "Room 132" } },
-      { title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed",
+      { id: "sample-api", title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed",
         time: { label: "2:00 PM", tz: "EST" },
         location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
-      { title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
+      { id: "sample-roadmap", title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
     ]
   },
 
@@ -131,9 +132,11 @@ var STATE_CLASS = {
 var STAR_GLYPH = "★";
 
 // Prep-marker states. Meetings arrive "needed" (unprepared) and the user toggles
-// each to "set" (all set). Persistence is a follow-up — the toggle is in-memory
-// for now, so a refresh re-reads the model's default state.
+// each to "set" (all set). The flip is optimistic in the UI and POSTed to the
+// backend, which stores it by event id — so a cache reload re-reads the saved
+// state, not the model default (see prepMarkerButton / savePrepMarker).
 var MARKER_SET = "set";
+var MARKER_NEEDED = "needed";
 var MARKER_SET_LABEL = "All set";
 var MARKER_NEEDED_LABEL = "Prep still needed";
 
@@ -262,10 +265,26 @@ function workItemRow(wi) {
 // The prep marker is a real toggle button: aria-pressed carries the state (and
 // drives the chip color in CSS), the visible text is its accessible name, and
 // every flip is announced through the shared aria-live region so a screen reader
-// hears which meeting changed. State lives on the button only (persistence is a
-// follow-up), so a re-render resets it to the model's default.
+// hears which meeting changed. The flip is optimistic and then persisted by
+// event id, so it survives a cache reload; if the save fails the button reverts.
 function markerText(pressed) {
   return pressed ? MARKER_SET_LABEL : MARKER_NEEDED_LABEL;
+}
+
+function setMarkerPressed(btn, pressed) {
+  btn.setAttribute("aria-pressed", pressed ? "true" : "false");
+  btn.textContent = markerText(pressed);
+}
+
+// Persist one meeting's marker to the backend so it outlives the tile cache.
+// Returns the fetch promise; the caller reverts the optimistic flip on reject.
+function savePrepMarker(id, pressed) {
+  var marker = pressed ? MARKER_SET : MARKER_NEEDED;
+  return fetchJson(API + PREP_TILE + "/prep-marker", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ id: id, marker: marker })
+  });
 }
 
 
@@ -279,13 +298,43 @@ function prepMarkerButton(item) {
     text: markerText(pressed)
   });
 
+  // Guard re-clicks with a flag (plus aria-disabled) rather than the native
+  // `disabled` property: toggling `disabled` synchronously punts keyboard focus
+  // to <body>, so a keyboard user loses their place in the list. aria-disabled
+  // keeps focus on the button while the save is in flight.
+  var saving = false;
+
   btn.addEventListener("click", function () {
+    if (saving) {
+      return;
+    }
+
     var next = btn.getAttribute("aria-pressed") !== "true";
-    btn.setAttribute("aria-pressed", next ? "true" : "false");
-    btn.textContent = markerText(next);
+    setMarkerPressed(btn, next);
 
     var label = item.title || "This item";
     announce(label + (next ? " marked all set." : " marked prep still needed."));
+
+    // Only persist rows backed by the live server: they carry a real event id
+    // and the prep tile loaded from the backend, not the offline sample model.
+    // In sample mode the toggle stays an in-memory preview, as it was before.
+    if (!item.id || !tileFromBackend.prep) {
+      return;
+    }
+
+    saving = true;
+    btn.setAttribute("aria-disabled", "true");
+    savePrepMarker(item.id, next)
+      .then(function () {
+        saving = false;
+        btn.removeAttribute("aria-disabled");
+      })
+      .catch(function () {
+        saving = false;
+        btn.removeAttribute("aria-disabled");
+        setMarkerPressed(btn, !next);
+        announce(label + " — couldn't save, change reverted.");
+      });
   });
 
   return btn;
@@ -645,6 +694,12 @@ function setStale(key, data) {
 // ---------------------------------------------------------------------------
 
 var API = "/api/tiles/";
+var PREP_TILE = "prep";
+
+// Which tiles this session actually loaded from the backend (vs. the offline
+// sample fallback). The prep-marker POST only fires for backend-backed rows, so
+// an offline preview toggles in-memory instead of trying — and failing — to save.
+var tileFromBackend = {};
 
 function fetchJson(url, options) {
   return fetch(url, options).then(function (res) {
@@ -665,10 +720,12 @@ function paintTile(key, model, data) {
 function loadTile(key) {
   return fetchJson(API + key, { headers: { "Accept": "application/json" } })
     .then(function (data) {
+      tileFromBackend[key] = true;
       paintTile(key, data.items || {}, data);
       return true;
     })
     .catch(function () {
+      tileFromBackend[key] = false;
       paintTile(key, MODEL[key], null);
       return false;
     });
@@ -729,6 +786,7 @@ function refreshTile(btn) {
 
   return fetchJson(API + key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
     .then(function (data) {
+      tileFromBackend[key] = true;
       paintTile(key, data.items || {}, data);
       rememberOpenState();
       applyFilter(searchBox.value);
