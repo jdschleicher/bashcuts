@@ -35,6 +35,8 @@ $script:AzDevOpsDailyViewerMarkerSet       = 'set'     # the viewer toggled this
 $script:AzDevOpsDailyViewerPrepTile        = 'prep'    # the tile whose prep list carries the toggle
 $script:AzDevOpsDailyViewerMarkerStoreFile = 'prep-markers.json'  # durable "all set" ids, beside the tile cache
 $script:AzDevOpsDailyViewerMaxRequestBytes = 4096      # cap on an API request body (the marker POST is tiny)
+$script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
+$script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
 # Strict Content-Security-Policy for the served app. The page loads styles.css +
 # app.js as external same-origin assets and fetches /api/tiles/* same-origin;
@@ -894,6 +896,115 @@ function Set-AzDevOpsDailyViewerPrepMarkersFromStore {
 
 
 # ---------------------------------------------------------------------------
+# Daily full-refresh gating — rebuild every tile once per calendar day
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerRefreshStampPath {
+    # Path to the per-day full-refresh stamp, alongside the tile cache under the
+    # active project slice. $null when no cache dir resolves (not connected yet).
+    $dir = Get-AzDevOpsDailyViewerCacheDir
+    if (-not $dir) {
+        return $null
+    }
+
+    $path = Join-Path $dir $script:AzDevOpsDailyViewerRefreshStampFile
+    return $path
+}
+
+
+function Get-AzDevOpsDailyViewerDayKey {
+    # Today's calendar-day key ("2026-07-16") — the unit the daily refresh gates
+    # on, so a rebuild happens at most once per day but on the first startup of it.
+    param([datetime] $When = (Get-Date))
+
+    $key = $When.ToString($script:AzDevOpsDailyViewerDayKeyFormat)
+    return $key
+}
+
+
+function Read-AzDevOpsDailyViewerRefreshDay {
+    # The day key recorded by the last full refresh, or $null when the stamp is
+    # missing / unreadable (the due check treats that as "never refreshed").
+    $path = Get-AzDevOpsDailyViewerRefreshStampPath
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+
+    try {
+        $raw    = Get-Content -LiteralPath $path -Raw
+        $record = $raw | ConvertFrom-Json
+
+        $day = $record.day
+        return $day
+    }
+    catch {
+        return $null
+    }
+}
+
+
+function Write-AzDevOpsDailyViewerRefreshStamp {
+    # Record that a full refresh ran today, so same-day restarts skip the rebuild.
+    $path = Get-AzDevOpsDailyViewerRefreshStampPath
+    if (-not $path) {
+        return
+    }
+
+    $dir = Split-Path -Parent $path
+    New-AzDevOpsDirectoryIfMissing -Path $dir
+
+    $record = [ordered]@{
+        day         = Get-AzDevOpsDailyViewerDayKey
+        refreshedAt = (Get-Date).ToString('o')
+    }
+
+    $json = $record | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
+    Write-AzDevOpsCacheFile -Path $path -Content $json
+}
+
+
+function Test-AzDevOpsDailyViewerRefreshDue {
+    # $true when no full refresh has run today (stamp missing or from a prior day)
+    # — this is what makes the first viewer startup of the day rebuild every tile.
+    $recorded = Read-AzDevOpsDailyViewerRefreshDay
+    if (-not $recorded) {
+        return $true
+    }
+
+    $today = Get-AzDevOpsDailyViewerDayKey
+    $isDue = ($recorded -ne $today)
+    return $isDue
+}
+
+
+function Update-AzDevOpsDailyViewerAllTiles {
+    # EXPENSIVE: rebuild every tile's cache, then stamp today's date. Each tile is
+    # isolated in its own try/catch so one failing source (a lapsed az login,
+    # Outlook unreachable) rebuilds the rest and never aborts startup; the
+    # per-tile builders already fail soft, this guards the rare hard throw.
+    # Per-tile failures are logged server-side for later diagnosis. The day is
+    # stamped only when at least one tile rebuilt, so a startup where every tile
+    # hard-throws doesn't burn the day's refresh — the next startup retries.
+    $names = Get-AzDevOpsDailyViewerTileNames
+
+    $rebuilt = 0
+    foreach ($name in $names) {
+        try {
+            $null = Write-AzDevOpsDailyViewerTile -Tile $name
+            $rebuilt++
+        }
+        catch {
+            Write-AzDevOpsSyncLog "daily-viewer: full refresh of tile '$name' failed: $($_.Exception.Message)"
+        }
+    }
+
+    if ($rebuilt -gt 0) {
+        Write-AzDevOpsDailyViewerRefreshStamp
+    }
+}
+
+
+# ---------------------------------------------------------------------------
 # Static asset serving
 # ---------------------------------------------------------------------------
 
@@ -1269,15 +1380,27 @@ function az-Start-AzDevOpsDailyViewer {
         az login / PAT never leaves this process; responses carry only work-item
         and agenda data. Press Ctrl+C to stop.
 
+        On the first startup of each calendar day every tile is rebuilt before
+        serving, so the dashboard opens on today's real agenda and work instead
+        of yesterday's cache. Same-day restarts skip the rebuild (and only fill
+        any missing tile) so they stay instant. Pass -Refresh to force a full
+        rebuild on demand regardless of the day.
+
     .PARAMETER Port
         Loopback TCP port to listen on. Defaults to 8770.
 
     .PARAMETER NoBrowser
         Skip auto-opening the default browser (useful for scripted / curl checks).
+
+    .PARAMETER Refresh
+        Force a full rebuild of all four tiles at startup, regardless of whether
+        the daily refresh has already run. Use it to reload the whole dashboard
+        without waiting for the next day or clicking refresh on each tile.
     #>
     param(
         [int]    $Port = $script:AzDevOpsDailyViewerDefaultPort,
-        [switch] $NoBrowser
+        [switch] $NoBrowser,
+        [switch] $Refresh
     )
 
     $staticRoot = Get-AzDevOpsDailyViewerStaticRoot
@@ -1292,7 +1415,12 @@ function az-Start-AzDevOpsDailyViewer {
         return
     }
 
-    Initialize-AzDevOpsDailyViewerCache
+    if ($Refresh -or (Test-AzDevOpsDailyViewerRefreshDue)) {
+        Write-Host 'Refreshing all tiles for today...' -ForegroundColor Cyan
+        Update-AzDevOpsDailyViewerAllTiles
+    } else {
+        Initialize-AzDevOpsDailyViewerCache
+    }
 
     $prefix = Get-AzDevOpsDailyViewerPrefix -Port $Port
     $listener = New-Object System.Net.HttpListener
