@@ -540,7 +540,7 @@ var TILES = [
     empty: "No meetings to prepare for in the next two weeks.",
     statCount: function (m) { return asArray(m.items).length; } },
   { key: "week",     render: renderWeek,     stat: "tile-week",
-    empty: "No stories or prep items this week.",
+    empty: "No stories to complete this week.",
     statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
   { key: "activity", render: renderActivity, stat: "tile-activity",
     empty: "No recent activity.",
