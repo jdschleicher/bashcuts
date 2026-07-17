@@ -305,7 +305,6 @@ button:focus-visible {
 .section { margin-bottom: var(--space-8); }
 .section:last-of-type { margin-bottom: 0; }
 .section.section-empty { display: none; }
-.section.cal { --tint: var(--epic); }
 .section.ado { --tint: var(--story); }
 
 .section > details > summary {
@@ -356,8 +355,9 @@ button:focus-visible {
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-.tile[data-tile="agenda"]   { --tint: var(--accent); }
-.tile[data-tile="prep"]     { --tint: var(--epic); }
+/* The Calendar tile stands alone above the Azure DevOps section, so it carries
+   its own bottom margin (the .section below supplies its own). */
+.tile[data-tile="calendar"] { --tint: var(--accent); margin-bottom: var(--space-8); }
 .tile[data-tile="week"]     { --tint: var(--feature); }
 .tile[data-tile="activity"] { --tint: var(--story); }
 .tile[data-tile="focus"]    { --tint: var(--warn); }
@@ -534,6 +534,12 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* Calendar panels (agenda / prep) render their own list into this wrapper, so it
+   carries the group's left indent while the lists keep their own row layout. */
+.panel-body {
+  padding: 0 0 var(--space-5) var(--space-9);
 }
 
 /* ---------- work item rows ---------- */

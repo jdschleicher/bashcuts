@@ -34,64 +34,41 @@
 
   <main>
 
-    <!-- Stat numbers (.n) are filled from the model at render time; blank in markup so
-         they can never drift from the collections they summarize. -->
+    <!-- Stat numbers (.n) are filled from the model at render time; blank in markup
+         so they can never drift from the collections they summarize. Each number
+         binds via data-stat, while data-target is where clicking jumps — the two
+         calendar stats share one target (the merged tile) and use data-group to
+         open the matching inner panel. -->
     <section class="stats" aria-label="Summary counts">
-      <button class="stat a" type="button" data-target="tile-agenda"><span class="n"></span><span class="l">Meetings today</span></button>
-      <button class="stat p" type="button" data-target="tile-prep"><span class="n"></span><span class="l">Events to prep</span></button>
-      <button class="stat g" type="button" data-target="tile-focus"><span class="n"></span><span class="l">Support &amp; focus items</span></button>
-      <button class="stat s" type="button" data-target="tile-activity"><span class="n"></span><span class="l">Recent updates</span></button>
-      <button class="stat f" type="button" data-target="tile-week"><span class="n"></span><span class="l">Stories in current sprint</span></button>
+      <button class="stat a" type="button" data-stat="tile-agenda" data-target="tile-calendar" data-group="agenda"><span class="n"></span><span class="l">Meetings today</span></button>
+      <button class="stat p" type="button" data-stat="tile-prep" data-target="tile-calendar" data-group="prep"><span class="n"></span><span class="l">Events to prep</span></button>
+      <button class="stat g" type="button" data-stat="tile-focus" data-target="tile-focus"><span class="n"></span><span class="l">Support &amp; focus items</span></button>
+      <button class="stat s" type="button" data-stat="tile-activity" data-target="tile-activity"><span class="n"></span><span class="l">Recent updates</span></button>
+      <button class="stat f" type="button" data-stat="tile-week" data-target="tile-week"><span class="n"></span><span class="l">Stories in current sprint</span></button>
     </section>
 
-    <!-- Tiles group under two collapsible parent sections by data source: Calendar
-         (Outlook) and Azure DevOps (az boards). Each parent is a <details> so the
-         whole group collapses with JS off. Each tile inside is itself a static
-         shell — header chrome, staleness, refresh button — whose .count badge and
-         .body rows are rendered from the model in app.js. -->
+    <!-- Two tile groupings: one Calendar tile (all Outlook items) and the Azure
+         DevOps parent section (az boards). The Calendar tile's body renders two
+         collapsible <details> groups — Today's Agenda and Events to Prepare For —
+         from app.js; the Azure DevOps <details> collapses its whole group with JS
+         off. Each tile is a static shell — header chrome, staleness, refresh — whose
+         .count badge and .body rows are rendered from the model. -->
 
-    <!-- Calendar — Outlook-derived tiles -->
-    <section class="section cal" aria-labelledby="sec-calendar">
+    <!-- Calendar — one tile holding both Outlook-derived groups. The body renders
+         two collapsible groups (Today's Agenda, Events to Prepare For), each fed by
+         its own endpoint; the tile has one refresh (fanning out to both) and one
+         staleness label (the older of the two cache ages). -->
+    <section class="tile" id="tile-calendar" data-tile="calendar" aria-labelledby="h-calendar">
       <details open>
         <summary>
           <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <svg class="sicon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-          <h2 class="section-title" id="sec-calendar">Calendar</h2>
+          <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><h3 id="h-calendar">Calendar</h3><span class="count"></span></span>
+          <span class="tile-meta">
+            <span class="stale"><span class="fdot" aria-hidden="true"></span>cached 12m ago</span>
+            <button class="refresh-btn" type="button" data-tile="calendar" aria-label="Refresh Calendar"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </span>
         </summary>
-
-        <div class="grid">
-
-          <!-- Today's Agenda -->
-          <section class="tile" id="tile-agenda" data-tile="agenda" aria-labelledby="h-agenda">
-            <details open>
-              <summary>
-                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><h3 id="h-agenda">Today&rsquo;s Agenda</h3><span class="count"></span></span>
-                <span class="tile-meta">
-                  <span class="stale"><span class="fdot" aria-hidden="true"></span>cached 12m ago</span>
-                  <button class="refresh-btn" type="button" data-tile="agenda" aria-label="Refresh Today&rsquo;s Agenda"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-                </span>
-              </summary>
-              <div class="body"></div>
-            </details>
-          </section>
-
-          <!-- Events to Prepare For -->
-          <section class="tile" id="tile-prep" data-tile="prep" aria-labelledby="h-prep">
-            <details open>
-              <summary>
-                <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="2.5" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M6 1.5h4v2H6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 7.6l1.2 1.2 2.3-2.6M5.5 11h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><h3 id="h-prep">Events to Prepare For</h3><span class="count"></span></span>
-                <span class="tile-meta">
-                  <span class="stale"><span class="fdot" aria-hidden="true"></span>cached 15m ago</span>
-                  <button class="refresh-btn" type="button" data-tile="prep" aria-label="Refresh Events to Prepare For"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-                </span>
-              </summary>
-              <div class="body"></div>
-            </details>
-          </section>
-
-        </div>
+        <div class="body"></div>
       </details>
     </section>
 
