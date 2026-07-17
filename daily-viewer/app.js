@@ -44,9 +44,11 @@ var MODEL = {
     ]
   },
 
-  // This Sprint's Focus. The backend scopes these to the current sprint
-  // iteration (System.IterationPath), so every row here is an in-sprint item;
-  // when no current iteration resolves it falls back to all active assigned work.
+  // This Sprint's Focus. The backend scopes these rows two ways: to completable
+  // work — User Story and Bug only, via $script:AzDevOpsDailyViewerWeekTypes (no
+  // Task/Feature) — and to the current sprint iteration (System.IterationPath).
+  // When no current iteration resolves it falls back to all active completable
+  // work. Keep this sample list to in-sprint User Story / Bug rows to stay in parity.
   week: {
     stories: {
       label: "Stories to complete",
