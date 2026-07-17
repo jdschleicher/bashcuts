@@ -44,9 +44,11 @@ var MODEL = {
     ]
   },
 
-  // "This Week's Focus" is scoped to completable work — User Story and Bug only.
-  // The live backend filters assigned rows to $script:AzDevOpsDailyViewerWeekTypes,
-  // so keep this sample list to those two types (no Task/Feature) to stay in parity.
+  // This Sprint's Focus. The backend scopes these rows two ways: to completable
+  // work — User Story and Bug only, via $script:AzDevOpsDailyViewerWeekTypes (no
+  // Task/Feature) — and to the current sprint iteration (System.IterationPath).
+  // When no current iteration resolves it falls back to all active completable
+  // work. Keep this sample list to in-sprint User Story / Bug rows to stay in parity.
   week: {
     stories: {
       label: "Stories to complete",
@@ -946,7 +948,7 @@ var TILES = [
     empty: "No meetings to prepare for in the next two weeks.",
     statCount: function (m) { return asArray(m.items).length; } },
   { key: "week",     render: renderWeek,     stat: "tile-week",
-    empty: "No stories to complete this week.",
+    empty: "No stories in the current sprint.",
     statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
   { key: "activity", render: renderActivity, stat: "tile-activity",
     empty: "No recent activity.",

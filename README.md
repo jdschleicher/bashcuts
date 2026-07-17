@@ -681,7 +681,7 @@ Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline
 
 ### Daily viewer (local dashboard)
 
-`az-Start-AzDevOpsDailyViewer` (in `powcuts_by_cli/daily_viewer.ps1`, tab-tab on `az-` to discover it) serves the `daily-viewer/` dashboard from your machine so the four agenda tiles (Today's Agenda, This Week's Focus, Recent Activity, Today's Focus) render instantly from a local cache and only hit Azure DevOps when you refresh a tile.
+`az-Start-AzDevOpsDailyViewer` (in `powcuts_by_cli/daily_viewer.ps1`, tab-tab on `az-` to discover it) serves the `daily-viewer/` dashboard from your machine so the five tiles — **Today's Agenda** and **Events to Prepare For** (Calendar) plus **This Sprint's Focus**, **Recent Activity**, and **Today's Focus** (Azure DevOps) — render instantly from a local cache and only hit their live source when you refresh a tile.
 
 ```powershell
 az-Start-AzDevOpsDailyViewer            # serve on http://127.0.0.1:8770/ and open the browser
@@ -694,7 +694,7 @@ The server is a built-in `System.Net.HttpListener` (no external modules) bound t
 
 The **first startup of each calendar day** rebuilds every tile before serving, so the dashboard opens on today's real agenda and work instead of yesterday's cache (a small `refreshed-on.json` stamp beside the tile cache records the day). Same-day restarts skip the rebuild and only fill any missing tile, so they stay instant; pass `-Refresh` to force a full rebuild on demand. A tile whose source is unavailable during the daily rebuild fails soft — the other tiles still refresh and the server still starts.
 
-Each tile is backed by one JSON file under the active project's cache slice — `~/.bashcuts-az-devops-app/cache/<project-slug>/daily-viewer/{agenda,week,activity,focus}.json` (or the unsegmented `cache/daily-viewer/` for single-project use) — so it follows `az-Use-AzDevOpsProject` exactly like the synced datasets. Staleness is derived from each file's modified time and returned to the page. The API keeps the cheap and expensive paths distinct:
+Each tile is backed by one JSON file under the active project's cache slice — `~/.bashcuts-az-devops-app/cache/<project-slug>/daily-viewer/{agenda,prep,week,activity,focus}.json` (or the unsegmented `cache/daily-viewer/` for single-project use) — so it follows `az-Use-AzDevOpsProject` exactly like the synced datasets. Staleness is derived from each file's modified time and returned to the page. The API keeps the cheap and expensive paths distinct:
 
 - `GET /` — the page and its static assets.
 - `GET /api/tiles/<name>` — that tile's cached JSON, plus its `ageSeconds` / `stale` staleness (cheap read).
@@ -704,7 +704,8 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
 
 - **Today's Agenda** — today's calendar events from `ol-Get-OutlookAgenda` (desktop Outlook), with the Teams join link when the meeting carries one.
-- **This Week's Focus** — your active assigned stories (the `assigned` WIQL) plus an "events to prepare for" list spanning the next two weeks of meetings, each row carrying a date and a marker you can toggle between "prep still needed" and "all set." That choice is saved server-side by the meeting's event id (a small `prep-markers.json` beside the tile cache), so a meeting you mark "all set" stays that way when the cache reloads.
+- **Events to Prepare For** — the next two weeks of meetings, each row carrying a date, a Teams join link when the meeting has one, and a marker you can toggle between "prep still needed" and "all set." That choice is saved server-side by the meeting's event id (a small `prep-markers.json` beside the tile cache), so a meeting you mark "all set" stays that way when the cache reloads.
+- **This Sprint's Focus** — your active current-sprint assigned stories (the `assigned` WIQL), scoped to the iteration that brackets today (falling back to all active assigned stories when none match).
 - **Recent Activity** — @-mention discussions (the `mentions` WIQL), your recent updates (the `activity` WIQL), and your current-sprint items (the `activity` rows scoped to the iteration that brackets today). The current-sprint group reads `[System.IterationPath]` off the `activity` WIQL; the seeded default already selects it, but if you seeded your `activity.wiql` before this field was added, open `o-az-devops-queries-config-dir`, add `[System.IterationPath]` to the `SELECT` in `activity.wiql`, and re-run `az-Sync-AzDevOpsCache` so the group can populate.
 - **Today's Focus** — the pinned work item you set in `$global:AzDevOpsDailyFocus` (a work-item id), plus an "assigned & unplanned support" bucket. Set it in your `$profile`, e.g. `$global:AzDevOpsDailyFocus = 1234`; leave it unset and the tile shows the support bucket alone.
 
