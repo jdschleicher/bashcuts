@@ -434,7 +434,8 @@ function Get-AzDevOpsDailyViewerWeekItems {
     $assigned = @(Get-AzDevOpsDailyViewerAssignedRows)
 
     $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
-    $storyItems = @($activeRows | ForEach-Object {
+    $sprintRows = Get-AzDevOpsDailyViewerCurrentSprintRows -Rows $activeRows -FallbackToAllActive
+    $storyItems = @($sprintRows | ForEach-Object {
         New-AzDevOpsDailyViewerWorkItemNode -Row $_ -LinkTitle -Date $_.TargetDate
     })
 
@@ -487,15 +488,20 @@ function New-AzDevOpsDailyViewerActivityGroup {
 
 
 function Get-AzDevOpsDailyViewerCurrentSprintRows {
-    # Filter activity rows to the current sprint. The iteration path comes from
-    # the cache-only Resolve-AzDevOpsCurrentIterationFromCache (no live `az`
-    # callout, honoring the viewer's read path), falling back to $env:AZ_ITERATION;
-    # when neither resolves, the group renders empty rather than guessing a sprint.
-    # Exact-path match mirrors Get-AzDevOpsDayViewRows. Comma-wrapped returns so an
-    # empty result stays an empty array through the caller's assignment instead of
-    # unrolling to $null (which the -Rows [object[]] bind would reject).
+    # Filter rows to the current sprint. The iteration path comes from the
+    # cache-only Resolve-AzDevOpsCurrentIterationFromCache (no live `az` callout,
+    # honoring the viewer's read path), falling back to $env:AZ_ITERATION. When
+    # neither resolves the default is to return empty rather than guessing a
+    # sprint (the Recent Activity "Current sprint" group), but the focus tiles pass
+    # -FallbackToAllActive to get the input rows back unfiltered instead, so a
+    # stale or empty iteration cache widens scope to all active items rather than
+    # blanking the tile. Exact-path match mirrors Get-AzDevOpsDayViewRows.
+    # Comma-wrapped returns so an empty result stays an empty array through the
+    # caller's assignment instead of unrolling to $null (which the -Rows
+    # [object[]] bind would reject).
     param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows,
+        [switch] $FallbackToAllActive
     )
 
     $current = Resolve-AzDevOpsCurrentIterationFromCache
@@ -503,6 +509,10 @@ function Get-AzDevOpsDailyViewerCurrentSprintRows {
     $iterationPath = Resolve-AzDevOpsIterationPathOrEnv -Current $current
 
     if (-not $iterationPath) {
+        if ($FallbackToAllActive) {
+            return ,$Rows
+        }
+
         return ,@()
     }
 
@@ -602,7 +612,8 @@ function Get-AzDevOpsDailyViewerFocusItems {
     $focusId = Get-AzDevOpsDailyFocusId
 
     $activeRows = Get-AzDevOpsDailyViewerActiveRows -Rows $assigned
-    $supportRows = @($activeRows | Where-Object {
+    $sprintRows = Get-AzDevOpsDailyViewerCurrentSprintRows -Rows $activeRows -FallbackToAllActive
+    $supportRows = @($sprintRows | Where-Object {
         -not $focusId -or [int]$_.Id -ne $focusId
     })
     $supportItems = @($supportRows | ForEach-Object {

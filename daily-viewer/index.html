@@ -41,7 +41,7 @@
       <button class="stat p" type="button" data-target="tile-prep"><span class="n"></span><span class="l">Events to prep</span></button>
       <button class="stat g" type="button" data-target="tile-focus"><span class="n"></span><span class="l">Support &amp; focus items</span></button>
       <button class="stat s" type="button" data-target="tile-activity"><span class="n"></span><span class="l">Recent updates</span></button>
-      <button class="stat f" type="button" data-target="tile-week"><span class="n"></span><span class="l">Stories due this week</span></button>
+      <button class="stat f" type="button" data-target="tile-week"><span class="n"></span><span class="l">Stories in current sprint</span></button>
     </section>
 
     <!-- Tiles group under two collapsible parent sections by data source: Calendar
@@ -106,15 +106,15 @@
 
         <div class="grid">
 
-          <!-- This Week's Focus -->
+          <!-- This Sprint's Focus -->
           <section class="tile" id="tile-week" data-tile="week" aria-labelledby="h-week">
             <details open>
               <summary>
                 <svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.4"/></svg><h3 id="h-week">This Week&rsquo;s Focus</h3><span class="count"></span></span>
+                <span class="tt"><svg class="ticon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.4"/></svg><h3 id="h-week">This Sprint&rsquo;s Focus</h3><span class="count"></span></span>
                 <span class="tile-meta">
                   <span class="stale warn"><span class="fdot" aria-hidden="true"></span>cached 2h ago</span>
-                  <button class="refresh-btn" type="button" data-tile="week" aria-label="Refresh This Week&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                  <button class="refresh-btn" type="button" data-tile="week" aria-label="Refresh This Sprint&rsquo;s Focus"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </span>
               </summary>
               <div class="body"></div>

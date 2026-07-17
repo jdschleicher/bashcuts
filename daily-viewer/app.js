@@ -44,6 +44,9 @@ var MODEL = {
     ]
   },
 
+  // This Sprint's Focus. The backend scopes these to the current sprint
+  // iteration (System.IterationPath), so every row here is an in-sprint item;
+  // when no current iteration resolves it falls back to all active assigned work.
   week: {
     stories: {
       label: "Stories to complete",
@@ -943,7 +946,7 @@ var TILES = [
     empty: "No meetings to prepare for in the next two weeks.",
     statCount: function (m) { return asArray(m.items).length; } },
   { key: "week",     render: renderWeek,     stat: "tile-week",
-    empty: "No stories to complete this week.",
+    empty: "No stories in the current sprint.",
     statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
   { key: "activity", render: renderActivity, stat: "tile-activity",
     empty: "No recent activity.",
