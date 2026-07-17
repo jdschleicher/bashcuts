@@ -44,6 +44,9 @@ var MODEL = {
     ]
   },
 
+  // "This Week's Focus" is scoped to completable work — User Story and Bug only.
+  // The live backend filters assigned rows to $script:AzDevOpsDailyViewerWeekTypes,
+  // so keep this sample list to those two types (no Task/Feature) to stay in parity.
   week: {
     stories: {
       label: "Stories to complete",
