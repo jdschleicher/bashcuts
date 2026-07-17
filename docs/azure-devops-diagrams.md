@@ -1183,6 +1183,8 @@ graph LR
     DVAgenda --> DVQuery
     DVActivity --> DVQuery
     DVActivity --> DVSprint
+    DVWeek --> DVSprint
+    DVFocus --> DVSprint
     DVSprint --> CurCache
     DVSprint --> IterPathEnv
     DVFocus --> DVQuery
