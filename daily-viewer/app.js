@@ -934,6 +934,10 @@ function viewModel(key, model) {
 // What counts as a "row" across mount, count badges, and the live filter.
 var ROW_SELECTOR = ".wi, .event";
 
+// The live filter's placeholder, re-added after every (re)render. Named so the
+// per-tile and calendar render paths can't drift on the wording.
+var NOMATCH_TEXT = "No matching items in this tile.";
+
 function activityTotal(model) {
   return asArray(model.groups).reduce(function (sum, group) {
     return sum + asArray(group.items).length;
@@ -1001,10 +1005,19 @@ function renderTileBody(key, model) {
 
   // Re-add the filter's no-match note after each (re)render so the live filter
   // has its placeholder whether the body came from cache or a refresh.
-  body.appendChild(el("p", { class: "nomatch", text: "No matching items in this tile." }));
+  body.appendChild(el("p", { class: "nomatch", text: NOMATCH_TEXT }));
 
-  tile(key).querySelector(".tt .count").textContent =
-    String(body.querySelectorAll(ROW_SELECTOR).length);
+  paintRowCount(key);
+}
+
+
+// The tile-header count is always the number of visible rows in the body — one
+// derivation shared by the per-tile render and the calendar tile, so the badge
+// can never drift from a hand-authored literal.
+function paintRowCount(key) {
+  var scope = tile(key);
+  var rows = scope.querySelector(".body").querySelectorAll(ROW_SELECTOR).length;
+  scope.querySelector(".tt .count").textContent = String(rows);
 }
 
 
@@ -1036,8 +1049,12 @@ CALENDAR_PANELS.forEach(function (p) { CALENDAR_PANEL_BY_KEY[p.key] = p; });
 // its combined count and oldest-age staleness.
 var calendarPanelState = {};
 
-function panelScope(panelKey) {
-  return document.querySelector('.group[data-panel="' + panelKey + '"]');
+// Store a panel's backend payload: mark it backend-backed and keep its model +
+// staleness. The load and refresh success paths share this; only the failure
+// handling differs (load falls back to sample, refresh keeps the last-good data).
+function storePanelPayload(panelKey, data) {
+  tileFromBackend[panelKey] = true;
+  calendarPanelState[panelKey] = { model: data.items || {}, data: data };
 }
 
 
@@ -1068,23 +1085,12 @@ function buildCalendarPanel(panel, view, open) {
 }
 
 
-// The tile-level count sums the visible rows across both panels (same row
-// selector as every other tile), so it stays a derived total, not a second literal.
-function setCalendarCount() {
-  var body = tile(CALENDAR_KEY).querySelector(".body");
-  tile(CALENDAR_KEY).querySelector(".tt .count").textContent =
-    String(body.querySelectorAll(ROW_SELECTOR).length);
-}
-
-
 // One staleness label for two sources: show the older of the two cache ages (and
 // warn if either is stale). If either panel fell back to the sample model, the
 // tile reads "sample data" — the same signal a single tile gives on fallback.
 function setCalendarStale() {
   var stale = tile(CALENDAR_KEY).querySelector(".stale");
   var label = staleLabelNode(CALENDAR_KEY);
-
-  stale.classList.remove("busy");
 
   var ages = [];
   var anyStale = false;
@@ -1102,15 +1108,8 @@ function setCalendarStale() {
     }
   });
 
-  if (anySample || ages.length === 0) {
-    label.textContent = "sample data";
-    stale.classList.remove("warn");
-    return;
-  }
-
-  var oldest = Math.max.apply(null, ages);
-  label.textContent = "cached " + formatAge(oldest);
-  stale.classList.toggle("warn", anyStale);
+  var age = (anySample || ages.length === 0) ? null : Math.max.apply(null, ages);
+  applyStaleLabel(stale, label, age, anyStale);
 }
 
 
@@ -1128,9 +1127,9 @@ function paintCalendar() {
     setStat(panel.stat, panel.statCount(view));
   });
 
-  body.appendChild(el("p", { class: "nomatch", text: "No matching items in this tile." }));
+  body.appendChild(el("p", { class: "nomatch", text: NOMATCH_TEXT }));
 
-  setCalendarCount();
+  paintRowCount(CALENDAR_KEY);
   setCalendarStale();
 }
 
@@ -1145,7 +1144,7 @@ function repaintCalendarPanel(panelKey) {
     return;
   }
 
-  var existing = panelScope(panelKey);
+  var existing = tile(panelKey);
   var open = existing ? existing.open : true;
 
   var view = viewModel(panelKey, st.model || {});
@@ -1156,7 +1155,7 @@ function repaintCalendarPanel(panelKey) {
   }
 
   setStat(panel.stat, panel.statCount(view));
-  setCalendarCount();
+  paintRowCount(CALENDAR_KEY);
 }
 
 
@@ -1165,8 +1164,7 @@ function repaintCalendarPanel(panelKey) {
 function loadCalendarPanel(panelKey) {
   return fetchJson(API + panelKey, { headers: { "Accept": "application/json" } })
     .then(function (data) {
-      tileFromBackend[panelKey] = true;
-      calendarPanelState[panelKey] = { model: data.items || {}, data: data };
+      storePanelPayload(panelKey, data);
       return true;
     })
     .catch(function () {
@@ -1198,18 +1196,12 @@ function refreshCalendar(btn) {
   var stale = tile(CALENDAR_KEY).querySelector(".stale");
   var label = staleLabelNode(CALENDAR_KEY);
 
-  btn.disabled = true;
-  btn.classList.add("spinning");
-  stale.classList.remove("warn");
-  stale.classList.add("busy");
-  label.textContent = "refreshing…";
-  announce("Refreshing Calendar…");
+  beginRefreshSpinner(btn, stale, label, "Calendar");
 
   var refreshes = CALENDAR_PANELS.map(function (panel) {
     return fetchJson(API + panel.key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
       .then(function (data) {
-        tileFromBackend[panel.key] = true;
-        calendarPanelState[panel.key] = { model: data.items || {}, data: data };
+        storePanelPayload(panel.key, data);
         return true;
       })
       .catch(function () {
@@ -1230,8 +1222,7 @@ function refreshCalendar(btn) {
       announce("Calendar refresh failed for one or more sections.");
     }
   }).then(function () {
-    btn.classList.remove("spinning");
-    btn.disabled = false;
+    endRefreshSpinner(btn);
   });
 }
 
@@ -1265,19 +1256,27 @@ function staleLabelNode(key) {
   return stale.childNodes[stale.childNodes.length - 1];
 }
 
-function setStale(key, data) {
-  var stale = tile(key).querySelector(".stale");
-  var label = staleLabelNode(key);
-
+// Paint one staleness label: "cached N ago" (warn-tinted if stale) when an age is
+// known, else "sample data". `ageSeconds` is null when the tile fell back. Shared
+// by the single-source tiles and the calendar tile's oldest-of-two label.
+function applyStaleLabel(stale, label, ageSeconds, isStale) {
   stale.classList.remove("busy");
 
-  if (data && typeof data.ageSeconds === "number") {
-    label.textContent = "cached " + formatAge(data.ageSeconds);
-    stale.classList.toggle("warn", !!data.stale);
+  if (typeof ageSeconds === "number") {
+    label.textContent = "cached " + formatAge(ageSeconds);
+    stale.classList.toggle("warn", !!isStale);
   } else {
     label.textContent = "sample data";
     stale.classList.remove("warn");
   }
+}
+
+function setStale(key, data) {
+  var stale = tile(key).querySelector(".stale");
+  var label = staleLabelNode(key);
+
+  var age = (data && typeof data.ageSeconds === "number") ? data.ageSeconds : null;
+  applyStaleLabel(stale, label, age, data && data.stale);
 }
 
 
@@ -1402,6 +1401,22 @@ function tileNameFromButton(btn) {
   return name;
 }
 
+// Refresh spinner lifecycle — the button spin, the "refreshing…" busy label, and
+// the announcement, shared by the single-tile and calendar refresh paths.
+function beginRefreshSpinner(btn, stale, label, name) {
+  btn.disabled = true;
+  btn.classList.add("spinning");
+  stale.classList.remove("warn");
+  stale.classList.add("busy");
+  label.textContent = "refreshing…";
+  announce("Refreshing " + name + "…");
+}
+
+function endRefreshSpinner(btn) {
+  btn.classList.remove("spinning");
+  btn.disabled = false;
+}
+
 function refreshTile(btn) {
   if (btn.disabled) {
     return Promise.resolve();
@@ -1416,12 +1431,7 @@ function refreshTile(btn) {
   var label = staleLabelNode(key);
   var name = tileNameFromButton(btn);
 
-  btn.disabled = true;
-  btn.classList.add("spinning");
-  stale.classList.remove("warn");
-  stale.classList.add("busy");
-  label.textContent = "refreshing…";
-  announce("Refreshing " + name + "…");
+  beginRefreshSpinner(btn, stale, label, name);
 
   return fetchJson(API + key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
     .then(function (data) {
@@ -1438,8 +1448,7 @@ function refreshTile(btn) {
       announce(name + " refresh failed.");
     })
     .then(function () {
-      btn.classList.remove("spinning");
-      btn.disabled = false;
+      endRefreshSpinner(btn);
     });
 }
 
