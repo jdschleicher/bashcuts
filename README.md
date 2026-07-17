@@ -681,7 +681,7 @@ Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline
 
 ### Daily viewer (local dashboard)
 
-`az-Start-AzDevOpsDailyViewer` (in `powcuts_by_cli/daily_viewer.ps1`, tab-tab on `az-` to discover it) serves the `daily-viewer/` dashboard from your machine so the five tiles — **Today's Agenda** and **Events to Prepare For** (Calendar) plus **This Sprint's Focus**, **Recent Activity**, and **Today's Focus** (Azure DevOps) — render instantly from a local cache and only hit their live source when you refresh a tile.
+`az-Start-AzDevOpsDailyViewer` (in `powcuts_by_cli/daily_viewer.ps1`, tab-tab on `az-` to discover it) serves the `daily-viewer/` dashboard from your machine so the tiles — a **Calendar** tile grouping **Today's Agenda** and **Events to Prepare For** as collapsible sections, plus **This Sprint's Focus**, **Recent Activity**, and **Today's Focus** (Azure DevOps) — render instantly from a local cache and only hit their live source when you refresh a tile.
 
 ```powershell
 az-Start-AzDevOpsDailyViewer            # serve on http://127.0.0.1:8770/ and open the browser
