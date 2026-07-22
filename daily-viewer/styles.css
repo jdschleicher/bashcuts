@@ -361,7 +361,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   width: var(--icon); height: var(--icon);
   color: var(--tint, var(--accent));
 }
-.tt h3 {
+.tt h2 {
   margin: 0;
   font-size: var(--fs-smd);
   font-weight: 700;
