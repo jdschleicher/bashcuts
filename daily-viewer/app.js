@@ -1550,20 +1550,18 @@ var bootLoads = COMPOSITES.map(function (composite) {
   return loadComposite(composite).then(function (allBackend) {
     rememberOpenState();
 
-    var refreshing = autoRefreshOnOpen(composite);
-    return { allBackend: allBackend, refreshing: refreshing };
+    autoRefreshOnOpen(composite);
+    return allBackend;
   });
 });
 
 Promise.all(bootLoads).then(function (results) {
-  var anyFallback = results.some(function (r) { return !r.allBackend; });
-  var anyRefreshing = results.some(function (r) { return r.refreshing; });
-
   // Screen-reader parity with the refresh path: if a tile couldn't reach the
-  // backend and fell back to the sample model, say so once (not per tile). When
-  // a refresh is in flight the refresh path announces its own progress, so the
-  // offline notice is suppressed — it belongs to the truly-unreachable case.
-  if (anyFallback && !anyRefreshing) {
+  // backend and fell back to the sample model, say so once (not per tile). A
+  // fallen-back tile never auto-refreshes (its refresh would be doomed), so a
+  // sibling tile that is refreshing can't starve this notice — that tile
+  // announces its own progress and settles independently.
+  if (results.indexOf(false) !== -1) {
     announce("Showing sample data — the daily-viewer server isn't reachable.");
   }
 });
