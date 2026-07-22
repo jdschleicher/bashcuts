@@ -1512,18 +1512,58 @@ paintTodayDate();
 
 
 // ---------------------------------------------------------------------------
-// Boot — load every composite tile from cache (falling back to the sample
-// model), then record open state so the filter can restore it.
+// Boot — cache-first, then an independent background refresh per tile. Each
+// composite paints from its cache read first (instant, no blank screen), then
+// auto-triggers its own refresh through the existing refresh path so a stale
+// tile freshens up on its own spinner without blocking or resetting the other.
 // ---------------------------------------------------------------------------
 
-var bootLoads = COMPOSITES.map(loadComposite);
+// Kick a tile's background refresh on open, gated by staleness: refresh only
+// when at least one of its panels came back stale (reusing the server's own
+// `data.stale` flag, so the frontend invents no threshold). A tile whose panels
+// are all fresh stays put — no spinner, no redundant az/Outlook call. A tile
+// that fell back to the sample model (data === null, backend unreachable) is
+// left as sample rather than firing a doomed refresh, matching today's offline
+// preview. Reuses refreshTile → refreshComposite, so the spinner lifecycle,
+// aria-live announcements, and per-panel repaint are the existing ones — no new
+// refresh engine. Returns whether a refresh was started.
+function autoRefreshOnOpen(composite) {
+  var needsRefresh = composite.panels.some(function (panel) {
+    var data = (panelState[panel.key] || {}).data;
+    return data && data.stale === true;
+  });
+
+  if (!needsRefresh) {
+    return false;
+  }
+
+  var btn = tile(composite.key).querySelector(".refresh-btn");
+  if (!btn) {
+    return false;
+  }
+
+  refreshTile(btn);
+  return true;
+}
+
+var bootLoads = COMPOSITES.map(function (composite) {
+  return loadComposite(composite).then(function (allBackend) {
+    rememberOpenState();
+
+    var refreshing = autoRefreshOnOpen(composite);
+    return { allBackend: allBackend, refreshing: refreshing };
+  });
+});
 
 Promise.all(bootLoads).then(function (results) {
-  rememberOpenState();
+  var anyFallback = results.some(function (r) { return !r.allBackend; });
+  var anyRefreshing = results.some(function (r) { return r.refreshing; });
 
-  // Screen-reader parity with the refresh path: if any tile couldn't reach the
-  // backend and fell back to the sample model, say so once (not per tile).
-  if (results.indexOf(false) !== -1) {
+  // Screen-reader parity with the refresh path: if a tile couldn't reach the
+  // backend and fell back to the sample model, say so once (not per tile). When
+  // a refresh is in flight the refresh path announces its own progress, so the
+  // offline notice is suppressed — it belongs to the truly-unreachable case.
+  if (anyFallback && !anyRefreshing) {
     announce("Showing sample data — the daily-viewer server isn't reachable.");
   }
 });
