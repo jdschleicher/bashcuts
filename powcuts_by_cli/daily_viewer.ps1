@@ -338,22 +338,36 @@ function New-AzDevOpsDailyViewerLocation {
 }
 
 
-function New-AzDevOpsDailyViewerAgendaNode {
-    # Normalize one ol-Get-OutlookAgenda row into the front-end event shape.
+function New-AzDevOpsDailyViewerTime {
+    # Front-end time object for one calendar event: a 'h:mm tt' clock label for a
+    # timed meeting, 'All day' for an all-day one, plus the event's ISO start so the
+    # view can stamp a <time datetime> attribute. Shared by the agenda and prep
+    # nodes so both tiles read a meeting's start identically (extracted per
+    # CLAUDE.md's no-copy-paste rule when the prep node became the second copy).
     param([Parameter(Mandatory)] $CalendarEvent)
 
     $start = $CalendarEvent.Start
 
-    $timeLabel = if ($CalendarEvent.IsAllDay) {
+    $label = if ($CalendarEvent.IsAllDay) {
         'All day'
     } else {
         $start.ToString('h:mm tt')
     }
 
     $time = [ordered]@{
-        label    = $timeLabel
+        label    = $label
         datetime = $start.ToString('o')
     }
+
+    return $time
+}
+
+
+function New-AzDevOpsDailyViewerAgendaNode {
+    # Normalize one ol-Get-OutlookAgenda row into the front-end event shape.
+    param([Parameter(Mandatory)] $CalendarEvent)
+
+    $time = New-AzDevOpsDailyViewerTime -CalendarEvent $CalendarEvent
 
     $location = New-AzDevOpsDailyViewerLocation -CalendarEvent $CalendarEvent
 
@@ -391,8 +405,11 @@ function Get-AzDevOpsDailyViewerAgendaItems {
 function Get-AzDevOpsDailyViewerPrepItems {
     # "Events to prepare for" = the next two weeks of meetings, widened from
     # today so nothing on the calendar sneaks up unprepared. Each row carries a
-    # stable event id, a short date chip, the meeting's ISO datetime, a default
-    # "prep still needed" marker, and a Teams join link when the meeting has one.
+    # stable event id, a short date chip, the meeting's ISO datetime, the same
+    # agenda-style time + location detail the Agenda tile shows, and a default
+    # "prep still needed" marker. The Teams join link rides on the location object
+    # (via New-AzDevOpsDailyViewerLocation) exactly like the agenda node, so the
+    # front-end prepRow renders it once — no top-level link to double it up.
     # The builder always writes the default marker; the durable "all set" choice
     # is overlaid by id on the way out (see Set-AzDevOpsDailyViewerPrepMarkersFromStore)
     # so it survives a cache reload.
@@ -404,11 +421,9 @@ function Get-AzDevOpsDailyViewerPrepItems {
             title    = [string]$_.Subject
             date     = Format-AzDevOpsDailyViewerShortDate -When $_.Start
             datetime = $_.Start.ToString('o')
+            time     = New-AzDevOpsDailyViewerTime -CalendarEvent $_
+            location = New-AzDevOpsDailyViewerLocation -CalendarEvent $_
             marker   = $script:AzDevOpsDailyViewerMarkerNeeded
-        }
-
-        if ($_.MeetingUrl) {
-            $node.link = [ordered]@{ text = 'Join meeting'; url = $_.MeetingUrl }
         }
 
         $node
