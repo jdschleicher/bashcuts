@@ -301,44 +301,13 @@ button:focus-visible {
 .stat.s { --stat: var(--story); }
 .stat.g { --stat: var(--warn); }
 
-/* ---------- parent sections (Calendar / Azure DevOps) ---------- */
-.section { margin-bottom: var(--space-8); }
-.section:last-of-type { margin-bottom: 0; }
-.section.section-empty { display: none; }
-.section.ado { --tint: var(--story); }
-
-.section > details > summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-1);
-  margin-bottom: var(--space-6);
-  border-bottom: 1px solid var(--border);
-  user-select: none;
-}
-.section > details > summary::-webkit-details-marker { display: none; }
-.section > details > summary:hover .section-title { color: var(--text); }
-
-.section .sicon {
-  flex: none;
-  width: var(--icon); height: var(--icon);
-  color: var(--tint, var(--accent));
-}
-.section-title {
-  margin: 0;
-  font-size: var(--fs-lg);
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-/* ---------- grid ---------- */
+/* ---------- top row — two composite container tiles side by side ---------- */
+/* align-items:start keeps each tile its natural height, so the shorter Calendar
+   tile doesn't stretch to match the taller Azure DevOps tile beside it. */
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: var(--space-7);
 }
 @media (max-width: 51.25em) {
@@ -355,12 +324,10 @@ button:focus-visible {
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-/* The Calendar tile stands alone above the Azure DevOps section, so it carries
-   its own bottom margin (the .section below supplies its own). */
-.tile[data-tile="calendar"] { --tint: var(--accent); margin-bottom: var(--space-8); }
-.tile[data-tile="week"]     { --tint: var(--feature); }
-.tile[data-tile="activity"] { --tint: var(--story); }
-.tile[data-tile="focus"]    { --tint: var(--warn); }
+/* The two composite container tiles sit side by side in the top-row grid, each
+   carrying its own accent tint. */
+.tile[data-tile="azuredevops"] { --tint: var(--story); }
+.tile[data-tile="calendar"]    { --tint: var(--accent); }
 
 .tile > details > summary {
   list-style: none;

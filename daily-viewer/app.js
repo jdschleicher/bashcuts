@@ -927,15 +927,13 @@ function viewModel(key, model) {
 
 
 // ---------------------------------------------------------------------------
-// Tile registry — the render function, stat target, and stat count for each
-// tile in one place, so mount and refresh iterate a single list.
+// Shared render constants — what counts as a "row" (mount, count badges, live
+// filter) and the live filter's placeholder, named so every render path shares
+// the same wording.
 // ---------------------------------------------------------------------------
 
-// What counts as a "row" across mount, count badges, and the live filter.
 var ROW_SELECTOR = ".wi, .event";
 
-// The live filter's placeholder, re-added after every (re)render. Named so the
-// per-tile and calendar render paths can't drift on the wording.
 var NOMATCH_TEXT = "No matching items in this tile.";
 
 function activityTotal(model) {
@@ -944,44 +942,23 @@ function activityTotal(model) {
   }, 0);
 }
 
-// The Azure DevOps tiles. The two Outlook tiles (agenda, prep) are not here —
-// they render as panels inside the single Calendar tile (see the Calendar module),
-// which owns its own load / refresh / paint path.
-var TILES = [
-  { key: "week",     render: renderWeek,     stat: "tile-week",
-    empty: "No stories in the current sprint.",
-    statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
-  { key: "activity", render: renderActivity, stat: "tile-activity",
-    empty: "No recent activity.",
-    statCount: activityTotal },
-  { key: "focus",    render: renderFocus,    stat: "tile-focus",
-    empty: "Nothing pinned. Set $global:AzDevOpsDailyFocus to a work-item id.",
-    statCount: function (m) { return asArray(m.support && m.support.items).length; } }
-];
-
-var TILE_BY_KEY = {};
-TILES.forEach(function (t) { TILE_BY_KEY[t.key] = t; });
-
-// The last model + staleness each tile was painted with, so a dismissal toggle
-// or a "show reviewed" flip can repaint from data without re-fetching.
-var TILE_STATE = {};
-
 
 // ---------------------------------------------------------------------------
-// Mount — render one tile body from its data model: clear, render rows, derive
-// the count badge, and drop a friendly note when the tile is genuinely empty.
+// Mount helpers — resolve a tile/panel node, set a stat number, derive the
+// tile-header row count. Shared by every composite tile's paint path.
 // ---------------------------------------------------------------------------
 
-// A key resolves to a whole tile, or — for a Calendar panel key (agenda / prep) —
-// to that panel's <details> inside the merged tile, so the dismissal/marker code
-// can scope and repaint a single panel without disturbing its sibling.
+// A key resolves to a whole tile, or — for a panel key (agenda / prep / week /
+// activity / focus) — to that panel's <details> inside its composite tile, so the
+// dismissal/marker code can scope and repaint a single panel without disturbing
+// its siblings.
 function tile(key) {
   return document.querySelector('.tile[data-tile="' + key + '"]') ||
     document.querySelector('.group[data-panel="' + key + '"]');
 }
 
 // The number binds by data-stat (each stat is unique); data-target is only where
-// clicking it jumps — the two calendar stats share one jump target.
+// clicking it jumps — the stats that share a composite tile share one jump target.
 function setStat(statId, count) {
   var number = document.querySelector('.stat[data-stat="' + statId + '"] .n');
   if (number) {
@@ -989,31 +966,10 @@ function setStat(statId, count) {
   }
 }
 
-function renderTileBody(key, model) {
-  var conf = TILE_BY_KEY[key];
-  var body = tile(key).querySelector(".body");
-
-  body.textContent = "";
-  conf.render(model || {}).forEach(function (node) { body.appendChild(node); });
-
-  // "empty" counts the primary too so a focus tile with a pinned item but no
-  // support rows isn't mislabeled as empty; the count badge stays row-only.
-  var meaningful = body.querySelectorAll(ROW_SELECTOR + ", .primary").length;
-  if (meaningful === 0) {
-    body.appendChild(el("p", { class: "empty-note", text: conf.empty }));
-  }
-
-  // Re-add the filter's no-match note after each (re)render so the live filter
-  // has its placeholder whether the body came from cache or a refresh.
-  body.appendChild(el("p", { class: "nomatch", text: NOMATCH_TEXT }));
-
-  paintRowCount(key);
-}
-
 
 // The tile-header count is always the number of visible rows in the body — one
-// derivation shared by the per-tile render and the calendar tile, so the badge
-// can never drift from a hand-authored literal.
+// derivation shared by every composite tile, so the badge can never drift from a
+// hand-authored literal.
 function paintRowCount(key) {
   var scope = tile(key);
   var rows = scope.querySelector(".body").querySelectorAll(ROW_SELECTOR).length;
@@ -1022,15 +978,14 @@ function paintRowCount(key) {
 
 
 // ---------------------------------------------------------------------------
-// Calendar tile — a composite of two panels (Today's Agenda, Events to Prepare
-// For) rendered as collapsible groups inside one tile. Each panel keeps its own
-// endpoint, model slice, stat, and empty note; the tile has one refresh (fanning
-// out to both) and one staleness label (the older of the two cache ages). Panels
-// render and repaint independently, so a prep dismissal leaves the agenda group
-// untouched. This mirrors the per-tile engine above, scoped to a shared tile.
+// Composite tiles — a tile whose body holds N panels rendered as collapsible
+// groups. Each panel keeps its own endpoint, model slice, stat, and empty note;
+// its tile has one refresh (fanning out to every panel) and one staleness label
+// (the oldest of the panel cache ages). Panels render and repaint independently,
+// so one panel's dismissal leaves its siblings untouched. Both the Calendar tile
+// (Outlook agenda + prep) and the Azure DevOps tile (this sprint's focus, recent
+// activity, today's focus) are composites driven by this one engine.
 // ---------------------------------------------------------------------------
-
-var CALENDAR_KEY = "calendar";
 
 var CALENDAR_PANELS = [
   { key: "agenda", label: "Today’s Agenda", render: renderAgenda,
@@ -1041,39 +996,70 @@ var CALENDAR_PANELS = [
     statCount: function (m) { return asArray(m.items).length; } }
 ];
 
-var CALENDAR_PANEL_BY_KEY = {};
-CALENDAR_PANELS.forEach(function (p) { CALENDAR_PANEL_BY_KEY[p.key] = p; });
+var ADO_PANELS = [
+  { key: "week", label: "This Sprint’s Focus", render: renderWeek,
+    empty: "No stories in the current sprint.", stat: "tile-week",
+    statCount: function (m) { return asArray(m.stories && m.stories.items).length; } },
+  { key: "activity", label: "Recent Activity", render: renderActivity,
+    empty: "No recent activity.", stat: "tile-activity",
+    statCount: activityTotal },
+  { key: "focus", label: "Today’s Focus", render: renderFocus,
+    empty: "Nothing pinned. Set $global:AzDevOpsDailyFocus to a work-item id.", stat: "tile-focus",
+    statCount: function (m) { return asArray(m.support && m.support.items).length; } }
+];
+
+var COMPOSITES = [
+  { key: "calendar",    name: "Calendar",     panels: CALENDAR_PANELS },
+  { key: "azuredevops", name: "Azure DevOps", panels: ADO_PANELS }
+];
+
+// Panel-key lookups: which panel config a key names, and which composite tile it
+// lives in — so a single-panel repaint (dismissal / show-reviewed) can find its
+// render config and its owning tile for the combined count.
+var COMPOSITE_BY_KEY = {};
+var PANEL_BY_KEY = {};
+var COMPOSITE_BY_PANEL = {};
+COMPOSITES.forEach(function (composite) {
+  COMPOSITE_BY_KEY[composite.key] = composite;
+  composite.panels.forEach(function (panel) {
+    PANEL_BY_KEY[panel.key] = panel;
+    COMPOSITE_BY_PANEL[panel.key] = composite;
+  });
+});
 
 // Each panel's last-loaded raw model + staleness, so a panel can repaint from data
-// (a dismissal / show-reviewed flip) without refetching, and the tile can recompute
+// (a dismissal / show-reviewed flip) without refetching, and its tile can recompute
 // its combined count and oldest-age staleness.
-var calendarPanelState = {};
+var panelState = {};
 
 // Store a panel's backend payload: mark it backend-backed and keep its model +
 // staleness. The load and refresh success paths share this; only the failure
 // handling differs (load falls back to sample, refresh keeps the last-good data).
 function storePanelPayload(panelKey, data) {
   tileFromBackend[panelKey] = true;
-  calendarPanelState[panelKey] = { model: data.items || {}, data: data };
+  panelState[panelKey] = { model: data.items || {}, data: data };
 }
 
 
-// Build one panel as a .group <details> — the same collapsible shell the Azure
-// DevOps tiles use for their drill-in groups, so the disclosure caret, summary,
-// and count badge all match. The count is derived from the filtered view, so it
-// can't drift from the rows or the stat.
-function buildCalendarPanel(panel, view, open) {
-  var count = panel.statCount(view);
-
+// Build one panel as a .group <details> — the same collapsible shell the drill-in
+// groups use, so the disclosure caret, summary, and count badge all match. The
+// count and the empty-note decision are both derived from the rendered rows, so
+// the badge can't drift from the list and a focus panel with a pinned item (but no
+// support rows) still counts as non-empty.
+function buildCompositePanel(panel, view, open) {
   var body = el("div", { class: "panel-body" }, panel.render(view));
-  if (count === 0) {
+
+  var meaningful = body.querySelectorAll(ROW_SELECTOR + ", .primary").length;
+  if (meaningful === 0) {
     body.appendChild(el("p", { class: "empty-note", text: panel.empty }));
   }
+
+  var rows = body.querySelectorAll(ROW_SELECTOR).length;
 
   var summary = el("summary", null, [
     chevron(),
     el("span", { class: "glabel", text: panel.label }),
-    el("span", { class: "count", text: String(count) })
+    el("span", { class: "count", text: String(rows) })
   ]);
 
   var opts = { class: "group", "data-panel": panel.key };
@@ -1085,19 +1071,19 @@ function buildCalendarPanel(panel, view, open) {
 }
 
 
-// One staleness label for two sources: show the older of the two cache ages (and
-// warn if either is stale). If either panel fell back to the sample model, the
-// tile reads "sample data" — the same signal a single tile gives on fallback.
-function setCalendarStale() {
-  var stale = tile(CALENDAR_KEY).querySelector(".stale");
-  var label = staleLabelNode(CALENDAR_KEY);
+// One staleness label for N sources: show the oldest of the panel cache ages (and
+// warn if any is stale). If any panel fell back to the sample model, the tile
+// reads "sample data" — the same signal a single-source tile gives on fallback.
+function setCompositeStale(composite) {
+  var stale = tile(composite.key).querySelector(".stale");
+  var label = staleLabelNode(composite.key);
 
   var ages = [];
   var anyStale = false;
   var anySample = false;
 
-  CALENDAR_PANELS.forEach(function (panel) {
-    var data = (calendarPanelState[panel.key] || {}).data;
+  composite.panels.forEach(function (panel) {
+    var data = (panelState[panel.key] || {}).data;
     if (data && typeof data.ageSeconds === "number") {
       ages.push(data.ageSeconds);
       if (data.stale) {
@@ -1113,34 +1099,35 @@ function setCalendarStale() {
 }
 
 
-// Full paint: rebuild both panels (default open), refresh both stats and the
-// tile count + staleness. Used on load and after a refresh.
-function paintCalendar() {
-  var body = tile(CALENDAR_KEY).querySelector(".body");
+// Full paint: rebuild every panel (default open), refresh each panel's stat and
+// the tile count + staleness. Used on load and after a refresh.
+function paintComposite(composite) {
+  var body = tile(composite.key).querySelector(".body");
   body.textContent = "";
 
-  CALENDAR_PANELS.forEach(function (panel) {
-    var st = calendarPanelState[panel.key] || { model: {}, data: null };
+  composite.panels.forEach(function (panel) {
+    var st = panelState[panel.key] || { model: {}, data: null };
     var view = viewModel(panel.key, st.model || {});
 
-    body.appendChild(buildCalendarPanel(panel, view, true));
+    body.appendChild(buildCompositePanel(panel, view, true));
     setStat(panel.stat, panel.statCount(view));
   });
 
   body.appendChild(el("p", { class: "nomatch", text: NOMATCH_TEXT }));
 
-  paintRowCount(CALENDAR_KEY);
-  setCalendarStale();
+  paintRowCount(composite.key);
+  setCompositeStale(composite);
 }
 
 
 // Repaint a single panel from its stored model — the dismissal / show-reviewed
-// path for prep. Only the target panel's node is replaced (preserving its current
-// open state), so the sibling agenda group is left exactly as it was.
-function repaintCalendarPanel(panelKey) {
-  var panel = CALENDAR_PANEL_BY_KEY[panelKey];
-  var st = calendarPanelState[panelKey];
-  if (!panel || !st) {
+// path. Only the target panel's node is replaced (preserving its current open
+// state), so its sibling panels are left exactly as they were.
+function repaintCompositePanel(panelKey) {
+  var panel = PANEL_BY_KEY[panelKey];
+  var composite = COMPOSITE_BY_PANEL[panelKey];
+  var st = panelState[panelKey];
+  if (!panel || !composite || !st) {
     return;
   }
 
@@ -1148,20 +1135,20 @@ function repaintCalendarPanel(panelKey) {
   var open = existing ? existing.open : true;
 
   var view = viewModel(panelKey, st.model || {});
-  var next = buildCalendarPanel(panel, view, open);
+  var next = buildCompositePanel(panel, view, open);
 
   if (existing) {
     existing.replaceWith(next);
   }
 
   setStat(panel.stat, panel.statCount(view));
-  paintRowCount(CALENDAR_KEY);
+  paintRowCount(composite.key);
 }
 
 
 // Load one panel from its endpoint, falling back to the sample model on any
-// failure — independently, so one endpoint being down doesn't blank the other.
-function loadCalendarPanel(panelKey) {
+// failure — independently, so one endpoint being down doesn't blank the others.
+function loadCompositePanel(panelKey) {
   return fetchJson(API + panelKey, { headers: { "Accept": "application/json" } })
     .then(function (data) {
       storePanelPayload(panelKey, data);
@@ -1169,36 +1156,36 @@ function loadCalendarPanel(panelKey) {
     })
     .catch(function () {
       tileFromBackend[panelKey] = false;
-      calendarPanelState[panelKey] = { model: MODEL[panelKey], data: null };
+      panelState[panelKey] = { model: MODEL[panelKey], data: null };
       return false;
     });
 }
 
 
-// Boot load: fetch both endpoints, paint once. Returns false if either panel fell
-// back to sample data, so the boot handler can announce it (parity with loadTile).
-function loadCalendar() {
-  var loads = CALENDAR_PANELS.map(function (panel) {
-    return loadCalendarPanel(panel.key);
+// Boot load: fetch every panel, paint once. Returns false if any panel fell back
+// to sample data, so the boot handler can announce it.
+function loadComposite(composite) {
+  var loads = composite.panels.map(function (panel) {
+    return loadCompositePanel(panel.key);
   });
 
   return Promise.all(loads).then(function (results) {
-    paintCalendar();
+    paintComposite(composite);
     return results.indexOf(false) === -1;
   });
 }
 
 
-// One refresh button, both sources: fan out to each panel's POST /refresh, then
-// repaint the whole tile. A single spinner + staleness label covers both; if
-// either source fails the label warns and the announcement says so.
-function refreshCalendar(btn) {
-  var stale = tile(CALENDAR_KEY).querySelector(".stale");
-  var label = staleLabelNode(CALENDAR_KEY);
+// One refresh button, every source: fan out to each panel's POST /refresh, then
+// repaint the whole tile. A single spinner + staleness label covers them all; if
+// any source fails the label warns and the announcement says so.
+function refreshComposite(btn, composite) {
+  var stale = tile(composite.key).querySelector(".stale");
+  var label = staleLabelNode(composite.key);
 
-  beginRefreshSpinner(btn, stale, label, "Calendar");
+  beginRefreshSpinner(btn, stale, label, composite.name);
 
-  var refreshes = CALENDAR_PANELS.map(function (panel) {
+  var refreshes = composite.panels.map(function (panel) {
     return fetchJson(API + panel.key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
       .then(function (data) {
         storePanelPayload(panel.key, data);
@@ -1210,16 +1197,16 @@ function refreshCalendar(btn) {
   });
 
   return Promise.all(refreshes).then(function (results) {
-    paintCalendar();
+    paintComposite(composite);
     rememberOpenState();
     applyFilter(searchBox.value);
 
     if (results.indexOf(false) === -1) {
-      announce("Calendar updated — cached just now.");
+      announce(composite.name + " updated — cached just now.");
     } else {
       stale.classList.remove("busy");
       stale.classList.add("warn");
-      announce("Calendar refresh failed for one or more sections.");
+      announce(composite.name + " refresh failed for one or more sections.");
     }
   }).then(function () {
     endRefreshSpinner(btn);
@@ -1271,14 +1258,6 @@ function applyStaleLabel(stale, label, ageSeconds, isStale) {
   }
 }
 
-function setStale(key, data) {
-  var stale = tile(key).querySelector(".stale");
-  var label = staleLabelNode(key);
-
-  var age = (data && typeof data.ageSeconds === "number") ? data.ageSeconds : null;
-  applyStaleLabel(stale, label, age, data && data.stale);
-}
-
 
 // ---------------------------------------------------------------------------
 // Data layer — cheap GET on load, expensive POST /refresh on demand. Both hit
@@ -1303,51 +1282,18 @@ function fetchJson(url, options) {
   });
 }
 
-function paintTile(key, model, data) {
-  TILE_STATE[key] = { model: model, data: data };
-
-  var conf = TILE_BY_KEY[key];
-  var view = viewModel(key, model || {});
-
-  renderTileBody(key, view);
-  setStat(conf.stat, conf.statCount(view));
-  setStale(key, data);
-}
-
-// Repaint a tile from its last-loaded model — after a dismissal toggle or a
-// "show reviewed" flip. Re-deriving the view model reapplies the 30-day window
-// and dismissals, then the open-state and active search filter the full render
-// dropped are restored (the same post-render fix-up the refresh path does).
+// Repaint a single panel from its last-loaded model — after a dismissal toggle or
+// a "show reviewed" flip. Re-deriving the view model reapplies the 30-day window
+// and dismissals, then the open-state and the active search filter the full
+// repaint dropped are restored (the same post-render fix-up the refresh path does).
 function repaintTile(key) {
-  if (CALENDAR_PANEL_BY_KEY[key]) {
-    repaintCalendarPanel(key);
-    rememberOpenState();
-    applyFilter(searchBox.value);
+  if (!PANEL_BY_KEY[key]) {
     return;
   }
 
-  var st = TILE_STATE[key];
-  if (!st) {
-    return;
-  }
-
-  paintTile(key, st.model, st.data);
+  repaintCompositePanel(key);
   rememberOpenState();
   applyFilter(searchBox.value);
-}
-
-function loadTile(key) {
-  return fetchJson(API + key, { headers: { "Accept": "application/json" } })
-    .then(function (data) {
-      tileFromBackend[key] = true;
-      paintTile(key, data.items || {}, data);
-      return true;
-    })
-    .catch(function () {
-      tileFromBackend[key] = false;
-      paintTile(key, MODEL[key], null);
-      return false;
-    });
 }
 
 
@@ -1392,15 +1338,6 @@ showReviewedBtn.addEventListener("click", function () {
 });
 
 
-// Per-tile refresh: the only expensive path. The cheap render is already on
-// screen from cache; this re-runs that tile's az / Outlook query server-side
-// via POST and swaps in the fresh data, count, and "cached just now" stamp.
-function tileNameFromButton(btn) {
-  var label = btn.getAttribute("aria-label") || "This tile";
-  var name = label.replace(/^Refresh\s+/, "");
-  return name;
-}
-
 // Refresh spinner lifecycle — the button spin, the "refreshing…" busy label, and
 // the announcement, shared by the single-tile and calendar refresh paths.
 function beginRefreshSpinner(btn, stale, label, name) {
@@ -1417,39 +1354,19 @@ function endRefreshSpinner(btn) {
   btn.disabled = false;
 }
 
+// Every tile is a composite (Calendar, Azure DevOps); the button's data-tile
+// names which one, and refreshComposite fans out to that tile's panels.
 function refreshTile(btn) {
   if (btn.disabled) {
     return Promise.resolve();
   }
 
-  var key = btn.getAttribute("data-tile");
-  if (key === CALENDAR_KEY) {
-    return refreshCalendar(btn);
+  var composite = COMPOSITE_BY_KEY[btn.getAttribute("data-tile")];
+  if (!composite) {
+    return Promise.resolve();
   }
 
-  var stale = tile(key).querySelector(".stale");
-  var label = staleLabelNode(key);
-  var name = tileNameFromButton(btn);
-
-  beginRefreshSpinner(btn, stale, label, name);
-
-  return fetchJson(API + key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
-    .then(function (data) {
-      tileFromBackend[key] = true;
-      paintTile(key, data.items || {}, data);
-      rememberOpenState();
-      applyFilter(searchBox.value);
-      announce(name + " updated — cached just now.");
-    })
-    .catch(function () {
-      stale.classList.remove("busy");
-      stale.classList.add("warn");
-      label.textContent = "refresh failed";
-      announce(name + " refresh failed.");
-    })
-    .then(function () {
-      endRefreshSpinner(btn);
-    });
+  return refreshComposite(btn, composite);
 }
 
 document.querySelectorAll(".refresh-btn").forEach(function (btn) {
@@ -1465,8 +1382,8 @@ document.getElementById("refreshAll").addEventListener("click", function () {
 });
 
 
-// Stat strip: open and scroll to the tile a stat summarizes. Open the parent
-// section first so a collapsed Calendar / Azure DevOps group reveals the tile.
+// Stat strip: open and scroll to the composite tile a stat summarizes, then open
+// its matching inner panel so the jump lands on the right group, not just the tile.
 document.querySelectorAll(".stat").forEach(function (stat) {
   stat.addEventListener("click", function () {
     var target = document.getElementById(stat.dataset.target);
@@ -1474,21 +1391,11 @@ document.querySelectorAll(".stat").forEach(function (stat) {
       return;
     }
 
-    var section = target.closest(".section");
-    if (section) {
-      var sectionDetails = section.querySelector("details");
-      if (sectionDetails) {
-        sectionDetails.open = true;
-      }
-    }
-
     var details = target.querySelector("details");
     if (details) {
       details.open = true;
     }
 
-    // A calendar stat also opens its matching inner panel so the jump lands on
-    // the right group, not just the tile.
     if (stat.dataset.group) {
       var panel = target.querySelector('.group[data-panel="' + stat.dataset.group + '"]');
       if (panel) {
@@ -1574,20 +1481,6 @@ function applyFilter(raw) {
     t.classList.toggle("empty", !!q && !anyVisible);
   });
 
-  // A whole parent section drops out when a search empties every tile inside it,
-  // so the filtered view isn't padded with empty Calendar / Azure DevOps headers.
-  document.querySelectorAll(".section").forEach(function (section) {
-    var anyTileVisible = false;
-
-    section.querySelectorAll(".tile").forEach(function (t) {
-      if (!t.classList.contains("empty")) {
-        anyTileVisible = true;
-      }
-    });
-
-    section.classList.toggle("section-empty", !!q && !anyTileVisible);
-  });
-
   if (q) {
     announce(matchTotal + (matchTotal === 1 ? " item matches." : " items match."));
   }
@@ -1619,12 +1512,11 @@ paintTodayDate();
 
 
 // ---------------------------------------------------------------------------
-// Boot — load every tile from cache (falling back to the sample model), then
-// record open state so the filter can restore it.
+// Boot — load every composite tile from cache (falling back to the sample
+// model), then record open state so the filter can restore it.
 // ---------------------------------------------------------------------------
 
-var bootLoads = TILES.map(function (t) { return loadTile(t.key); });
-bootLoads.push(loadCalendar());
+var bootLoads = COMPOSITES.map(loadComposite);
 
 Promise.all(bootLoads).then(function (results) {
   rememberOpenState();
