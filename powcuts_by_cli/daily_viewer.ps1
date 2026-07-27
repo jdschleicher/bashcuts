@@ -1208,23 +1208,43 @@ function Read-AzDevOpsDailyViewerRequestJson {
 }
 
 
+function Split-AzDevOpsDailyViewerApiPath {
+    # Shared scaffolding for the /api/* route parsers: require a known prefix,
+    # trim the surrounding slashes, and split what's left into path segments.
+    # Returns $null when the path doesn't carry the prefix or is empty after it,
+    # so each parser (tiles / create) keeps only its own segment-shape rules. The
+    # unary-comma return keeps a single-segment result an array — PowerShell would
+    # otherwise unroll it to a scalar and break the callers' .Count checks.
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Prefix
+    )
+
+    if (-not $Path.StartsWith($Prefix)) {
+        return $null
+    }
+
+    $rest = $Path.Substring($Prefix.Length).Trim('/')
+    if (-not $rest) {
+        return $null
+    }
+
+    $segments = $rest -split '/'
+    return ,$segments
+}
+
+
 function Get-AzDevOpsDailyViewerTileRoute {
     # Parse an /api/tiles/... path into { Tile; IsRefresh; IsPrepMarker } or
     # $null when it isn't a tile route. Keeps the router readable and the API
     # verbs (cheap GET, expensive refresh, prep-marker write) apart.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $prefix = '/api/tiles/'
-    if (-not $Path.StartsWith($prefix)) {
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/tiles/'
+    if ($null -eq $segments) {
         return $null
     }
 
-    $rest = $Path.Substring($prefix.Length).Trim('/')
-    if (-not $rest) {
-        return $null
-    }
-
-    $segments = $rest -split '/'
     $tile = $segments[0]
 
     $isRefresh    = ($segments.Count -eq 2 -and $segments[1] -eq 'refresh')
@@ -1252,17 +1272,11 @@ function Get-AzDevOpsDailyViewerCreateRoute {
     # sub-issues B–E add their own actions to the handler's switch.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $prefix = '/api/create/'
-    if (-not $Path.StartsWith($prefix)) {
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/create/'
+    if ($null -eq $segments) {
         return $null
     }
 
-    $rest = $Path.Substring($prefix.Length).Trim('/')
-    if (-not $rest) {
-        return $null
-    }
-
-    $segments = $rest -split '/'
     if ($segments.Count -ne 1) {
         return $null
     }
@@ -1276,12 +1290,12 @@ function Get-AzDevOpsDailyViewerCreateRoute {
 
 function Invoke-AzDevOpsDailyViewerCreateRequest {
     # Handle a POST /api/create/<action> request. The create surface is POST +
-    # JSON only: a browser can't forge a cross-origin JSON POST to this loopback
-    # server without a preflight it never answers, so the verb and the
-    # application/json body requirement together keep the create path same-origin.
-    # The foundation ships only `ping` — the round-trip smoke check the creator
-    # view uses to report backend reachability; sub-issues B–E add their actions
-    # (workitem / draft / timer-debrief / unplanned) to the switch below.
+    # application/json only, and both are enforced here so every action inherits
+    # the guard: a JSON content-type forces a CORS preflight this loopback server
+    # never answers, so a cross-origin "simple request" forgery can't reach the
+    # handler. The foundation ships only `ping` — the round-trip smoke check the
+    # creator view uses to report backend reachability; sub-issues B–E add their
+    # actions (workitem / draft / timer-debrief / unplanned) to the switch below.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
         [Parameter(Mandatory)] [PSCustomObject] $Route
@@ -1290,17 +1304,24 @@ function Invoke-AzDevOpsDailyViewerCreateRequest {
     $request  = $Context.Request
     $response = $Context.Response
 
+    $pingAction = 'ping'
+
     if ($request.HttpMethod -ne 'POST') {
         Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Create actions require POST.'
         return
     }
 
+    if ([string]$request.ContentType -notlike '*application/json*') {
+        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Create actions require an application/json body.'
+        return
+    }
+
     switch ($Route.Action) {
-        'ping' {
+        $pingAction {
             $ack = [ordered]@{
                 ok      = $true
                 service = 'daily-viewer'
-                action  = 'ping'
+                action  = $pingAction
             }
             Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $ack
             return

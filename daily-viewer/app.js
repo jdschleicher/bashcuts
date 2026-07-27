@@ -1502,15 +1502,12 @@ function setMode(mode, silent) {
 
   agendaControls.classList.toggle("is-hidden", mode !== "agenda");
 
+  if (!silent) {
+    announce(mode === "create" ? "Create mode." : "Agenda mode.");
+  }
+
   if (mode === "create") {
-    if (!silent) {
-      announce("Create mode.");
-    }
     pingCreateOnce();
-  } else {
-    if (!silent) {
-      announce("Agenda mode.");
-    }
   }
 }
 
