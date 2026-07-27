@@ -128,7 +128,26 @@
           <p class="creator-status" id="creator-status"><span class="dot" aria-hidden="true"></span><span class="ctext" id="creator-status-text">Not checked yet</span></p>
         </header>
         <div class="creator-body" id="creator-body">
-          <p class="empty-note">Creation tools are on the way. This panel is the shell the work-item forms, draft builder, timer, and unplanned-work capture will mount into.</p>
+          <form class="create-form" id="create-form" novalidate>
+            <div class="field">
+              <label for="create-type">Work-item type</label>
+              <select id="create-type">
+                <option value="User Story">User Story</option>
+                <option value="Task">Task</option>
+                <option value="Feature">Feature</option>
+                <option value="Epic">Epic</option>
+                <option value="FeatureStories">Feature + child Stories</option>
+              </select>
+            </div>
+            <!-- Per-type fields are rendered here by app.js from a field spec, so
+                 the form is a function of the selected type rather than five
+                 hand-authored form blocks. -->
+            <div id="create-fields"></div>
+            <div class="create-actions">
+              <button class="btn primary" type="submit" id="create-submit">Create</button>
+            </div>
+          </form>
+          <div class="create-result" id="create-result" role="status" aria-live="polite"></div>
         </div>
       </div>
     </section>

@@ -1508,6 +1508,7 @@ function setMode(mode, silent) {
 
   if (mode === "create") {
     pingCreateOnce();
+    ensureCreateForm();
   }
 }
 
@@ -1600,6 +1601,473 @@ function pingCreateOnce() {
       announce("Create backend offline — sample mode.");
     });
 }
+
+// ---------------------------------------------------------------------------
+// Create mode — work-item forms (Epic #228 sub-issue B). The form is a function
+// of the selected type: one field spec drives which fields render, so Story /
+// Task / Feature / Epic / Feature+Stories share one render path instead of five
+// hand-authored forms. Area / iteration / parent choices come from the cache via
+// GET /api/create/options; a submit POSTs /api/create/workitem, which runs the
+// same non-interactive create core the terminal az-New-* funcs wrap. Every value
+// reaches the DOM through el() (textContent / setAttribute), so an untrusted
+// Azure DevOps title in a parent option can't inject markup.
+// ---------------------------------------------------------------------------
+
+var CREATE_OPTIONS_API  = CREATE_API + "options";
+var CREATE_WORKITEM_API = CREATE_API + "workitem";
+
+// One spec row per form type: the parent type it links to (null = a root item),
+// and whether it carries story points / acceptance criteria. Mirrors the
+// backend's $script:AzDevOpsDailyViewerCreateTypes so the two can't drift on
+// which fields a type honors.
+var CREATE_TYPE_SPECS = {
+  "User Story":     { parentType: "Feature",    points: true,  acceptance: true,  batch: false },
+  "Task":           { parentType: "User Story", points: false, acceptance: false, batch: false },
+  "Feature":        { parentType: "Epic",       points: false, acceptance: false, batch: false },
+  "Epic":           { parentType: null,         points: false, acceptance: false, batch: false },
+  "FeatureStories": { parentType: "Epic",       points: false, acceptance: false, batch: true }
+};
+
+var PRIORITY_OPTIONS = [
+  { value: "1", label: "P1 — highest" },
+  { value: "2", label: "P2" },
+  { value: "3", label: "P3" },
+  { value: "4", label: "P4 — lowest" }
+];
+var CREATE_DEFAULT_PRIORITY = "2";
+
+var createState = { options: null, loaded: false, initialized: false };
+var createStorySeq = 0;
+
+var createForm = document.getElementById("create-form");
+var createTypeSelect = document.getElementById("create-type");
+var createFields = document.getElementById("create-fields");
+var createSubmit = document.getElementById("create-submit");
+var createResult = document.getElementById("create-result");
+
+
+// --- control builders — every value goes in via el() (textContent/setAttribute) ---
+
+function buildSelect(optionModels, placeholder, attrs) {
+  var options = [];
+  if (placeholder) {
+    options.push(el("option", { value: "", text: placeholder }));
+  }
+  optionModels.forEach(function (m) {
+    options.push(el("option", { value: m.value, text: m.label }));
+  });
+  return el("select", attrs || {}, options);
+}
+
+function stringOptionModels(values) {
+  return (values || []).map(function (v) {
+    return { value: v, label: v };
+  });
+}
+
+function parentOptionModels(parentType) {
+  var opts = createState.options;
+  if (!opts || !opts.parents || !parentType) {
+    return [];
+  }
+
+  var rows = opts.parents[parentType] || [];
+  return rows.map(function (r) {
+    var suffix = r.state ? " · " + r.state : "";
+    return { value: String(r.id), label: "#" + r.id + " — " + r.title + suffix };
+  });
+}
+
+// Explicit label+control for the singleton main fields (unique ids).
+function labeledField(id, labelText, control, hint) {
+  var children = [ el("label", { "for": id, text: labelText }), control ];
+  if (hint) {
+    children.push(el("p", { class: "field-hint", text: hint }));
+  }
+  return el("div", { class: "field" }, children);
+}
+
+// Wrapped implicit label for the repeatable story rows (no shared ids).
+function wrappedField(labelText, control) {
+  return el("label", { class: "field" }, [
+    el("span", { class: "field-label", text: labelText }),
+    control
+  ]);
+}
+
+
+// Priority / area / iteration are shared across every type; points, acceptance,
+// and parent depend on the spec. defaultArea / defaultIteration preselect the
+// user's usual values when the options payload carries them.
+function createSharedFields(spec) {
+  var opts = createState.options || {};
+  var fields = [];
+
+  fields.push(labeledField("f-title", "Title",
+    el("input", { id: "f-title", type: "text", maxlength: "255", autocomplete: "off" })));
+
+  fields.push(labeledField("f-description", "Description",
+    el("textarea", { id: "f-description", rows: "4" })));
+
+  var prioritySelect = buildSelect(PRIORITY_OPTIONS, null, { id: "f-priority" });
+  prioritySelect.value = CREATE_DEFAULT_PRIORITY;
+  fields.push(labeledField("f-priority", "Priority", prioritySelect));
+
+  if (spec.points) {
+    fields.push(labeledField("f-points", "Story points",
+      el("input", { id: "f-points", type: "number", min: "0", step: "1", inputmode: "numeric" }),
+      "Leave blank to omit."));
+  }
+
+  if (spec.acceptance) {
+    fields.push(labeledField("f-acceptance", "Acceptance criteria",
+      el("textarea", { id: "f-acceptance", rows: "3" })));
+  }
+
+  var areaSelect = buildSelect(stringOptionModels(opts.areas), "Select an area…", { id: "f-area" });
+  if (opts.defaultArea) {
+    areaSelect.value = opts.defaultArea;
+  }
+  fields.push(labeledField("f-area", "Area path", areaSelect));
+
+  var iterationSelect = buildSelect(stringOptionModels(opts.iterations), "Select an iteration…", { id: "f-iteration" });
+  if (opts.defaultIteration) {
+    iterationSelect.value = opts.defaultIteration;
+  }
+  fields.push(labeledField("f-iteration", "Iteration path", iterationSelect));
+
+  if (spec.parentType) {
+    var parentSelect = buildSelect(parentOptionModels(spec.parentType), "No parent", { id: "f-parent" });
+    fields.push(labeledField("f-parent", "Parent " + spec.parentType, parentSelect,
+      "Links this item under a " + spec.parentType + " from the cache."));
+  }
+
+  return fields;
+}
+
+
+// One child-story row for the Feature+Stories batch. Uses class-based selectors
+// (not ids) so many rows coexist; aria-labels number them for screen readers.
+function buildStoryBlock() {
+  createStorySeq++;
+  var n = createStorySeq;
+
+  var title = el("input", { type: "text", class: "s-title", maxlength: "255", autocomplete: "off", "aria-label": "Story " + n + " title" });
+  var description = el("textarea", { class: "s-description", rows: "2", "aria-label": "Story " + n + " description" });
+
+  var priority = buildSelect(PRIORITY_OPTIONS, null, { class: "s-priority", "aria-label": "Story " + n + " priority" });
+  priority.value = CREATE_DEFAULT_PRIORITY;
+
+  var points = el("input", { type: "number", class: "s-points", min: "0", step: "1", inputmode: "numeric", "aria-label": "Story " + n + " points" });
+  var acceptance = el("textarea", { class: "s-acceptance", rows: "2", "aria-label": "Story " + n + " acceptance criteria" });
+
+  var remove = el("button", { type: "button", class: "btn story-remove", "aria-label": "Remove story " + n }, [ "Remove" ]);
+
+  var block = el("div", { class: "story-block" }, [
+    el("div", { class: "story-head" }, [
+      el("span", { class: "story-n", text: "Story" }),
+      remove
+    ]),
+    wrappedField("Title", title),
+    wrappedField("Description", description),
+    wrappedField("Priority", priority),
+    wrappedField("Points", points),
+    wrappedField("Acceptance criteria", acceptance)
+  ]);
+
+  remove.addEventListener("click", function () {
+    var list = document.getElementById("create-stories");
+    if (list && list.querySelectorAll(".story-block").length > 1) {
+      block.remove();
+    }
+  });
+
+  return block;
+}
+
+function buildStoriesSection() {
+  var list = el("div", { id: "create-stories", class: "story-list" }, [ buildStoryBlock() ]);
+
+  var add = el("button", { type: "button", class: "btn", id: "add-story" }, [ "+ Add story" ]);
+  add.addEventListener("click", function () {
+    list.appendChild(buildStoryBlock());
+  });
+
+  return el("fieldset", { class: "story-fieldset" }, [
+    el("legend", { text: "Child stories" }),
+    list,
+    add
+  ]);
+}
+
+
+function renderCreateFields() {
+  var type = createTypeSelect.value;
+  var spec = CREATE_TYPE_SPECS[type] || {};
+
+  createFields.textContent = "";
+  createSharedFields(spec).forEach(function (field) {
+    createFields.appendChild(field);
+  });
+
+  if (spec.batch) {
+    createFields.appendChild(buildStoriesSection());
+  }
+}
+
+
+// --- submit + result ---
+
+function fieldValue(id) {
+  var node = document.getElementById(id);
+  return node ? node.value : "";
+}
+
+function collectStoryPayloads() {
+  var blocks = document.querySelectorAll("#create-stories .story-block");
+  var stories = [];
+
+  blocks.forEach(function (block) {
+    var title = block.querySelector(".s-title").value.trim();
+    if (!title) {
+      return;
+    }
+
+    stories.push({
+      title: title,
+      description: block.querySelector(".s-description").value,
+      priority: block.querySelector(".s-priority").value,
+      storyPoints: block.querySelector(".s-points").value,
+      acceptanceCriteria: block.querySelector(".s-acceptance").value
+    });
+  });
+
+  return stories;
+}
+
+function collectCreatePayload(type, spec) {
+  var payload = {
+    type: type,
+    title: fieldValue("f-title").trim(),
+    description: fieldValue("f-description"),
+    priority: fieldValue("f-priority"),
+    area: fieldValue("f-area"),
+    iteration: fieldValue("f-iteration")
+  };
+
+  var parent = document.getElementById("f-parent");
+  if (parent && parent.value) {
+    payload.parentId = parent.value;
+  }
+
+  if (spec.points) {
+    payload.storyPoints = fieldValue("f-points");
+  }
+  if (spec.acceptance) {
+    payload.acceptanceCriteria = fieldValue("f-acceptance");
+  }
+  if (spec.batch) {
+    payload.stories = collectStoryPayloads();
+  }
+
+  return payload;
+}
+
+function validateCreatePayload(payload, spec) {
+  if (!payload.title) {
+    return "Title is required.";
+  }
+  if (!payload.area) {
+    return "Select an area path.";
+  }
+  if (!payload.iteration) {
+    return "Select an iteration path.";
+  }
+  if (spec.batch && payload.stories.length === 0) {
+    return "Add at least one child story with a title.";
+  }
+  return null;
+}
+
+function setCreateBusy(busy) {
+  createSubmit.disabled = busy;
+  createSubmit.textContent = busy ? "Creating…" : "Create";
+}
+
+function showCreateMessage(kind, text) {
+  createResult.textContent = "";
+  if (!text) {
+    return;
+  }
+  createResult.appendChild(el("div", { class: "create-banner " + kind }, [ text ]));
+}
+
+// One created-item line: a link to the new work item, or an error line when the
+// create failed. The work-item title is untrusted, so it lands via el() text.
+function createdLine(result) {
+  if (!result || !result.ok) {
+    var msg = (result && result.error) ? result.error : "Create failed.";
+    return el("li", { class: "create-item bad" }, [ msg ]);
+  }
+
+  var label = "Created " + result.type + " #" + result.id;
+  var children = [];
+
+  if (result.url) {
+    children.push(externalLink(label, result.url, "create-link"));
+  } else {
+    children.push(el("span", { text: label }));
+  }
+
+  if (result.title) {
+    children.push(el("span", { class: "create-item-title", text: " — " + result.title }));
+  }
+
+  if (result.linked === false && result.linkError) {
+    children.push(el("span", { class: "create-warn", text: " (created, but parent link failed: " + result.linkError + ")" }));
+  }
+
+  return el("li", { class: "create-item good" }, children);
+}
+
+function renderCreateResult(res, spec) {
+  createResult.textContent = "";
+
+  var data = res.data;
+  if (!data) {
+    showCreateMessage("bad", "Create failed (HTTP " + res.status + ").");
+    return;
+  }
+
+  var list = el("ul", { class: "create-list" }, []);
+  var anyOk;
+
+  if (spec.batch) {
+    list.appendChild(createdLine(data.feature));
+    (data.stories || []).forEach(function (story) {
+      list.appendChild(createdLine(story));
+    });
+    anyOk = !!(data.feature && data.feature.ok);
+  } else {
+    list.appendChild(createdLine(data));
+    anyOk = !!data.ok;
+  }
+
+  if (!anyOk) {
+    createResult.appendChild(el("div", { class: "create-banner bad" }, [ data.error || "Create failed." ]));
+  }
+  createResult.appendChild(list);
+
+  if (anyOk) {
+    var again = el("button", { type: "button", class: "btn" }, [ "Create another" ]);
+    again.addEventListener("click", resetCreateForAnother);
+    createResult.appendChild(again);
+  }
+}
+
+function resetCreateForAnother() {
+  [ "f-title", "f-description", "f-acceptance", "f-points" ].forEach(function (id) {
+    var node = document.getElementById(id);
+    if (node) {
+      node.value = "";
+    }
+  });
+
+  var stories = document.getElementById("create-stories");
+  if (stories) {
+    stories.querySelectorAll(".story-block").forEach(function (block, index) {
+      if (index === 0) {
+        block.querySelectorAll("input, textarea").forEach(function (node) {
+          node.value = "";
+        });
+      } else {
+        block.remove();
+      }
+    });
+  }
+
+  createResult.textContent = "";
+  var title = document.getElementById("f-title");
+  if (title) {
+    title.focus();
+  }
+}
+
+// POST that keeps the JSON body on any status — the create endpoint returns
+// { ok, error } with a 400/200, and we want the error text either way (fetchJson
+// throws on non-2xx and would drop it).
+function postCreateJson(url, payload) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function (res) {
+    return res.json().then(function (data) {
+      return { status: res.status, data: data };
+    }, function () {
+      return { status: res.status, data: null };
+    });
+  });
+}
+
+function submitCreate(event) {
+  event.preventDefault();
+
+  var type = createTypeSelect.value;
+  var spec = CREATE_TYPE_SPECS[type] || {};
+  var payload = collectCreatePayload(type, spec);
+
+  var problem = validateCreatePayload(payload, spec);
+  if (problem) {
+    showCreateMessage("bad", problem);
+    return;
+  }
+
+  setCreateBusy(true);
+  showCreateMessage("busy", "Creating…");
+
+  postCreateJson(CREATE_WORKITEM_API, payload).then(function (res) {
+    renderCreateResult(res, spec);
+  }).catch(function () {
+    showCreateMessage("bad", "Create failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    setCreateBusy(false);
+  });
+}
+
+
+// Cache-backed picker data; empty lists on any failure so the form still renders
+// (offline mock) — a submit then surfaces the not-reachable message.
+function loadCreateOptions() {
+  return fetchJson(CREATE_OPTIONS_API, { headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      createState.options = data;
+      createState.loaded = true;
+    })
+    .catch(function () {
+      createState.options = { areas: [], iterations: [], parents: {} };
+      createState.loaded = false;
+    });
+}
+
+// Wire + render once, the first time Create mode is shown.
+function ensureCreateForm() {
+  if (createState.initialized) {
+    return;
+  }
+  createState.initialized = true;
+
+  createTypeSelect.addEventListener("change", function () {
+    renderCreateFields();
+    showCreateMessage("", "");
+  });
+  createForm.addEventListener("submit", submitCreate);
+
+  loadCreateOptions().then(function () {
+    renderCreateFields();
+  });
+}
+
 
 // Apply the initial mode from the hash so a deep link to #create opens Create.
 // Silent: the boot sync shouldn't announce a mode change the user didn't make.
