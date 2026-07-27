@@ -685,6 +685,16 @@ Supported `type` values: `string`, `int`, `picklist`, `bool`, `date`, `multiline
 
 The dashboard has two modes, switched with the **Agenda / Create** tabs below the header. **Agenda** is the read view described here. **Create** is the Azure DevOps creation surface — new work items, drafts, timer sessions, and unplanned-work capture, driven from the browser by the same bashcuts helpers as the terminal (rolling out across follow-up work). The active mode is reflected in the URL, so `#create` deep-links straight to it and the back button returns you to Agenda. Create mode checks it can reach the backend on first open via `POST /api/create/ping`; opened without the local server, it reports "offline — sample mode."
 
+**Create mode — work items.** Pick a type and fill a form rendered from a field spec (title, description, priority, story points, acceptance criteria, parent, area/iteration — only the fields that type carries). The supported types are:
+
+- **User Story** — parent Feature, story points, and acceptance criteria.
+- **Feature** — parent Epic.
+- **Epic** — top-level (no parent).
+- **Task** — parent User Story.
+- **Feature + Stories** — creates the Feature, then each child Story you add under it in one submit.
+
+The area / iteration / parent pickers are dropdowns populated from your local cache (the same classification and hierarchy data the terminal pickers read) — no free-text where the terminal offers a pick. Submitting `POST`s to `/api/create/workitem`, which runs the same `az-New-AzDevOps{Epic,Feature,UserStory}` / `az-New-Task` creators as the terminal (with every field supplied so nothing prompts), behind the shared `Test-AzDevOpsCreateGate` auth check and `Resolve-AzDevOpsIterationArea`. A successful create shows the new item as a link; a validation error (missing title, priority out of 1–4) surfaces in the form. Your `az login` / PAT stays in the server process — the browser only sends the form values and reads back the new id/url.
+
 ```powershell
 az-Start-AzDevOpsDailyViewer            # serve on http://127.0.0.1:8770/ and open the browser
 az-Start-AzDevOpsDailyViewer -Port 9000 # pick a different loopback port
@@ -703,6 +713,8 @@ Each tile is backed by one JSON file under the active project's cache slice — 
 - `POST /api/tiles/<name>/refresh` — re-runs that tile's query, rewrites its cache, and returns the fresh JSON (expensive; per-tile).
 - `POST /api/tiles/prep/prep-marker` — persists one prep row's "all set" / "prep still needed" marker (body `{ "id", "marker" }`, keyed by the meeting's stable event id) so the choice survives a refresh or reload.
 - `POST /api/create/ping` — the **Create** mode reachability smoke check; returns `{ "ok": true }` when the backend is serving. The create surface is POST + `application/json` only, so a cross-origin forgery can't reach it.
+- `POST /api/create/options` — the create forms' picker data: area + iteration paths, the open Epics / Features / Stories from `hierarchy.json`, and the `$env:AZ_AREA` / `$env:AZ_ITERATION` defaults.
+- `POST /api/create/workitem` — validates the payload, then drives the shared `az-New-AzDevOps*` creators (body `{ "type", "title", "priority", … }`, `type` one of `epic`/`feature`/`story`/`task`/`feature-stories`). Returns the new work item's id/url, or a field-level error.
 
 Each tile is populated from a real source, reusing the same WIQL defaults and Outlook module the rest of the toolkit uses:
 

@@ -35,6 +35,7 @@ $script:AzDevOpsDailyViewerMarkerSet       = 'set'     # the viewer toggled this
 $script:AzDevOpsDailyViewerPrepTile        = 'prep'    # the tile whose prep list carries the toggle
 $script:AzDevOpsDailyViewerMarkerStoreFile = 'prep-markers.json'  # durable "all set" ids, beside the tile cache
 $script:AzDevOpsDailyViewerMaxRequestBytes = 4096      # cap on an API request body (the marker POST is tiny)
+$script:AzDevOpsDailyViewerMaxCreateBytes  = 65536     # larger cap for create bodies (a Feature + several Stories with descriptions)
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
@@ -60,6 +61,27 @@ $script:AzDevOpsDailyViewerJoinLabel = "Join meeting $([char]0x2192)"   # right 
 # The week tile is "Stories to complete" — the work the user personally finishes.
 # Assigned Tasks/Features are excluded; only these completable types survive the filter.
 $script:AzDevOpsDailyViewerWeekTypes = @('User Story', 'Bug')
+
+# Create surface (Epic #228, sub-issue B). Each browser-facing type slug maps to
+# the creator it drives, the -Type token Resolve-AzDevOpsIterationArea expects,
+# and — for the tiered types — which parent bucket its picker reads. 'story' /
+# 'feature-stories' points at 'feature' parents, 'feature' at 'epic', 'task' at
+# 'story'; Epic is top-level (no parent). Named here so the route handler reads
+# intent instead of a wall of literal comparisons.
+$script:AzDevOpsDailyViewerTitleMaxLength = 255   # Azure DevOps System.Title cap
+$script:AzDevOpsDailyViewerPriorityMin    = 1     # Microsoft.VSTS.Common.Priority range
+$script:AzDevOpsDailyViewerPriorityMax    = 4
+
+$script:AzDevOpsDailyViewerCreateActionWorkItem = 'workitem'
+$script:AzDevOpsDailyViewerCreateActionOptions  = 'options'
+
+$script:AzDevOpsDailyViewerCreateTypes = [ordered]@{
+    'epic'            = @{ Label = 'Epic';                 Kind = 'EPIC';       Parent = $null }
+    'feature'         = @{ Label = 'Feature';              Kind = 'FEATURE';    Parent = 'epic' }
+    'story'           = @{ Label = 'User Story';           Kind = 'USER_STORY'; Parent = 'feature' }
+    'task'            = @{ Label = 'Task';                 Kind = 'TASK';       Parent = 'story' }
+    'feature-stories' = @{ Label = 'Feature with Stories'; Kind = 'FEATURE';    Parent = 'epic' }
+}
 
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
@@ -1164,10 +1186,14 @@ function Read-AzDevOpsDailyViewerRequestJson {
     # Parse a small JSON request body, bounded so a runaway/oversized POST can't
     # exhaust memory. Returns the parsed object, or $null when the body is too
     # large, empty, or not valid JSON — the caller answers 400 on $null. The
-    # store is never touched here, so a rejected body can't corrupt it.
-    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+    # store is never touched here, so a rejected body can't corrupt it. -MaxBytes
+    # overrides the default cap for the larger create bodies.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request,
+        [int] $MaxBytes = $script:AzDevOpsDailyViewerMaxRequestBytes
+    )
 
-    $maxBytes = $script:AzDevOpsDailyViewerMaxRequestBytes
+    $maxBytes = $MaxBytes
 
     # A chunked / unknown-length body reports ContentLength64 -1 and would skip
     # the size guard (ReadToEnd would buffer it all first), so reject it up front
@@ -1288,14 +1314,445 @@ function Get-AzDevOpsDailyViewerCreateRoute {
 }
 
 
+# ---------------------------------------------------------------------------
+# Create surface — work-item creation over the POST-only create namespace
+#
+# POST /api/create/options  -> the picker data the browser forms populate from:
+#                              area + iteration paths (the same classification
+#                              cache the terminal pickers read) and the open
+#                              Epics / Features / Stories from hierarchy.json,
+#                              plus the $env:AZ_AREA / $env:AZ_ITERATION defaults.
+# POST /api/create/workitem -> validate the payload, run the shared create gate
+#                              and Resolve-AzDevOpsIterationArea server-side, then
+#                              drive az-New-AzDevOps{Epic,Feature,UserStory} /
+#                              az-New-Task with every param supplied and
+#                              -NonInteractive -NoOpen so no server-side prompt
+#                              fires; Feature-with-Stories creates the Feature and
+#                              then each child Story under it.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerParentBucket {
+    # Project the open work items of the requested types from the hierarchy cache
+    # into the { id; title; state } rows the create-form parent picker renders.
+    # Private helper (unapproved verb is fine); returns a List so a later caller
+    # can enumerate it without the @() fixed-size footgun.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rows,
+        [Parameter(Mandatory)] [string[]] $Types,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $ClosedStates
+    )
+
+    $open = @($Rows | Where-Object { $_.Type -in $Types -and $_.State -notin $ClosedStates } | Sort-Object Id)
+
+    $bucket = New-Object System.Collections.Generic.List[object]
+    foreach ($row in $open) {
+        $bucket.Add([ordered]@{
+            id    = [int]$row.Id
+            title = [string]$row.Title
+            state = [string]$row.State
+        })
+    }
+
+    return $bucket
+}
+
+
+function Get-AzDevOpsDailyViewerCreateOptions {
+    # Assemble the create-form picker payload. Each source fails soft to empty so
+    # the form still renders (and the browser can show its own "run a sync" note)
+    # when the cache is missing or az isn't connected — a create endpoint must not
+    # 500 just because there's nothing to pick yet.
+    $areas = @()
+    try {
+        $areas = @(Get-AzDevOpsClassificationPaths -Kind 'Area')
+    }
+    catch {
+        Write-AzDevOpsSyncLog "daily-viewer: create options area read failed: $($_.Exception.Message)"
+    }
+
+    $iterations = @()
+    try {
+        $iterations = @(Get-AzDevOpsClassificationPaths -Kind 'Iteration')
+    }
+    catch {
+        Write-AzDevOpsSyncLog "daily-viewer: create options iteration read failed: $($_.Exception.Message)"
+    }
+
+    $hierarchy = @()
+    try {
+        $rows = Read-AzDevOpsHierarchyCache
+        if ($null -ne $rows) {
+            $hierarchy = @($rows)
+        }
+    }
+    catch {
+        Write-AzDevOpsSyncLog "daily-viewer: create options hierarchy read failed: $($_.Exception.Message)"
+    }
+
+    $closedStates = Get-AzDevOpsClosedStates
+
+    $parents = [ordered]@{
+        epic    = Get-AzDevOpsDailyViewerParentBucket -Rows $hierarchy -Types @('Epic')    -ClosedStates $closedStates
+        feature = Get-AzDevOpsDailyViewerParentBucket -Rows $hierarchy -Types @('Feature') -ClosedStates $closedStates
+        story   = Get-AzDevOpsDailyViewerParentBucket -Rows $hierarchy -Types $script:AzDevOpsRequirementTypes -ClosedStates $closedStates
+    }
+
+    $options = [ordered]@{
+        areas      = $areas
+        iterations = $iterations
+        parents    = $parents
+        defaults   = [ordered]@{
+            area      = [string]$env:AZ_AREA
+            iteration = [string]$env:AZ_ITERATION
+        }
+    }
+
+    return $options
+}
+
+
+function Read-AzDevOpsDailyViewerCreateItem {
+    # Normalize + validate one work-item payload (the top-level create, or one
+    # Story in a Feature-with-Stories batch) into the fields the creators take.
+    # Returns { Ok; Field; Message; Title; Description; Priority; StoryPoints;
+    # AcceptanceCriteria; Parent }. Ok=$false names the first field that failed
+    # and a message the browser form shows verbatim — the same checks the client
+    # runs, so a bad request is answered with a field-level 400 rather than
+    # reaching `az` and 500-ing (or, worse, hanging on a prompt).
+    param(
+        [Parameter(Mandatory)] [AllowNull()] $Item,
+        [switch] $Story
+    )
+
+    $title = ''
+    if ($null -ne $Item) {
+        $title = ([string]$Item.title).Trim()
+    }
+
+    if (-not $title) {
+        return [PSCustomObject]@{ Ok = $false; Field = 'title'; Message = 'Title is required.' }
+    }
+
+    if ($title.Length -gt $script:AzDevOpsDailyViewerTitleMaxLength) {
+        return [PSCustomObject]@{ Ok = $false; Field = 'title'; Message = "Title must be $($script:AzDevOpsDailyViewerTitleMaxLength) characters or fewer." }
+    }
+
+    $priority = 0
+    $priorityText = "$($Item.priority)".Trim()
+    $priorityOk = [int]::TryParse($priorityText, [ref] $priority) -and
+        $priority -ge $script:AzDevOpsDailyViewerPriorityMin -and
+        $priority -le $script:AzDevOpsDailyViewerPriorityMax
+
+    if (-not $priorityOk) {
+        return [PSCustomObject]@{ Ok = $false; Field = 'priority'; Message = "Priority must be a whole number from $($script:AzDevOpsDailyViewerPriorityMin) to $($script:AzDevOpsDailyViewerPriorityMax)." }
+    }
+
+    $storyPoints = 0
+    if ($Story) {
+        $storyPointsText = "$($Item.storyPoints)".Trim()
+        if ($storyPointsText) {
+            if (-not [int]::TryParse($storyPointsText, [ref] $storyPoints) -or $storyPoints -lt 0) {
+                return [PSCustomObject]@{ Ok = $false; Field = 'storyPoints'; Message = 'Story points must be a non-negative whole number.' }
+            }
+        }
+    }
+
+    $parent = 0
+    $parentText = "$($Item.parent)".Trim()
+    if ($parentText) {
+        if (-not [int]::TryParse($parentText, [ref] $parent) -or $parent -lt 0) {
+            return [PSCustomObject]@{ Ok = $false; Field = 'parent'; Message = 'Parent must be a work-item id.' }
+        }
+    }
+
+    $description = ''
+    if ($null -ne $Item.description) {
+        $description = [string]$Item.description
+    }
+
+    $acceptanceCriteria = ''
+    if ($null -ne $Item.acceptanceCriteria) {
+        $acceptanceCriteria = [string]$Item.acceptanceCriteria
+    }
+
+    $result = [PSCustomObject]@{
+        Ok                 = $true
+        Field              = $null
+        Message            = $null
+        Title              = $title
+        Description        = $description
+        Priority           = $priority
+        StoryPoints        = $storyPoints
+        AcceptanceCriteria = $acceptanceCriteria
+        Parent             = $parent
+    }
+    return $result
+}
+
+
+function Get-AzDevOpsDailyViewerCreatedId {
+    # Coerce a creator's return — an [int] id on success, $null on a failed /
+    # aborted create — to the positive work-item id, or 0 when none is present.
+    # Scans the result rather than casting it so a trailing status object a
+    # creator might emit can't be mistaken for the id.
+    param([AllowNull()] $Result)
+
+    $id = 0
+    foreach ($value in @($Result)) {
+        $candidate = 0
+        if ([int]::TryParse("$value", [ref] $candidate) -and $candidate -gt 0) {
+            $id = $candidate
+        }
+    }
+
+    return $id
+}
+
+
+function Invoke-AzDevOpsDailyViewerDispatchCreate {
+    # Call the matching az-New-AzDevOps* creator for one validated item, every
+    # field supplied and -NonInteractive -NoOpen so no server-side prompt can fire
+    # and the browser (not a terminal) drives the create. Returns { Ok; Id; Url;
+    # Error }; a creator that fails or aborts yields a non-positive id, surfaced as
+    # Ok=$false so the handler answers a JSON error instead of a bare 500.
+    param(
+        [Parameter(Mandatory)] [string] $Kind,
+        [Parameter(Mandatory)] $Fields,
+        [Parameter(Mandatory)] [string] $Iteration,
+        [Parameter(Mandatory)] [string] $Area
+    )
+
+    $created = switch ($Kind) {
+        'EPIC' {
+            $epicArgs = @{
+                Title       = $Fields.Title
+                Description = $Fields.Description
+                Priority    = $Fields.Priority
+                Iteration   = $Iteration
+                Area        = $Area
+            }
+            az-New-AzDevOpsEpic -NonInteractive -NoOpen @epicArgs
+        }
+
+        'FEATURE' {
+            $featureArgs = @{
+                Title        = $Fields.Title
+                Description  = $Fields.Description
+                Priority     = $Fields.Priority
+                ParentEpicId = $Fields.Parent
+                Iteration    = $Iteration
+                Area         = $Area
+            }
+            az-New-AzDevOpsFeature -NonInteractive -NoOpen -NoChildStoriesPrompt @featureArgs
+        }
+
+        'USER_STORY' {
+            $storyArgs = @{
+                Title              = $Fields.Title
+                Description        = $Fields.Description
+                Priority           = $Fields.Priority
+                StoryPoints        = $Fields.StoryPoints
+                AcceptanceCriteria = $Fields.AcceptanceCriteria
+                FeatureId          = $Fields.Parent
+                Iteration          = $Iteration
+                Area               = $Area
+            }
+            az-New-AzDevOpsUserStory -NonInteractive -NoOpen @storyArgs
+        }
+
+        'TASK' {
+            $taskArgs = @{
+                Title         = $Fields.Title
+                Description   = $Fields.Description
+                Priority      = $Fields.Priority
+                ParentStoryId = $Fields.Parent
+                Iteration     = $Iteration
+                Area          = $Area
+            }
+            az-New-Task -NonInteractive -NoOpen @taskArgs
+        }
+
+        default {
+            $null
+        }
+    }
+
+    $newId = Get-AzDevOpsDailyViewerCreatedId -Result $created
+
+    if ($newId -le 0) {
+        $failure = [PSCustomObject]@{
+            Ok    = $false
+            Id    = 0
+            Url   = $null
+            Error = 'Work-item create failed on the Azure DevOps side. Check the daily-viewer server console for the az error.'
+        }
+        return $failure
+    }
+
+    $url = Get-AzDevOpsWorkItemUrl -Id $newId
+
+    $outcome = [PSCustomObject]@{ Ok = $true; Id = $newId; Url = $url; Error = $null }
+    return $outcome
+}
+
+
+function Write-AzDevOpsDailyViewerCreateFieldError {
+    # 400 for a payload that failed field validation, carrying the offending
+    # field name so the browser form can highlight it (and the message it shows).
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
+        [Parameter(Mandatory)] $Result
+    )
+
+    $payload = [ordered]@{
+        error = $Result.Message
+        field = $Result.Field
+    }
+    Write-AzDevOpsDailyViewerJson -Response $Response -StatusCode 400 -Object $payload
+}
+
+
+function Invoke-AzDevOpsDailyViewerCreateWorkItem {
+    # POST /api/create/workitem handler: validate, gate, resolve area/iteration,
+    # dispatch to the creator(s), and answer with the new id/url (or a field-level
+    # 400 / a 502 for an az-side failure). Area + iteration are resolved to the
+    # payload value or the $env:AZ_* default and required non-empty BEFORE
+    # Resolve-AzDevOpsIterationArea runs, so that call only re-confirms them and
+    # never falls through to the interactive picker.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerRequest]  $Request,
+        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response
+    )
+
+    $payload = Read-AzDevOpsDailyViewerRequestJson -Request $Request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+    if ($null -eq $payload) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 400 -Message 'Create requires an application/json body under 64 KB.'
+        return
+    }
+
+    $typeSlug = "$($payload.type)".Trim().ToLower()
+    if (-not $script:AzDevOpsDailyViewerCreateTypes.Contains($typeSlug)) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 400 -Message "Unknown work-item type '$typeSlug'."
+        return
+    }
+
+    $typeDef = $script:AzDevOpsDailyViewerCreateTypes[$typeSlug]
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer create')) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 503 -Message 'Not connected to Azure DevOps. Run az-Connect-AzDevOps (and set $env:AZ_USER_EMAIL) in the server shell.'
+        return
+    }
+
+    $primary = Read-AzDevOpsDailyViewerCreateItem -Item $payload
+    if (-not $primary.Ok) {
+        Write-AzDevOpsDailyViewerCreateFieldError -Response $Response -Result $primary
+        return
+    }
+
+    $area = ([string]$payload.area).Trim()
+    if (-not $area) {
+        $area = [string]$env:AZ_AREA
+    }
+
+    $iteration = ([string]$payload.iteration).Trim()
+    if (-not $iteration) {
+        $iteration = [string]$env:AZ_ITERATION
+    }
+
+    if (-not $area -or -not $iteration) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 400 -Message 'Area and iteration are required. Pick both, or set $env:AZ_AREA / $env:AZ_ITERATION in the server shell.'
+        return
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $iteration -Area $area -Type $typeDef.Kind
+    if (-not $resolved.Ok) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 400 -Message 'Area and iteration could not be resolved.'
+        return
+    }
+
+    $iteration = $resolved.Iteration
+    $area = $resolved.Area
+
+    $dispatch = Invoke-AzDevOpsDailyViewerDispatchCreate -Kind $typeDef.Kind -Fields $primary -Iteration $iteration -Area $area
+    if (-not $dispatch.Ok) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 502 -Message $dispatch.Error
+        return
+    }
+
+    if ($typeSlug -ne 'feature-stories') {
+        $ack = [ordered]@{
+            ok    = $true
+            type  = $typeSlug
+            label = $typeDef.Label
+            id    = $dispatch.Id
+            url   = $dispatch.Url
+        }
+        Write-AzDevOpsDailyViewerJson -Response $Response -StatusCode 200 -Object $ack
+        return
+    }
+
+    # Feature-with-Stories: the Feature is created above; each child Story now
+    # runs through az-New-AzDevOpsUserStory with the new Feature as its parent and
+    # the same area/iteration — the compose the terminal batch flow uses, driven
+    # with all params so no prompt fires. A Story that fails to validate or create
+    # is reported in its row and the batch continues (partial success), mirroring
+    # az-New-AzDevOpsFeatureStories.
+    $storyResults = New-Object System.Collections.Generic.List[object]
+
+    foreach ($storyItem in @($payload.stories)) {
+        $storyFields = Read-AzDevOpsDailyViewerCreateItem -Item $storyItem -Story
+
+        if (-not $storyFields.Ok) {
+            $storyResults.Add([ordered]@{
+                ok    = $false
+                title = [string]$storyItem.title
+                field = $storyFields.Field
+                error = $storyFields.Message
+            })
+            continue
+        }
+
+        $storyFields.Parent = $dispatch.Id
+        $storyOutcome = Invoke-AzDevOpsDailyViewerDispatchCreate -Kind 'USER_STORY' -Fields $storyFields -Iteration $iteration -Area $area
+
+        $storyResults.Add([ordered]@{
+            ok    = $storyOutcome.Ok
+            title = $storyFields.Title
+            id    = $storyOutcome.Id
+            url   = $storyOutcome.Url
+            error = $storyOutcome.Error
+        })
+    }
+
+    $ack = [ordered]@{
+        ok      = $true
+        type    = $typeSlug
+        label   = $typeDef.Label
+        feature = [ordered]@{ id = $dispatch.Id; url = $dispatch.Url }
+        stories = $storyResults
+    }
+    Write-AzDevOpsDailyViewerJson -Response $Response -StatusCode 200 -Object $ack
+}
+
+
+function Invoke-AzDevOpsDailyViewerCreateOptionsRequest {
+    # POST /api/create/options handler: hand back the picker payload. POST-only
+    # (like the whole create namespace) even though it only reads, so it inherits
+    # the same content-type guard the writes do.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response)
+
+    $options = Get-AzDevOpsDailyViewerCreateOptions
+    Write-AzDevOpsDailyViewerJson -Response $Response -StatusCode 200 -Object $options
+}
+
+
 function Invoke-AzDevOpsDailyViewerCreateRequest {
     # Handle a POST /api/create/<action> request. The create surface is POST +
     # application/json only, and both are enforced here so every action inherits
     # the guard: a JSON content-type forces a CORS preflight this loopback server
     # never answers, so a cross-origin "simple request" forgery can't reach the
-    # handler. The foundation ships only `ping` — the round-trip smoke check the
-    # creator view uses to report backend reachability; sub-issues B–E add their
-    # actions (workitem / draft / timer-debrief / unplanned) to the switch below.
+    # handler. `ping` is the reachability smoke check; `options` feeds the create
+    # forms' pickers; `workitem` drives the az-New-AzDevOps* creators.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
         [Parameter(Mandatory)] [PSCustomObject] $Route
@@ -1324,6 +1781,16 @@ function Invoke-AzDevOpsDailyViewerCreateRequest {
                 action  = $pingAction
             }
             Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $ack
+            return
+        }
+
+        $script:AzDevOpsDailyViewerCreateActionOptions {
+            Invoke-AzDevOpsDailyViewerCreateOptionsRequest -Response $response
+            return
+        }
+
+        $script:AzDevOpsDailyViewerCreateActionWorkItem {
+            Invoke-AzDevOpsDailyViewerCreateWorkItem -Request $request -Response $response
             return
         }
 

@@ -208,7 +208,15 @@ function Read-AzDevOpsRequiredFields {
     #   any other value                             -> literal passthrough
     # Empty input on a prompt/grid entry skips that field rather than sending an
     # empty string to `az boards work-item create`.
-    param([Parameter(Mandatory)] [string] $Type)
+    #
+    # -NonInteractive suppresses every prompt/grid entry so a non-terminal caller
+    # (the daily-viewer create endpoint) can never block on Read-Host: only the
+    # literal-passthrough required fields are applied, and a genuinely-required
+    # prompt field is left for `az boards work-item create` to reject cleanly.
+    param(
+        [Parameter(Mandatory)] [string] $Type,
+        [switch] $NonInteractive
+    )
 
     $result = @{}
     if (-not (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue)) {
@@ -238,12 +246,20 @@ function Read-AzDevOpsRequiredFields {
         }
 
         if ($mode -eq $script:AzDevOpsFieldModeGrid) {
+            if ($NonInteractive) {
+                continue
+            }
+
             $picked = Read-AzDevOpsFieldGridValue -RefName $refName -Options $options
             if ($picked) {
                 $result[$refName] = $picked
             }
         }
         elseif ($mode -eq $script:AzDevOpsFieldModePrompt) {
+            if ($NonInteractive) {
+                continue
+            }
+
             $answer = Read-Host "Enter $refName"
             if ($answer) {
                 $result[$refName] = $answer
@@ -480,13 +496,19 @@ function Invoke-AzDevOpsCreateAndLink {
     # instead of failing the hierarchy lookup. The recorded System.Parent
     # reflects the actual server link: the parent id only when the link
     # succeeded, null otherwise.
+    #
+    # -NonInteractive skips the fix-and-resubmit loop below: a non-terminal
+    # caller (the daily-viewer create endpoint) can't answer Read-Host, so on a
+    # create failure it returns the {Ok=$false; Error} result straight away for
+    # the caller to surface, instead of blocking the serving loop on a prompt.
     param(
         [Parameter(Mandatory)] [string]    $ChildLabel,
         [Parameter(Mandatory)] [string]    $ParentLabel,
         [Parameter(Mandatory)] [hashtable] $CreateArgs,
         [int]    $ParentId = 0,
         [string] $OrphanLabel,
-        [switch] $OpenInBrowser
+        [switch] $OpenInBrowser,
+        [switch] $NonInteractive
     )
 
     if (-not $OrphanLabel) {
@@ -496,6 +518,13 @@ function Invoke-AzDevOpsCreateAndLink {
     Write-Host ""
     Write-Host "Creating $ChildLabel..." -ForegroundColor Cyan
     $createResult = Invoke-AzDevOpsWorkItemCreate @CreateArgs
+
+    if (-not $createResult.Ok -and $NonInteractive) {
+        Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
+        Write-Host "  $($createResult.Error)" -ForegroundColor Red
+
+        return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null; Error = $createResult.Error }
+    }
 
     # On failure, offer a fix-and-resubmit loop instead of discarding every
     # captured field. Read-AzDevOpsCreateFieldEdit re-prompts the offending
@@ -509,7 +538,7 @@ function Invoke-AzDevOpsCreateAndLink {
 
         $decision = Read-AzDevOpsCreateFieldEdit -CreateArgs $CreateArgs -ErrorText $createResult.Error
         if (-not $decision.Retry) {
-            return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
+            return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null; Error = $createResult.Error }
         }
 
         $CreateArgs = $decision.CreateArgs
@@ -561,7 +590,7 @@ function Invoke-AzDevOpsCreateAndLink {
         }
     }
 
-    $outcome = [PSCustomObject]@{ Ok = $true; Id = $newId; Url = $newUrl }
+    $outcome = [PSCustomObject]@{ Ok = $true; Id = $newId; Url = $newUrl; Error = $null }
     return $outcome
 }
 
@@ -618,7 +647,8 @@ function az-New-AzDevOpsUserStory {
         [int]    $FeatureId = -1,
         [string] $Iteration,
         [string] $Area,
-        [switch] $NoOpen
+        [switch] $NoOpen,
+        [switch] $NonInteractive
     )
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsUserStory')) {
@@ -672,7 +702,7 @@ function az-New-AzDevOpsUserStory {
     }
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
-    $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
+    $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY' -NonInteractive:$NonInteractive
 
     $createArgs = @{
         Title              = $Title
@@ -692,7 +722,8 @@ function az-New-AzDevOpsUserStory {
         -OrphanLabel   'story' `
         -CreateArgs    $createArgs `
         -ParentId      $FeatureId `
-        -OpenInBrowser:(-not $NoOpen)
+        -OpenInBrowser:(-not $NoOpen) `
+        -NonInteractive:$NonInteractive
 
     if (-not $outcome.Ok) {
         return
@@ -721,7 +752,8 @@ function az-New-Task {
         [int]    $ParentStoryId = -1,
         [string] $Iteration,
         [string] $Area,
-        [switch] $NoOpen
+        [switch] $NoOpen,
+        [switch] $NonInteractive
     )
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-Task')) {
@@ -761,7 +793,7 @@ function az-New-Task {
     }
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'TASK'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'TASK'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'TASK' -NonInteractive:$NonInteractive
 
     $createArgs = @{
         Type        = 'Task'
@@ -780,7 +812,8 @@ function az-New-Task {
         -OrphanLabel   'task' `
         -CreateArgs    $createArgs `
         -ParentId      $ParentStoryId `
-        -OpenInBrowser:(-not $NoOpen)
+        -OpenInBrowser:(-not $NoOpen) `
+        -NonInteractive:$NonInteractive
 
     if (-not $outcome.Ok) {
         return
@@ -814,7 +847,8 @@ function az-New-AzDevOpsFeature {
         [string] $Iteration,
         [string] $Area,
         [switch] $NoOpen,
-        [switch] $NoChildStoriesPrompt
+        [switch] $NoChildStoriesPrompt,
+        [switch] $NonInteractive
     )
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeature')) {
@@ -860,7 +894,7 @@ function az-New-AzDevOpsFeature {
     }
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE' -NonInteractive:$NonInteractive
 
     $createArgs = @{
         Type        = 'Feature'
@@ -878,7 +912,8 @@ function az-New-AzDevOpsFeature {
         -ParentLabel   'Epic' `
         -CreateArgs    $createArgs `
         -ParentId      $ParentEpicId `
-        -OpenInBrowser:(-not $NoOpen)
+        -OpenInBrowser:(-not $NoOpen) `
+        -NonInteractive:$NonInteractive
 
     if (-not $outcome.Ok) {
         return
@@ -918,7 +953,8 @@ function az-New-AzDevOpsEpic {
         [int]    $Priority = -1,
         [string] $Iteration,
         [string] $Area,
-        [switch] $NoOpen
+        [switch] $NoOpen,
+        [switch] $NonInteractive
     )
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsEpic')) {
@@ -949,7 +985,7 @@ function az-New-AzDevOpsEpic {
     }
 
     $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'EPIC'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC' -NonInteractive:$NonInteractive
 
     $createArgs = @{
         Type        = 'Epic'
@@ -968,7 +1004,8 @@ function az-New-AzDevOpsEpic {
         -OrphanLabel   'Epic (top-level - no parent)' `
         -CreateArgs    $createArgs `
         -ParentId      0 `
-        -OpenInBrowser:(-not $NoOpen)
+        -OpenInBrowser:(-not $NoOpen) `
+        -NonInteractive:$NonInteractive
 
     if (-not $outcome.Ok) {
         return

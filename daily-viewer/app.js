@@ -1508,6 +1508,7 @@ function setMode(mode, silent) {
 
   if (mode === "create") {
     pingCreateOnce();
+    setupCreatorOnce();
   }
 }
 
@@ -1600,6 +1601,699 @@ function pingCreateOnce() {
       announce("Create backend offline — sample mode.");
     });
 }
+
+// ---------------------------------------------------------------------------
+// Create surface — data-driven work-item forms (Epic #228, sub-issue B). Each
+// type's form is rendered from a field spec, not hand-authored per field. The
+// area / iteration / parent pickers are <select>s populated from
+// POST /api/create/options (the same classification + hierarchy cache the
+// terminal pickers read), so there's no free-text where the terminal offers a
+// pick. Every option label and result string reaches the DOM through el()
+// (textContent / setAttribute) — so an Azure DevOps title or path renders inert,
+// no innerHTML path. Submit POSTs /api/create/workitem; the reply's new id/url
+// shows as an escaped external link with a "Create another".
+// ---------------------------------------------------------------------------
+
+var PRIORITY_OPTIONS = [
+  { value: "1", text: "1 — Low" },
+  { value: "2", text: "2 — Medium" },
+  { value: "3", text: "3 — High" },
+  { value: "4", text: "4 — Super high" }
+];
+var DEFAULT_PRIORITY = "2";
+var TITLE_MAX = 255;
+var ORPHAN_LABEL = "(No parent — orphan)";
+
+// Field catalog — one descriptor per field, referenced by the per-type field
+// lists so each field is defined once and reused across types. `kind` picks the
+// control the builder renders; `required` drives the client-side check that
+// mirrors the server validator.
+var CREATE_FIELD_DEFS = {
+  title: { label: "Title", kind: "text", required: true },
+  description: { label: "Description", kind: "textarea" },
+  priority: { label: "Priority", kind: "priority", required: true },
+  storyPoints: { label: "Story points", kind: "number" },
+  acceptanceCriteria: { label: "Acceptance criteria", kind: "textarea", help: "One criterion per line." },
+  parent: { label: "Parent", kind: "parent" },
+  area: { label: "Area path", kind: "area", required: true },
+  iteration: { label: "Iteration path", kind: "iteration", required: true }
+};
+
+// Per-type form spec — the field order, which parent bucket the parent picker
+// reads, and (Feature + Stories) the child-Story repeater. Mirrors the terminal
+// creators: Epic is top-level (no parent); Feature parents to an Epic; Story to a
+// Feature; Task to a Story.
+var CREATE_TYPES = [
+  { slug: "story", label: "User Story", parentBucket: "feature", parentLabel: "Parent Feature",
+    fields: ["title", "description", "priority", "storyPoints", "acceptanceCriteria", "parent", "area", "iteration"] },
+  { slug: "feature", label: "Feature", parentBucket: "epic", parentLabel: "Parent Epic",
+    fields: ["title", "description", "priority", "parent", "area", "iteration"] },
+  { slug: "epic", label: "Epic", parentBucket: null,
+    fields: ["title", "description", "priority", "area", "iteration"] },
+  { slug: "task", label: "Task", parentBucket: "story", parentLabel: "Parent Story",
+    fields: ["title", "description", "priority", "parent", "area", "iteration"] },
+  { slug: "feature-stories", label: "Feature + Stories", parentBucket: "epic", parentLabel: "Parent Epic",
+    fields: ["title", "description", "priority", "parent", "area", "iteration"], stories: true }
+];
+
+var CREATE_TYPE_BY_SLUG = {};
+CREATE_TYPES.forEach(function (t) { CREATE_TYPE_BY_SLUG[t.slug] = t; });
+
+// A child Story in the Feature + Stories batch carries its own fields; parent /
+// area / iteration are inherited from the Feature, so they're absent here.
+var STORY_FIELDS = ["title", "priority", "storyPoints", "description", "acceptanceCriteria"];
+
+var creatorReady = false;
+var creatorBackendOk = false;
+var creatorOptions = {
+  areas: [], iterations: [],
+  parents: { epic: [], feature: [], story: [] },
+  defaults: { area: "", iteration: "" }
+};
+
+var typeSelect = null;
+var currentFields = [];
+var storyCards = [];
+var storiesWrap = null;
+var storySeq = 0;
+
+
+// Read the create endpoints, parsing the JSON body even on a non-2xx so a
+// field-level validation error (400 { error, field }) is available to the caller
+// — fetchJson throws bare on !ok and would lose it.
+function postCreate(path, payload) {
+  return fetch(CREATE_API + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function (res) {
+    return res.json().then(function (data) {
+      return { ok: res.ok, status: res.status, data: data };
+    }, function () {
+      return { ok: res.ok, status: res.status, data: {} };
+    });
+  });
+}
+
+
+// --- option / choice builders ---------------------------------------------
+
+function optionEl(value, text, selected) {
+  var node = el("option", { value: value, text: text });
+  if (selected) {
+    node.setAttribute("selected", "");
+  }
+  return node;
+}
+
+function buildSelect(id, name, choices, selectedValue) {
+  var select = el("select", { id: id, name: name, class: "control" });
+
+  choices.forEach(function (choice) {
+    var isSel = selectedValue != null && choice.value === selectedValue;
+    select.appendChild(optionEl(choice.value, choice.text, isSel));
+  });
+
+  return select;
+}
+
+function pathChoices(paths) {
+  return asArray(paths).map(function (p) {
+    return { value: String(p), text: String(p) };
+  });
+}
+
+function choicesOrPlaceholder(choices, placeholder) {
+  if (choices.length === 0) {
+    return [ { value: "", text: placeholder } ];
+  }
+  return choices;
+}
+
+// Parent options are the open Epics / Features / Stories from the hierarchy
+// cache, plus an orphan choice (value 0). Titles are untrusted, but el() sets
+// them via textContent, so a title with markup renders inert in the <option>.
+function parentChoices(bucket) {
+  var rows = asArray(creatorOptions.parents[bucket]);
+
+  var choices = [ { value: "0", text: ORPHAN_LABEL } ];
+  rows.forEach(function (row) {
+    choices.push({ value: String(row.id), text: "#" + row.id + " — " + row.title + " [" + row.state + "]" });
+  });
+
+  return choices;
+}
+
+
+// --- field builder ---------------------------------------------------------
+
+// Build one form field from its catalog descriptor and return a small controller
+// (value / setError / clearError) so validation and collection can drive it
+// without re-querying the DOM. `idPrefix` namespaces the ids so repeated Story
+// cards don't collide; `typeSpec` supplies the parent bucket / label.
+function buildCreateField(name, idPrefix, typeSpec) {
+  var def = CREATE_FIELD_DEFS[name];
+  var id = idPrefix + name;
+
+  var control;
+  if (def.kind === "text") {
+    control = el("input", { id: id, name: name, type: "text", class: "control", maxlength: String(TITLE_MAX), autocomplete: "off" });
+  } else if (def.kind === "number") {
+    control = el("input", { id: id, name: name, type: "number", class: "control", min: "0", step: "1", inputmode: "numeric" });
+  } else if (def.kind === "textarea") {
+    control = el("textarea", { id: id, name: name, class: "control", rows: "3" });
+  } else if (def.kind === "priority") {
+    control = buildSelect(id, name, PRIORITY_OPTIONS, DEFAULT_PRIORITY);
+  } else if (def.kind === "parent") {
+    control = buildSelect(id, name, parentChoices(typeSpec.parentBucket), "0");
+  } else if (def.kind === "area") {
+    control = buildSelect(id, name, choicesOrPlaceholder(pathChoices(creatorOptions.areas), "Select an area…"), creatorOptions.defaults.area || "");
+  } else if (def.kind === "iteration") {
+    control = buildSelect(id, name, choicesOrPlaceholder(pathChoices(creatorOptions.iterations), "Select an iteration…"), creatorOptions.defaults.iteration || "");
+  }
+
+  control.setAttribute("aria-describedby", id + "-error");
+
+  var labelText = (name === "parent" && typeSpec && typeSpec.parentLabel) ? typeSpec.parentLabel : def.label;
+  var labelChildren = [ labelText ];
+  if (def.required) {
+    labelChildren.push(el("span", { class: "req", "aria-hidden": "true", text: " *" }));
+  }
+  var label = el("label", { for: id }, labelChildren);
+
+  var children = [ label, control ];
+  if (def.help) {
+    children.push(el("p", { class: "field-help", text: def.help }));
+  }
+
+  var error = el("p", { class: "field-error", id: id + "-error" });
+  error.hidden = true;
+  children.push(error);
+
+  var wrap = el("div", { class: "field" }, children);
+
+  return {
+    name: name,
+    def: def,
+    wrap: wrap,
+    control: control,
+    value: function () { return control.value; },
+    setError: function (message) {
+      error.textContent = message;
+      error.hidden = false;
+      control.setAttribute("aria-invalid", "true");
+      wrap.classList.add("invalid");
+    },
+    clearError: function () {
+      error.textContent = "";
+      error.hidden = true;
+      control.removeAttribute("aria-invalid");
+      wrap.classList.remove("invalid");
+    }
+  };
+}
+
+
+// --- validation (mirrors the server validators) ----------------------------
+
+function validateField(field) {
+  var raw = field.value();
+  var val = (typeof raw === "string") ? raw.trim() : raw;
+
+  if (field.name === "title") {
+    if (!val) {
+      return "Title is required.";
+    }
+    if (val.length > TITLE_MAX) {
+      return "Title must be " + TITLE_MAX + " characters or fewer.";
+    }
+    return null;
+  }
+
+  if (field.name === "priority") {
+    var p = parseInt(val, 10);
+    if (!(p >= 1 && p <= 4)) {
+      return "Priority must be from 1 to 4.";
+    }
+    return null;
+  }
+
+  if (field.name === "storyPoints") {
+    if (val !== "") {
+      var sp = Number(val);
+      if (!Number.isInteger(sp) || sp < 0) {
+        return "Story points must be a non-negative whole number.";
+      }
+    }
+    return null;
+  }
+
+  if (field.def.required && !val) {
+    return field.def.label + " is required.";
+  }
+
+  return null;
+}
+
+
+// Validate every top-level field and every non-blank Story card (a Story with no
+// title is skipped, matching the terminal batch). Returns the first field that
+// failed so the caller can move focus to it.
+function validateAll(typeSpec) {
+  var firstBad = null;
+
+  currentFields.forEach(function (field) {
+    field.clearError();
+    var message = validateField(field);
+    if (message) {
+      field.setError(message);
+      if (!firstBad) {
+        firstBad = field;
+      }
+    }
+  });
+
+  if (typeSpec.stories) {
+    storyCards.forEach(function (card) {
+      var hasTitle = (storyCardTitle(card) || "").trim() !== "";
+
+      card.fields.forEach(function (field) {
+        field.clearError();
+        if (!hasTitle) {
+          return;
+        }
+        var message = validateField(field);
+        if (message) {
+          field.setError(message);
+          if (!firstBad) {
+            firstBad = field;
+          }
+        }
+      });
+    });
+  }
+
+  return firstBad;
+}
+
+
+// --- Story repeater (Feature + Stories) ------------------------------------
+
+function storyCardTitle(card) {
+  return card.fields.length ? card.fields[0].value() : "";
+}
+
+function renumberStories() {
+  storyCards.forEach(function (card, i) {
+    var badge = card.node.querySelector(".story-index");
+    if (badge) {
+      badge.textContent = "Story " + (i + 1);
+    }
+  });
+}
+
+function removeStoryCard(card) {
+  var i = storyCards.indexOf(card);
+  if (i === -1) {
+    return;
+  }
+
+  storyCards.splice(i, 1);
+  card.node.remove();
+  renumberStories();
+  announce("Story removed.");
+}
+
+function addStoryCard() {
+  var idPrefix = "cs-" + storySeq + "-";
+  storySeq++;
+
+  var fields = STORY_FIELDS.map(function (name) {
+    return buildCreateField(name, idPrefix, null);
+  });
+
+  var removeBtn = el("button", { type: "button", class: "btn ghost", text: "Remove" });
+  var head = el("div", { class: "story-head" }, [
+    el("span", { class: "story-index" }),
+    removeBtn
+  ]);
+  var body = el("div", { class: "story-fields" }, fields.map(function (f) { return f.wrap; }));
+  var node = el("div", { class: "story-card" }, [ head, body ]);
+
+  var card = { node: node, fields: fields };
+  removeBtn.addEventListener("click", function () { removeStoryCard(card); });
+
+  storyCards.push(card);
+  storiesWrap.appendChild(node);
+  renumberStories();
+
+  return card;
+}
+
+
+// --- form assembly ---------------------------------------------------------
+
+function renderCreateForm(typeSpec) {
+  currentFields = typeSpec.fields.map(function (name) {
+    return buildCreateField(name, "cf-", typeSpec);
+  });
+
+  var fieldsWrap = document.getElementById("create-fields");
+  fieldsWrap.textContent = "";
+  currentFields.forEach(function (field) {
+    fieldsWrap.appendChild(field.wrap);
+  });
+
+  var storiesSection = document.getElementById("create-stories");
+  storiesSection.textContent = "";
+  storyCards = [];
+
+  if (typeSpec.stories) {
+    storiesWrap = el("div", { class: "stories-list" });
+
+    var addBtn = el("button", { type: "button", class: "btn ghost", text: "Add story" });
+    addBtn.addEventListener("click", function () {
+      var card = addStoryCard();
+      card.fields[0].control.focus();
+    });
+
+    var head = el("div", { class: "stories-head" }, [
+      el("h3", { text: "Child stories" }),
+      addBtn
+    ]);
+
+    storiesSection.appendChild(head);
+    storiesSection.appendChild(storiesWrap);
+    addStoryCard();
+  }
+}
+
+function fieldByName(name) {
+  for (var i = 0; i < currentFields.length; i++) {
+    if (currentFields[i].name === name) {
+      return currentFields[i];
+    }
+  }
+  return null;
+}
+
+function setFieldValue(name, value) {
+  var field = fieldByName(name);
+  if (field && value != null) {
+    field.control.value = value;
+  }
+}
+
+function collectPayload(typeSpec) {
+  var payload = { type: typeSpec.slug };
+
+  currentFields.forEach(function (field) {
+    payload[field.name] = field.value();
+  });
+
+  if (typeSpec.stories) {
+    payload.stories = storyCards
+      .map(function (card) {
+        var story = {};
+        card.fields.forEach(function (field) {
+          story[field.name] = field.value();
+        });
+        return story;
+      })
+      .filter(function (story) {
+        return (story.title || "").trim() !== "";
+      });
+  }
+
+  return payload;
+}
+
+
+// --- submit + result -------------------------------------------------------
+
+function setSubmitting(on) {
+  var btn = document.getElementById("create-submit");
+  if (!btn) {
+    return;
+  }
+  btn.disabled = on;
+  btn.textContent = on ? "Creating…" : "Create";
+}
+
+function clearCreateResult() {
+  var box = document.getElementById("create-result");
+  box.textContent = "";
+  box.classList.remove("ok", "err");
+}
+
+function renderCreateResult(node, ok) {
+  var box = document.getElementById("create-result");
+  box.textContent = "";
+  box.classList.toggle("ok", !!ok);
+  box.classList.toggle("err", !ok);
+  box.appendChild(node);
+}
+
+function showCreateMessage(ok, message) {
+  var line = el("p", { class: ok ? "ok-line" : "err-line", text: message });
+  renderCreateResult(line, ok);
+  announce(message);
+}
+
+// An escaped link to a created work item: id/url are from the server, so the
+// text goes through externalLink (textContent) and the href is scheme-gated.
+// A create with no configured URL renders the id as inert text.
+function createdLink(label, id, url) {
+  var text = label + " #" + id;
+  if (url) {
+    return externalLink(text, url);
+  }
+  return el("span", { text: text });
+}
+
+function buildCreateAnotherButton(typeSpec) {
+  var btn = el("button", { type: "button", class: "btn primary", text: "Create another" });
+
+  btn.addEventListener("click", function () {
+    var keepArea = valueOfField("area");
+    var keepIteration = valueOfField("iteration");
+
+    renderCreateForm(typeSpec);
+    setFieldValue("area", keepArea);
+    setFieldValue("iteration", keepIteration);
+
+    clearCreateResult();
+
+    var titleField = fieldByName("title");
+    if (titleField) {
+      titleField.control.focus();
+    }
+    announce("Form cleared — create another.");
+  });
+
+  return btn;
+}
+
+function valueOfField(name) {
+  var field = fieldByName(name);
+  return field ? field.value() : "";
+}
+
+function handleSingleSuccess(typeSpec, data) {
+  var container = el("div", { class: "create-ok" }, [
+    el("p", { class: "ok-line" }, [ "Created ", createdLink(typeSpec.label, data.id, data.url), "." ])
+  ]);
+  container.appendChild(buildCreateAnotherButton(typeSpec));
+
+  renderCreateResult(container, true);
+  announce(typeSpec.label + " created.");
+}
+
+function handleFeatureStoriesSuccess(typeSpec, data) {
+  var feature = data.feature || {};
+  var stories = asArray(data.stories);
+
+  var children = [
+    el("p", { class: "ok-line" }, [ "Created ", createdLink("Feature", feature.id, feature.url), "." ])
+  ];
+
+  if (stories.length) {
+    var list = el("ul", { class: "story-results" }, stories.map(function (story) {
+      if (story.ok) {
+        var suffix = story.title ? (" — " + story.title) : "";
+        return el("li", { class: "ok" }, [ createdLink("Story", story.id, story.url), suffix ]);
+      }
+      return el("li", { class: "err", text: (story.title || "Story") + " — " + (story.error || "failed to create") });
+    }));
+    children.push(list);
+  }
+
+  var container = el("div", { class: "create-ok" }, children);
+  container.appendChild(buildCreateAnotherButton(typeSpec));
+
+  renderCreateResult(container, true);
+
+  var failed = stories.filter(function (s) { return !s.ok; }).length;
+  announce(failed
+    ? ("Feature created; " + failed + " child story(ies) failed.")
+    : ("Feature and " + stories.length + " story(ies) created."));
+}
+
+// A 400 with a `field` highlights that field; anything else is a message in the
+// result region. Server messages are set via textContent, so they render inert.
+function handleCreateError(res) {
+  var data = res.data || {};
+  var message = data.error || ("Create failed (HTTP " + res.status + ").");
+
+  if (data.field) {
+    var field = fieldByName(data.field);
+    if (field) {
+      field.setError(message);
+      field.control.focus();
+      announce(message);
+      return;
+    }
+  }
+
+  showCreateMessage(false, message);
+}
+
+function onCreateSubmit(e) {
+  e.preventDefault();
+
+  var typeSpec = CREATE_TYPE_BY_SLUG[typeSelect.value] || CREATE_TYPES[0];
+
+  var firstBad = validateAll(typeSpec);
+  if (firstBad) {
+    firstBad.control.focus();
+    announce("Please fix the highlighted field.");
+    return;
+  }
+
+  if (!creatorBackendOk) {
+    showCreateMessage(false, "Creating needs the local daily-viewer server, which isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+    return;
+  }
+
+  var payload = collectPayload(typeSpec);
+  setSubmitting(true);
+  clearCreateResult();
+
+  postCreate("workitem", payload)
+    .then(function (res) {
+      setSubmitting(false);
+
+      if (res.ok && res.data && res.data.ok) {
+        if (typeSpec.stories) {
+          handleFeatureStoriesSuccess(typeSpec, res.data);
+        } else {
+          handleSingleSuccess(typeSpec, res.data);
+        }
+      } else {
+        handleCreateError(res);
+      }
+    })
+    .catch(function () {
+      setSubmitting(false);
+      showCreateMessage(false, "Couldn't reach the create endpoint.");
+    });
+}
+
+
+// --- setup + options load --------------------------------------------------
+
+function normalizeCreateOptions(data) {
+  var parents = data.parents || {};
+  var defaults = data.defaults || {};
+
+  return {
+    areas: asArray(data.areas),
+    iterations: asArray(data.iterations),
+    parents: {
+      epic: asArray(parents.epic),
+      feature: asArray(parents.feature),
+      story: asArray(parents.story)
+    },
+    defaults: {
+      area: defaults.area || "",
+      iteration: defaults.iteration || ""
+    }
+  };
+}
+
+function markCreatorOffline() {
+  creatorBackendOk = false;
+
+  var submit = document.getElementById("create-submit");
+  if (submit) {
+    submit.disabled = true;
+  }
+
+  showCreateMessage(false, "The daily-viewer server isn't reachable, so the pickers are empty and creating is disabled. Start it with az-Start-AzDevOpsDailyViewer and open this page from 127.0.0.1.");
+}
+
+function loadCreatorOptions() {
+  postCreate("options", {})
+    .then(function (res) {
+      if (res.ok && res.data) {
+        creatorOptions = normalizeCreateOptions(res.data);
+        creatorBackendOk = true;
+
+        var spec = CREATE_TYPE_BY_SLUG[typeSelect.value] || CREATE_TYPES[0];
+        renderCreateForm(spec);
+      } else {
+        markCreatorOffline();
+      }
+    })
+    .catch(function () {
+      markCreatorOffline();
+    });
+}
+
+function buildCreatorShell() {
+  var body = document.getElementById("creator-body");
+  body.textContent = "";
+
+  typeSelect = el("select", { id: "create-type", class: "control" },
+    CREATE_TYPES.map(function (t) { return optionEl(t.slug, t.label, t.slug === "story"); }));
+
+  typeSelect.addEventListener("change", function () {
+    var spec = CREATE_TYPE_BY_SLUG[typeSelect.value] || CREATE_TYPES[0];
+    renderCreateForm(spec);
+    clearCreateResult();
+  });
+
+  var typeField = el("div", { class: "field" }, [
+    el("label", { for: "create-type", text: "What do you want to create?" }),
+    typeSelect
+  ]);
+
+  var fieldsWrap = el("div", { id: "create-fields" });
+  var storiesSection = el("div", { id: "create-stories" });
+
+  var submit = el("button", { id: "create-submit", type: "submit", class: "btn primary", text: "Create" });
+  var actions = el("div", { class: "create-actions" }, [ submit ]);
+
+  var form = el("form", { id: "create-form", novalidate: "" }, [ fieldsWrap, storiesSection, actions ]);
+  form.addEventListener("submit", onCreateSubmit);
+
+  var result = el("div", { id: "create-result", class: "create-result" });
+
+  body.appendChild(el("div", { class: "create" }, [ typeField, form, result ]));
+
+  renderCreateForm(CREATE_TYPE_BY_SLUG["story"]);
+}
+
+function setupCreatorOnce() {
+  if (creatorReady) {
+    return;
+  }
+  creatorReady = true;
+
+  buildCreatorShell();
+  loadCreatorOptions();
+}
+
 
 // Apply the initial mode from the hash so a deep link to #create opens Create.
 // Silent: the boot sync shouldn't announce a mode change the user didn't make.
