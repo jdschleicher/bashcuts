@@ -267,6 +267,95 @@ button:focus-visible {
 }
 .search input::placeholder { color: var(--text-faint); }
 
+/* Agenda-only controls group. Mirrors the toolbar's own flex layout so wrapping
+   these buttons changes nothing visually; toggling .is-hidden drops the whole
+   group in Create mode. */
+.agenda-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ---------- view-mode tabs (Agenda / Create) ---------- */
+.modebar {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-8);
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.mode-tab {
+  font-family: inherit;
+  font-size: var(--fs-smd);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  padding: var(--space-2) var(--space-7);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
+/* ---------- creator view (sub-tab shell for the create surface) ---------- */
+.creator {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+.creator-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.creator-head h2 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+.creator-sub {
+  margin: 0;
+  max-width: 44rem;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+}
+.creator-status {
+  margin: 0;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-smd);
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+}
+.creator-status .dot {
+  width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+}
+.creator-status.checking .dot { background: var(--accent); }
+.creator-status.ok .dot { background: var(--good); }
+.creator-status.offline .dot { background: var(--warn); }
+.creator-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-7);
+}
+
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;

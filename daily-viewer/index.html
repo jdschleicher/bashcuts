@@ -16,15 +16,20 @@
       <p class="sub">Azure DevOps agenda &middot; <span class="date" id="today-date">Tuesday, July 14</span></p>
     </div>
     <nav class="toolbar" aria-label="Viewer controls">
-      <label class="search">
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input id="search" type="search" placeholder="Filter items&hellip;" aria-label="Filter items across tiles" autocomplete="off">
-      </label>
-      <span class="synced"><span class="dot" aria-hidden="true"></span>Local cache</span>
-      <button class="btn" id="refreshAll" type="button">Refresh all</button>
-      <button class="btn" id="collapseAll" type="button">Collapse all</button>
-      <button class="btn" id="expandAll" type="button">Expand all</button>
-      <button class="btn" id="showReviewed" type="button" aria-pressed="false">Show reviewed</button>
+      <!-- Agenda-only controls: hidden in Create mode, where a filter / refresh /
+           collapse over the agenda tiles has nothing to act on. The theme toggle
+           stays outside this wrapper so it's available in every mode. -->
+      <div class="agenda-controls" id="agenda-controls">
+        <label class="search">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input id="search" type="search" placeholder="Filter items&hellip;" aria-label="Filter items across tiles" autocomplete="off">
+        </label>
+        <span class="synced"><span class="dot" aria-hidden="true"></span>Local cache</span>
+        <button class="btn" id="refreshAll" type="button">Refresh all</button>
+        <button class="btn" id="collapseAll" type="button">Collapse all</button>
+        <button class="btn" id="expandAll" type="button">Expand all</button>
+        <button class="btn" id="showReviewed" type="button" aria-pressed="false">Show reviewed</button>
+      </div>
       <button class="btn icon" id="themeToggle" type="button" aria-label="Toggle light or dark theme">
         <svg id="icon-sun" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9L13 13M13 3l-1.1 1.1M4.1 11.9L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <svg id="icon-moon" class="is-hidden" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -32,7 +37,19 @@
     </nav>
   </header>
 
+  <!-- View mode switch — Agenda (the read dashboard) vs Create (the Azure DevOps
+       creation surface, sub-issues B–E). A tablist so each tab controls its
+       tabpanel with native selection semantics; app.js adds roving tabindex +
+       arrow-key nav and mirrors the choice to a #create URL hash. With JS off the
+       agenda panel stays visible and the create panel stays hidden. -->
+  <div class="modebar" role="tablist" aria-label="Viewer mode">
+    <button class="mode-tab" type="button" role="tab" id="tab-agenda" aria-controls="view-agenda" aria-selected="true" tabindex="0">Agenda</button>
+    <button class="mode-tab" type="button" role="tab" id="tab-create" aria-controls="view-create" aria-selected="false" tabindex="-1">Create</button>
+  </div>
+
   <main>
+
+    <section id="view-agenda" role="tabpanel" aria-labelledby="tab-agenda">
 
     <!-- Stat numbers (.n) are filled from the model at render time; blank in markup
          so they can never drift from the collections they summarize. Each number
@@ -96,6 +113,25 @@
       </section>
 
     </div>
+
+    </section>
+
+    <!-- Create mode — the Azure DevOps creation surface. Hidden until the Create
+         tab is selected. Sub-issues B–E mount their forms/panels into
+         #creator-body; the foundation ships the shell plus a backend-reachability
+         check (POST /api/create/ping) surfaced in the status chip. -->
+    <section id="view-create" class="is-hidden" role="tabpanel" aria-labelledby="tab-create" tabindex="0" hidden>
+      <div class="creator">
+        <header class="creator-head">
+          <h2 id="creator-title">Create</h2>
+          <p class="creator-sub">Azure DevOps work items, drafts, timer sessions, and unplanned work &mdash; driven from the browser, run by the same bashcuts helpers as the terminal.</p>
+          <p class="creator-status" id="creator-status"><span class="dot" aria-hidden="true"></span><span class="ctext" id="creator-status-text">Not checked yet</span></p>
+        </header>
+        <div class="creator-body" id="creator-body">
+          <p class="empty-note">Creation tools are on the way. This panel is the shell the work-item forms, draft builder, timer, and unplanned-work capture will mount into.</p>
+        </div>
+      </div>
+    </section>
 
   </main>
 

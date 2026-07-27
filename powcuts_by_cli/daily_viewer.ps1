@@ -1208,23 +1208,43 @@ function Read-AzDevOpsDailyViewerRequestJson {
 }
 
 
+function Split-AzDevOpsDailyViewerApiPath {
+    # Shared scaffolding for the /api/* route parsers: require a known prefix,
+    # trim the surrounding slashes, and split what's left into path segments.
+    # Returns $null when the path doesn't carry the prefix or is empty after it,
+    # so each parser (tiles / create) keeps only its own segment-shape rules. The
+    # unary-comma return keeps a single-segment result an array — PowerShell would
+    # otherwise unroll it to a scalar and break the callers' .Count checks.
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Prefix
+    )
+
+    if (-not $Path.StartsWith($Prefix)) {
+        return $null
+    }
+
+    $rest = $Path.Substring($Prefix.Length).Trim('/')
+    if (-not $rest) {
+        return $null
+    }
+
+    $segments = $rest -split '/'
+    return ,$segments
+}
+
+
 function Get-AzDevOpsDailyViewerTileRoute {
     # Parse an /api/tiles/... path into { Tile; IsRefresh; IsPrepMarker } or
     # $null when it isn't a tile route. Keeps the router readable and the API
     # verbs (cheap GET, expensive refresh, prep-marker write) apart.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $prefix = '/api/tiles/'
-    if (-not $Path.StartsWith($prefix)) {
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/tiles/'
+    if ($null -eq $segments) {
         return $null
     }
 
-    $rest = $Path.Substring($prefix.Length).Trim('/')
-    if (-not $rest) {
-        return $null
-    }
-
-    $segments = $rest -split '/'
     $tile = $segments[0]
 
     $isRefresh    = ($segments.Count -eq 2 -and $segments[1] -eq 'refresh')
@@ -1241,6 +1261,77 @@ function Get-AzDevOpsDailyViewerTileRoute {
         IsPrepMarker = $isPrepMarker
     }
     return $route
+}
+
+
+function Get-AzDevOpsDailyViewerCreateRoute {
+    # Parse an /api/create/<action> path into { Action } or $null when it isn't a
+    # create route. The create surface is the Azure DevOps creation mode (Epic
+    # #228): the whole namespace is POST + JSON only, enforced by the handler.
+    # Only single-segment actions are recognized; the foundation ships `ping` and
+    # sub-issues B–E add their own actions to the handler's switch.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/create/'
+    if ($null -eq $segments) {
+        return $null
+    }
+
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Invoke-AzDevOpsDailyViewerCreateRequest {
+    # Handle a POST /api/create/<action> request. The create surface is POST +
+    # application/json only, and both are enforced here so every action inherits
+    # the guard: a JSON content-type forces a CORS preflight this loopback server
+    # never answers, so a cross-origin "simple request" forgery can't reach the
+    # handler. The foundation ships only `ping` — the round-trip smoke check the
+    # creator view uses to report backend reachability; sub-issues B–E add their
+    # actions (workitem / draft / timer-debrief / unplanned) to the switch below.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
+        [Parameter(Mandatory)] [PSCustomObject] $Route
+    )
+
+    $request  = $Context.Request
+    $response = $Context.Response
+
+    $pingAction = 'ping'
+
+    if ($request.HttpMethod -ne 'POST') {
+        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Create actions require POST.'
+        return
+    }
+
+    if ([string]$request.ContentType -notlike '*application/json*') {
+        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Create actions require an application/json body.'
+        return
+    }
+
+    switch ($Route.Action) {
+        $pingAction {
+            $ack = [ordered]@{
+                ok      = $true
+                service = 'daily-viewer'
+                action  = $pingAction
+            }
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $ack
+            return
+        }
+
+        default {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown create action '$($Route.Action)'."
+            return
+        }
+    }
 }
 
 
@@ -1338,7 +1429,8 @@ function Invoke-AzDevOpsDailyViewerStaticRequest {
 
 
 function Invoke-AzDevOpsDailyViewerRequest {
-    # Front door: API routes go to the tile handler (cheap GET / expensive POST),
+    # Front door: /api/tiles/* goes to the tile handler (cheap GET / expensive
+    # POST), /api/create/* to the create handler (POST-only creation surface),
     # everything else is treated as a static-asset GET. Any handler failure is
     # turned into a 500 so one bad request can never kill the serving loop.
     param(
@@ -1349,13 +1441,21 @@ function Invoke-AzDevOpsDailyViewerRequest {
     $response = $Context.Response
 
     try {
-        $route = Get-AzDevOpsDailyViewerTileRoute -Path $Context.Request.Url.AbsolutePath
+        $path = $Context.Request.Url.AbsolutePath
 
-        if ($null -ne $route) {
-            Invoke-AzDevOpsDailyViewerApiRequest -Context $Context -Route $route
-        } else {
-            Invoke-AzDevOpsDailyViewerStaticRequest -Context $Context -StaticRoot $StaticRoot
+        $tileRoute = Get-AzDevOpsDailyViewerTileRoute -Path $path
+        if ($null -ne $tileRoute) {
+            Invoke-AzDevOpsDailyViewerApiRequest -Context $Context -Route $tileRoute
+            return
         }
+
+        $createRoute = Get-AzDevOpsDailyViewerCreateRoute -Path $path
+        if ($null -ne $createRoute) {
+            Invoke-AzDevOpsDailyViewerCreateRequest -Context $Context -Route $createRoute
+            return
+        }
+
+        Invoke-AzDevOpsDailyViewerStaticRequest -Context $Context -StaticRoot $StaticRoot
     }
     catch {
         # Keep the exception detail (which can name filesystem paths) server-side;
