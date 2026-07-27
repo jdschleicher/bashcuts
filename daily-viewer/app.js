@@ -1266,6 +1266,7 @@ function applyStaleLabel(stale, label, ageSeconds, isStale) {
 // ---------------------------------------------------------------------------
 
 var API = "/api/tiles/";
+var CREATE_API = "/api/create/";
 var PREP_TILE = "prep";
 
 // Which tiles this session actually loaded from the backend (vs. the offline
@@ -1279,6 +1280,18 @@ function fetchJson(url, options) {
       throw new Error("HTTP " + res.status);
     }
     return res.json();
+  });
+}
+
+// POST the create-surface smoke check. Sends an empty JSON object so the request
+// exercises the same POST + application/json path the real create endpoints
+// (sub-issues B–E) will use — the backend rejects non-JSON bodies — and resolves
+// only on a 2xx. Rejects (offline mock, no backend) so the caller can report it.
+function pingCreateBackend() {
+  return fetchJson(CREATE_API + "ping", {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: "{}"
   });
 }
 
@@ -1435,6 +1448,165 @@ document.getElementById("themeToggle").addEventListener("click", function () {
 });
 
 paintThemeIcon();
+
+
+// ---------------------------------------------------------------------------
+// View mode — Agenda ↔ Create sub-tabs. Agenda is the default read dashboard;
+// Create hosts the Azure DevOps creation surface (sub-issues B–E mount into
+// #creator-body). The active mode mirrors to a #create URL hash so deep links
+// and the back button work, and the tablist adds arrow-key nav with a roving
+// tabindex. setMode is idempotent, so the click, keyboard, and hash paths can
+// all funnel through it without fighting each other.
+// ---------------------------------------------------------------------------
+
+var MODES = ["agenda", "create"];
+var CREATE_HASH = "#create";
+
+var modeTabs = {
+  agenda: document.getElementById("tab-agenda"),
+  create: document.getElementById("tab-create")
+};
+var modeViews = {
+  agenda: document.getElementById("view-agenda"),
+  create: document.getElementById("view-create")
+};
+var agendaControls = document.getElementById("agenda-controls");
+var activeMode = "agenda";
+var createPinged = false;
+
+function modeFromHash() {
+  return location.hash === CREATE_HASH ? "create" : "agenda";
+}
+
+function setMode(mode, silent) {
+  if (MODES.indexOf(mode) === -1) {
+    mode = "agenda";
+  }
+  activeMode = mode;
+
+  MODES.forEach(function (m) {
+    var isActive = m === mode;
+    var tab = modeTabs[m];
+    var view = modeViews[m];
+
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    tab.tabIndex = isActive ? 0 : -1;
+
+    view.classList.toggle("is-hidden", !isActive);
+    if (isActive) {
+      view.removeAttribute("hidden");
+    } else {
+      view.setAttribute("hidden", "");
+    }
+  });
+
+  agendaControls.classList.toggle("is-hidden", mode !== "agenda");
+
+  if (mode === "create") {
+    if (!silent) {
+      announce("Create mode.");
+    }
+    pingCreateOnce();
+  } else {
+    if (!silent) {
+      announce("Agenda mode.");
+    }
+  }
+}
+
+// Update the URL fragment without reloading: pushState keeps a clean path in
+// Agenda mode (no dangling "#") and gives the back button an entry. file:// can
+// reject pushState, so fall back to a hash assignment for the offline mock.
+function writeModeHash(mode) {
+  try {
+    if (mode === "create") {
+      history.pushState(null, "", CREATE_HASH);
+    } else {
+      history.pushState(null, "", location.pathname + location.search);
+    }
+  } catch (e) {
+    location.hash = mode === "create" ? CREATE_HASH : "";
+  }
+}
+
+function goToMode(mode) {
+  setMode(mode);
+  writeModeHash(mode);
+}
+
+// Arrow / Home / End move selection across the tablist (roving tabindex), the
+// WAI-ARIA tabs pattern; Enter/Space activate natively since the tabs are buttons.
+function onModeKeydown(e) {
+  var idx = MODES.indexOf(activeMode);
+  var next = null;
+
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    next = (idx + 1) % MODES.length;
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    next = (idx - 1 + MODES.length) % MODES.length;
+  } else if (e.key === "Home") {
+    next = 0;
+  } else if (e.key === "End") {
+    next = MODES.length - 1;
+  }
+
+  if (next === null) {
+    return;
+  }
+
+  e.preventDefault();
+  var mode = MODES[next];
+  goToMode(mode);
+  modeTabs[mode].focus();
+}
+
+MODES.forEach(function (m) {
+  modeTabs[m].addEventListener("click", function () { goToMode(m); });
+  modeTabs[m].addEventListener("keydown", onModeKeydown);
+});
+
+window.addEventListener("popstate", function () { setMode(modeFromHash()); });
+window.addEventListener("hashchange", function () { setMode(modeFromHash()); });
+
+
+// Backend reachability, checked once when Create is first shown — the browser end
+// of the POST /api/create/ping smoke test. Success means the create endpoints
+// (sub-issues B–E) can reach the PowerShell backend; failure means the page is
+// running without its server (the offline mock), so creates aren't wired yet.
+function setCreateStatus(state, text) {
+  var chip = document.getElementById("creator-status");
+  var label = document.getElementById("creator-status-text");
+  if (!chip || !label) {
+    return;
+  }
+
+  chip.classList.remove("checking", "ok", "offline");
+  chip.classList.add(state);
+  label.textContent = text;
+}
+
+function pingCreateOnce() {
+  if (createPinged) {
+    return;
+  }
+  createPinged = true;
+
+  setCreateStatus("checking", "Checking backend…");
+
+  pingCreateBackend()
+    .then(function () {
+      setCreateStatus("ok", "Backend connected");
+      announce("Create backend connected.");
+    })
+    .catch(function () {
+      setCreateStatus("offline", "Offline — sample mode");
+      announce("Create backend offline — sample mode.");
+    });
+}
+
+// Apply the initial mode from the hash so a deep link to #create opens Create.
+// Silent: the boot sync shouldn't announce a mode change the user didn't make.
+setMode(modeFromHash(), true);
 
 
 // Live filter across every work-item and event row. Remembers each tile's

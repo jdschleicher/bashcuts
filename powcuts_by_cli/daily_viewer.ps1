@@ -1244,6 +1244,76 @@ function Get-AzDevOpsDailyViewerTileRoute {
 }
 
 
+function Get-AzDevOpsDailyViewerCreateRoute {
+    # Parse an /api/create/<action> path into { Action } or $null when it isn't a
+    # create route. The create surface is the Azure DevOps creation mode (Epic
+    # #228): the whole namespace is POST + JSON only, enforced by the handler.
+    # Only single-segment actions are recognized; the foundation ships `ping` and
+    # sub-issues B–E add their own actions to the handler's switch.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $prefix = '/api/create/'
+    if (-not $Path.StartsWith($prefix)) {
+        return $null
+    }
+
+    $rest = $Path.Substring($prefix.Length).Trim('/')
+    if (-not $rest) {
+        return $null
+    }
+
+    $segments = $rest -split '/'
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Invoke-AzDevOpsDailyViewerCreateRequest {
+    # Handle a POST /api/create/<action> request. The create surface is POST +
+    # JSON only: a browser can't forge a cross-origin JSON POST to this loopback
+    # server without a preflight it never answers, so the verb and the
+    # application/json body requirement together keep the create path same-origin.
+    # The foundation ships only `ping` — the round-trip smoke check the creator
+    # view uses to report backend reachability; sub-issues B–E add their actions
+    # (workitem / draft / timer-debrief / unplanned) to the switch below.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
+        [Parameter(Mandatory)] [PSCustomObject] $Route
+    )
+
+    $request  = $Context.Request
+    $response = $Context.Response
+
+    if ($request.HttpMethod -ne 'POST') {
+        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Create actions require POST.'
+        return
+    }
+
+    switch ($Route.Action) {
+        'ping' {
+            $ack = [ordered]@{
+                ok      = $true
+                service = 'daily-viewer'
+                action  = 'ping'
+            }
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $ack
+            return
+        }
+
+        default {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown create action '$($Route.Action)'."
+            return
+        }
+    }
+}
+
+
 function Invoke-AzDevOpsDailyViewerApiRequest {
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
@@ -1338,7 +1408,8 @@ function Invoke-AzDevOpsDailyViewerStaticRequest {
 
 
 function Invoke-AzDevOpsDailyViewerRequest {
-    # Front door: API routes go to the tile handler (cheap GET / expensive POST),
+    # Front door: /api/tiles/* goes to the tile handler (cheap GET / expensive
+    # POST), /api/create/* to the create handler (POST-only creation surface),
     # everything else is treated as a static-asset GET. Any handler failure is
     # turned into a 500 so one bad request can never kill the serving loop.
     param(
@@ -1349,13 +1420,21 @@ function Invoke-AzDevOpsDailyViewerRequest {
     $response = $Context.Response
 
     try {
-        $route = Get-AzDevOpsDailyViewerTileRoute -Path $Context.Request.Url.AbsolutePath
+        $path = $Context.Request.Url.AbsolutePath
 
-        if ($null -ne $route) {
-            Invoke-AzDevOpsDailyViewerApiRequest -Context $Context -Route $route
-        } else {
-            Invoke-AzDevOpsDailyViewerStaticRequest -Context $Context -StaticRoot $StaticRoot
+        $tileRoute = Get-AzDevOpsDailyViewerTileRoute -Path $path
+        if ($null -ne $tileRoute) {
+            Invoke-AzDevOpsDailyViewerApiRequest -Context $Context -Route $tileRoute
+            return
         }
+
+        $createRoute = Get-AzDevOpsDailyViewerCreateRoute -Path $path
+        if ($null -ne $createRoute) {
+            Invoke-AzDevOpsDailyViewerCreateRequest -Context $Context -Route $createRoute
+            return
+        }
+
+        Invoke-AzDevOpsDailyViewerStaticRequest -Context $Context -StaticRoot $StaticRoot
     }
     catch {
         # Keep the exception detail (which can name filesystem paths) server-side;
