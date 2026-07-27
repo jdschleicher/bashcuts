@@ -1636,6 +1636,11 @@ var PRIORITY_OPTIONS = [
 ];
 var CREATE_DEFAULT_PRIORITY = "2";
 
+// Row separators used when composing option/result labels, named so they aren't
+// scattered as bare punctuation literals (the backend names its dash/middot too).
+var CREATE_DASH = " — ";
+var CREATE_MIDDOT = " · ";
+
 var createState = { options: null, loaded: false, initialized: false };
 var createStorySeq = 0;
 
@@ -1673,8 +1678,8 @@ function parentOptionModels(parentType) {
 
   var rows = opts.parents[parentType] || [];
   return rows.map(function (r) {
-    var suffix = r.state ? " · " + r.state : "";
-    return { value: String(r.id), label: "#" + r.id + " — " + r.title + suffix };
+    var suffix = r.state ? CREATE_MIDDOT + r.state : "";
+    return { value: String(r.id), label: "#" + r.id + CREATE_DASH + r.title + suffix };
   });
 }
 
@@ -1920,7 +1925,7 @@ function createdLine(result) {
   }
 
   if (result.title) {
-    children.push(el("span", { class: "create-item-title", text: " — " + result.title }));
+    children.push(el("span", { class: "create-item-title", text: CREATE_DASH + result.title }));
   }
 
   if (result.linked === false && result.linkError) {

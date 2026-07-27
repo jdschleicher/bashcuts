@@ -75,6 +75,7 @@ $script:AzDevOpsDailyViewerCreateTypes = [ordered]@{
     'Epic'       = @{ ParentType = '';           HasPoints = $false; HasAcceptance = $false }
 }
 
+$script:AzDevOpsDailyViewerEpicType           = 'Epic'
 $script:AzDevOpsDailyViewerStoryType          = 'User Story'
 $script:AzDevOpsDailyViewerFeatureType        = 'Feature'
 $script:AzDevOpsDailyViewerFeatureStoriesType = 'FeatureStories'  # batch: a Feature + its child User Stories
@@ -1360,7 +1361,7 @@ function Get-AzDevOpsDailyViewerCreateOptions {
     $hierarchy = Read-AzDevOpsHierarchyCache
 
     $parents = [ordered]@{
-        Epic         = Get-AzDevOpsDailyViewerParentCandidates -Hierarchy $hierarchy -Type 'Epic'
+        Epic         = Get-AzDevOpsDailyViewerParentCandidates -Hierarchy $hierarchy -Type $script:AzDevOpsDailyViewerEpicType
         Feature      = Get-AzDevOpsDailyViewerParentCandidates -Hierarchy $hierarchy -Type $script:AzDevOpsDailyViewerFeatureType
         'User Story' = Get-AzDevOpsDailyViewerParentCandidates -Hierarchy $hierarchy -Type $script:AzDevOpsDailyViewerStoryType
     }
@@ -1564,43 +1565,102 @@ function New-AzDevOpsDailyViewerFeatureWithStories {
 }
 
 
+function New-AzDevOpsDailyViewerCreateError {
+    # Shape a create failure response — { StatusCode; Body{ ok:$false; error } } —
+    # in one place so the validator and gate don't repeat the literal. 400 for a
+    # malformed/incomplete payload; 200 with ok:$false for an auth/create failure
+    # the form surfaces (nothing 500s silently).
+    param(
+        [Parameter(Mandatory)] [int]    $Code,
+        [Parameter(Mandatory)] [string] $Message
+    )
+
+    $body = [ordered]@{ ok = $false; error = $Message }
+    $outcome = @{ StatusCode = $Code; Body = $body }
+    return $outcome
+}
+
+
+function New-AzDevOpsDailyViewerSingleWorkItem {
+    # The single-item arm: resolve the spec-gated fields (points / acceptance only
+    # when the type carries them, parent only when it links up) and create + link
+    # one work item. Peer of New-AzDevOpsDailyViewerFeatureWithStories, so
+    # Invoke-AzDevOpsDailyViewerCreateWorkItem stays a clean validate -> dispatch.
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Payload,
+        [Parameter(Mandatory)] [string]    $Type,
+        [Parameter(Mandatory)] [hashtable] $Spec,
+        [Parameter(Mandatory)] [string]    $Title,
+        [Parameter(Mandatory)] [string]    $Area,
+        [Parameter(Mandatory)] [string]    $Iteration
+    )
+
+    $priority = Get-AzDevOpsDailyViewerCreatePriority -Value $Payload.priority
+
+    $points = if ($Spec.HasPoints) {
+        Get-AzDevOpsDailyViewerCreatePoints -Value $Payload.storyPoints
+    } else {
+        -1
+    }
+
+    $acceptance = if ($Spec.HasAcceptance) {
+        [string]$Payload.acceptanceCriteria
+    } else {
+        $null
+    }
+
+    $parentId = Get-AzDevOpsDailyViewerParentId -Value $Payload.parentId -HasParent ([bool]$Spec.ParentType)
+
+    $result = New-AzDevOpsDailyViewerWorkItem `
+        -CreateType         $Type `
+        -Title              $Title `
+        -Description        ([string]$Payload.description) `
+        -Priority           $priority `
+        -StoryPoints        $points `
+        -AcceptanceCriteria $acceptance `
+        -Area               $Area `
+        -Iteration          $Iteration `
+        -ParentId           $parentId
+
+    return $result
+}
+
+
 function Invoke-AzDevOpsDailyViewerCreateWorkItem {
-    # Validate a create payload and drive the non-interactive create core. Returns
-    # { StatusCode; Body } so the handler just writes it: 400 for a malformed or
-    # incomplete payload (surfaced in the form), else 200 with { ok } — ok:$false
-    # carrying the az / auth error when the create itself fails, so nothing 500s
-    # silently. Handles both a single item and the Feature+Stories batch.
+    # Validate a create payload, auth-gate, then dispatch to one of two symmetric
+    # arms — the Feature+Stories batch or a single item. Returns { StatusCode; Body }
+    # so the handler just writes it.
     param([Parameter(Mandatory)] [AllowNull()] $Payload)
 
     if ($null -eq $Payload) {
-        $body = [ordered]@{ ok = $false; error = 'Request body must be JSON.' }
-        return @{ StatusCode = 400; Body = $body }
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
     }
 
     $type = [string]$Payload.type
     $isBatch = ($type -eq $script:AzDevOpsDailyViewerFeatureStoriesType)
 
     if (-not $isBatch -and -not $script:AzDevOpsDailyViewerCreateTypes.Contains($type)) {
-        $body = [ordered]@{ ok = $false; error = "Unknown work-item type '$type'." }
-        return @{ StatusCode = 400; Body = $body }
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message "Unknown work-item type '$type'."
+        return $failure
     }
 
     $area      = [string]$Payload.area
     $iteration = [string]$Payload.iteration
     if (-not $area -or -not $iteration) {
-        $body = [ordered]@{ ok = $false; error = 'Area and iteration are required.' }
-        return @{ StatusCode = 400; Body = $body }
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Area and iteration are required.'
+        return $failure
     }
 
     $title = ([string]$Payload.title).Trim()
     if (-not $title) {
-        $body = [ordered]@{ ok = $false; error = 'Title is required.' }
-        return @{ StatusCode = 400; Body = $body }
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Title is required.'
+        return $failure
     }
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer create')) {
-        $body = [ordered]@{ ok = $false; error = 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.' }
-        return @{ StatusCode = 200; Body = $body }
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.'
+        return $failure
     }
 
     if ($isBatch) {
@@ -1609,35 +1669,8 @@ function Invoke-AzDevOpsDailyViewerCreateWorkItem {
     }
 
     $spec = $script:AzDevOpsDailyViewerCreateTypes[$type]
-
-    $priority = Get-AzDevOpsDailyViewerCreatePriority -Value $Payload.priority
-
-    $points = if ($spec.HasPoints) {
-        Get-AzDevOpsDailyViewerCreatePoints -Value $Payload.storyPoints
-    } else {
-        -1
-    }
-
-    $acceptance = if ($spec.HasAcceptance) {
-        [string]$Payload.acceptanceCriteria
-    } else {
-        $null
-    }
-
-    $parentId = Get-AzDevOpsDailyViewerParentId -Value $Payload.parentId -HasParent ([bool]$spec.ParentType)
-
-    $result = New-AzDevOpsDailyViewerWorkItem `
-        -CreateType         $type `
-        -Title              $title `
-        -Description        ([string]$Payload.description) `
-        -Priority           $priority `
-        -StoryPoints        $points `
-        -AcceptanceCriteria $acceptance `
-        -Area               $area `
-        -Iteration          $iteration `
-        -ParentId           $parentId
-
-    return @{ StatusCode = 200; Body = $result }
+    $single = New-AzDevOpsDailyViewerSingleWorkItem -Payload $Payload -Type $type -Spec $spec -Title $title -Area $area -Iteration $iteration
+    return @{ StatusCode = 200; Body = $single }
 }
 
 

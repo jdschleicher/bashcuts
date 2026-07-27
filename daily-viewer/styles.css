@@ -358,7 +358,7 @@ button:focus-visible {
 
 /* ---------- create-mode forms (sub-issue B) ---------- */
 .create-form,
-#create-fields {
+.create-fields {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
@@ -393,8 +393,13 @@ button:focus-visible {
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
+}
+.field input:focus-visible,
+.field textarea:focus-visible,
+.field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .field-hint {
   margin: 0;
