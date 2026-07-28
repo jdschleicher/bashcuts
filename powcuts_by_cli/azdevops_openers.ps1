@@ -141,15 +141,16 @@ function az-Open-UserStoriesWiql {
 }
 
 
-function az-Open-FieldTemplates {
-    # Opens the per-type extra-fields config (field-templates.json). Defensively
-    # seeds field-templates.json (empty {}) and field-templates.example.json (the
-    # swimlane example) via Initialize-AzDevOpsFieldTemplates - mirrors how
-    # az-Open-HierarchyWiqls seeds - so a fresh machine can discover and edit the
-    # config in one step. The example is opened alongside so the shape is visible.
-    $init = Initialize-AzDevOpsFieldTemplates
+function Open-AzDevOpsSeededFiles {
+    # Shared open loop for the config-file openers. Given the Seeded list an
+    # Initialize-AzDevOps* seeder returns ({ Name; Path; Seeded }), prints a
+    # per-file status line (seeded-just-now vs already-present) and opens each in
+    # the OS default editor. Private helper (unapproved verb is fine - not a
+    # user-facing surface) so az-Open-FieldTemplates and az-Open-BodyTemplates
+    # don't carry byte-identical copies of the loop.
+    param([Parameter(Mandatory)] [object[]] $Seeded)
 
-    foreach ($entry in $init.Seeded) {
+    foreach ($entry in $Seeded) {
         if ($entry.Seeded) {
             Write-Host "Wrote default $($entry.Name) to $($entry.Path) - opening for editing" -ForegroundColor Green
         } else {
@@ -161,6 +162,18 @@ function az-Open-FieldTemplates {
 }
 
 
+function az-Open-FieldTemplates {
+    # Opens the per-type extra-fields config (field-templates.json). Defensively
+    # seeds field-templates.json (empty {}) and field-templates.example.json (the
+    # swimlane example) via Initialize-AzDevOpsFieldTemplates - mirrors how
+    # az-Open-HierarchyWiqls seeds - so a fresh machine can discover and edit the
+    # config in one step. The example is opened alongside so the shape is visible.
+    $init = Initialize-AzDevOpsFieldTemplates
+
+    Open-AzDevOpsSeededFiles -Seeded $init.Seeded
+}
+
+
 function az-Open-BodyTemplates {
     # Opens the per-type Description body-template config (body-templates.json).
     # Defensively seeds body-templates.json (empty {}) and body-templates.example.json
@@ -169,15 +182,7 @@ function az-Open-BodyTemplates {
     # in one step. The example is opened alongside so the placeholder shape is visible.
     $init = Initialize-AzDevOpsBodyTemplates
 
-    foreach ($entry in $init.Seeded) {
-        if ($entry.Seeded) {
-            Write-Host "Wrote default $($entry.Name) to $($entry.Path) - opening for editing" -ForegroundColor Green
-        } else {
-            Write-Host "Opening $($entry.Path)" -ForegroundColor DarkGray
-        }
-
-        Start-Process $entry.Path
-    }
+    Open-AzDevOpsSeededFiles -Seeded $init.Seeded
 }
 
 
