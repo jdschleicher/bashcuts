@@ -2394,14 +2394,15 @@ function draftRowContent(node, hasChildren) {
     children.push(el("span", { class: "draft-missing", text: "missing: " + missing.join(", ") }));
   }
 
-  children.push(draftNodeActions(node));
   return children;
 }
 
 // One tree node. childMap groups items by parentRef; `visited` guards a re-parent
 // that produced a cycle so recursion can't spin. Nodes with children collapse via
-// <details>; the action buttons live in the summary but preventDefault/stopProp so
-// a click on them doesn't also toggle the disclosure.
+// native <details>/<summary>; the action buttons sit OUTSIDE the summary (a sibling
+// of <details> in a flex wrap) so they're valid interactive content and don't
+// inflate the disclosure's accessible name — leaf rows carry the same buttons
+// inline since they have no summary.
 function draftTreeNode(node, childMap, visited) {
   if (visited[node.ref]) {
     return null;
@@ -2414,7 +2415,7 @@ function draftTreeNode(node, childMap, visited) {
 
   if (!hasChildren) {
     return el("li", { class: "draft-node" }, [
-      el("div", { class: "draft-row is-leaf" }, rowChildren)
+      el("div", { class: "draft-row is-leaf" }, rowChildren.concat([ draftNodeActions(node) ]))
     ]);
   }
 
@@ -2424,7 +2425,10 @@ function draftTreeNode(node, childMap, visited) {
   }));
 
   return el("li", { class: "draft-node" }, [
-    el("details", { open: "" }, [ summary, childList ])
+    el("div", { class: "draft-row-wrap" }, [
+      el("details", { open: "" }, [ summary, childList ]),
+      draftNodeActions(node)
+    ])
   ]);
 }
 
@@ -2676,7 +2680,8 @@ function renderDraftPublishResult(res) {
   }
 
   var summary = published.length + " published" + (failed.length ? ", " + failed.length + " failed/skipped" : "");
-  draftResult.appendChild(el("div", { class: "create-banner " + (failed.length ? "bad" : "busy") }, [ summary ]));
+  var bannerKind = failed.length ? "create-banner bad" : "create-banner";
+  draftResult.appendChild(el("div", { class: bannerKind }, [ summary ]));
 
   var list = el("ul", { class: "create-list" }, []);
   published.forEach(function (row) {

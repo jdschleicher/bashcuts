@@ -2183,25 +2183,10 @@ function New-AzDevOpsDailyViewerDraftPublishResult {
     foreach ($item in $ordered) {
         $itemRef = [int]$item.Ref
 
-        # Resolve the real parent id. An existing Azure parent is used verbatim; a
-        # draft parent must have published earlier in this pass, else the child is
-        # skipped rather than silently orphaned.
-        $parentId         = 0
-        $parentUnresolved = $false
+        $resolution = Resolve-AzDevOpsDraftPublishParentId -Item $item -RefSet $refSet -RefToId $refToId
+        $parentId   = $resolution.ParentId
 
-        if ([int]$item.ParentId -gt 0) {
-            $parentId = [int]$item.ParentId
-        }
-        elseif ([int]$item.ParentRef -gt 0 -and $refSet.ContainsKey([int]$item.ParentRef)) {
-            $draftParentRef = [int]$item.ParentRef
-            if ($refToId.ContainsKey($draftParentRef)) {
-                $parentId = $refToId[$draftParentRef]
-            } else {
-                $parentUnresolved = $true
-            }
-        }
-
-        if ($parentUnresolved) {
+        if ($resolution.Unresolved) {
             $failed.Add([ordered]@{
                 ref    = $itemRef
                 type   = [string]$item.Type
@@ -2307,8 +2292,8 @@ function Invoke-AzDevOpsDailyViewerDraftPublish {
 
     $state = Get-AzDevOpsDailyViewerDraftState
 
-    $publishedCount = @($results.published).Count
-    $failedCount    = @($results.failed).Count
+    $publishedCount = $results.published.Count
+    $failedCount    = $results.failed.Count
 
     $body = [ordered]@{
         ok             = ($failedCount -eq 0)

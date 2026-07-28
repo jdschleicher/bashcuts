@@ -749,6 +749,41 @@ function Build-AzDevOpsDraftCreateArgs {
 }
 
 
+function Resolve-AzDevOpsDraftPublishParentId {
+    # Resolve the real Azure parent id for a draft item mid-publish. An existing
+    # Azure parent (ParentId) is used verbatim; a draft parent (ParentRef) must
+    # already have been created in this pass - if it hasn't (its create failed or
+    # hasn't run yet), the child is Unresolved and the caller skips it rather than
+    # orphaning it silently. A root / dangling parent resolves to 0 (no link).
+    # Returns { ParentId; Unresolved }. Shared by the terminal publish loop and the
+    # daily-viewer publish endpoint so the two can't drift.
+    param(
+        [Parameter(Mandatory)] $Item,
+        [Parameter(Mandatory)] [hashtable] $RefSet,
+        [Parameter(Mandatory)] [hashtable] $RefToId
+    )
+
+    if ([int]$Item.ParentId -gt 0) {
+        $resolved = [PSCustomObject]@{ ParentId = [int]$Item.ParentId; Unresolved = $false }
+        return $resolved
+    }
+
+    $parentRef = [int]$Item.ParentRef
+    if ($parentRef -gt 0 -and $RefSet.ContainsKey($parentRef)) {
+        if ($RefToId.ContainsKey($parentRef)) {
+            $resolved = [PSCustomObject]@{ ParentId = [int]$RefToId[$parentRef]; Unresolved = $false }
+            return $resolved
+        }
+
+        $resolved = [PSCustomObject]@{ ParentId = 0; Unresolved = $true }
+        return $resolved
+    }
+
+    $resolved = [PSCustomObject]@{ ParentId = 0; Unresolved = $false }
+    return $resolved
+}
+
+
 function Sort-AzDevOpsDraftForPublish {
     # Order the draft so every item is published after its draft parent. Items
     # with no draft parent (roots, or items attached to an existing Azure id)
@@ -1256,26 +1291,10 @@ function az-Publish-AzDevOpsDraft {
         $itemTitle = Format-AzDevOpsTruncatedTitle -Title ([string]$item.Title)
         $label     = "$([string]$item.Type): $itemTitle"
 
-        # Resolve the real parent id. An existing Azure parent is used verbatim;
-        # a draft parent must have published already. A draft parent that failed
-        # (or whose id never materialized) means this child can't be linked, so
-        # it's skipped rather than orphaned silently.
-        $parentId         = 0
-        $parentUnresolved = $false
+        $resolution = Resolve-AzDevOpsDraftPublishParentId -Item $item -RefSet $refSet -RefToId $refToId
+        $parentId   = $resolution.ParentId
 
-        if ([int]$item.ParentId -gt 0) {
-            $parentId = [int]$item.ParentId
-        }
-        elseif ([int]$item.ParentRef -gt 0 -and $refSet.ContainsKey([int]$item.ParentRef)) {
-            $parentRef = [int]$item.ParentRef
-            if ($refToId.ContainsKey($parentRef)) {
-                $parentId = $refToId[$parentRef]
-            } else {
-                $parentUnresolved = $true
-            }
-        }
-
-        if ($parentUnresolved) {
+        if ($resolution.Unresolved) {
             Write-AzDevOpsDraftProgress -Current $index -Total $total -Label "SKIP (parent failed) $label"
             $failedRefs[$itemRef] = $true
             $failed.Add([PSCustomObject]@{ Ref = $itemRef; Title = [string]$item.Title; Reason = 'parent create failed' })
