@@ -1773,6 +1773,9 @@ function buildCreateField(name, idPrefix, typeSpec) {
   }
 
   control.setAttribute("aria-describedby", id + "-error");
+  if (def.required) {
+    control.setAttribute("aria-required", "true");
+  }
 
   var labelText = (name === "parent" && typeSpec && typeSpec.parentLabel) ? typeSpec.parentLabel : def.label;
   var labelChildren = [ labelText ];

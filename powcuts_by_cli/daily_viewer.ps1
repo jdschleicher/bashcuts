@@ -1643,7 +1643,11 @@ function Invoke-AzDevOpsDailyViewerCreateWorkItem {
         return
     }
 
-    $primary = Read-AzDevOpsDailyViewerCreateItem -Item $payload
+    # -Story so a standalone User Story's storyPoints are parsed (Feature / Epic /
+    # Task carry none, so their primary item validates without it). The child
+    # Stories of a Feature-with-Stories batch are validated with -Story below.
+    $primaryIsStory = ($typeDef.Kind -eq 'USER_STORY')
+    $primary = Read-AzDevOpsDailyViewerCreateItem -Item $payload -Story:$primaryIsStory
     if (-not $primary.Ok) {
         Write-AzDevOpsDailyViewerCreateFieldError -Response $Response -Result $primary
         return
