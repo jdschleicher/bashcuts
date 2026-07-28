@@ -631,7 +631,7 @@ flowchart TD
         Pub([Test-AzDevOpsCreateGate]) --> Resolve["Resolve-AzDevOpsIterationArea<br/>(once for the batch)"]
         Resolve --> Sort["Sort-AzDevOpsDraftForPublish<br/>parents-first"]
         Sort --> Each{"for each item"}
-        Each --> Resolve2["resolve parent id<br/>ParentId | RefToId[ParentRef]"]
+        Each --> Resolve2["Resolve-AzDevOpsDraftPublishParentId<br/>ParentId | RefToId[ParentRef]"]
         Resolve2 --> Create["Invoke-AzDevOpsWorkItemCreate"]
         Create -- ok --> Link["Invoke-AzDevOpsParentLink"]
         Link --> Cache["Add-AzDevOpsHierarchyCacheItem"]
