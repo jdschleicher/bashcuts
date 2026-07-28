@@ -16,6 +16,15 @@
 $script:AzDevOpsTitleMaxLength  = 255
 $script:AzDevOpsTitleWarnLength = 230
 
+# Custom body-template placeholders (see Read-AzDevOpsTemplatedBody). The strict
+# pattern captures a placeholder's ordering number (group 1) and its prompt text
+# (group 2) from `[[ PROMPT_<n>--<prompt text> ]]`, tolerating surrounding
+# whitespace. The prompt-like pattern catches any `[[ PROMPT... ]]` block so a
+# near-miss (missing `--`, non-numeric number) is flagged as malformed instead
+# of silently passing through as literal body text.
+$script:AzDevOpsBodyPlaceholderPattern = '\[\[\s*PROMPT_(\d+)\s*--\s*(.*?)\s*\]\]'
+$script:AzDevOpsBodyPromptLikePattern  = '\[\[\s*PROMPT[^\]]*\]\]'
+
 
 function Get-AzDevOpsReuseHint {
     # Builds the " (Enter to reuse '<value>')" suffix used by batch-flow readers
@@ -158,6 +167,117 @@ function Read-AzDevOpsUserStoryDescription {
 
     $description = $clauses -join $clauseBreak
 
+    return $description
+}
+
+
+function Get-AzDevOpsBodyPlaceholders {
+    # Parse a custom body template into ordered placeholder descriptors. Returns
+    # a result object { Ok; Placeholders }: Ok is $false when the template is
+    # malformed - a `[[ PROMPT... ]]` block that doesn't match the strict
+    # `[[ PROMPT_<n>--<text> ]]` shape, or a duplicate PROMPT number - so the
+    # caller warns and falls back rather than substitute a half-built body. On
+    # Ok the Placeholders array carries { Number; Label } in ascending Number
+    # order (empty for a placeholder-free template).
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Template)
+
+    $ignoreCase = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+
+    $strict = [regex]::Matches($Template, $script:AzDevOpsBodyPlaceholderPattern, $ignoreCase)
+
+    $strictValues = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($match in $strict) {
+        [void]$strictValues.Add($match.Value)
+    }
+
+    $promptLike = [regex]::Matches($Template, $script:AzDevOpsBodyPromptLikePattern, $ignoreCase)
+    foreach ($match in $promptLike) {
+        if (-not $strictValues.Contains($match.Value)) {
+            Write-Host "  Malformed body-template placeholder: '$($match.Value)'. Expected [[ PROMPT_<n>--<prompt text> ]]." -ForegroundColor Yellow
+            return [PSCustomObject]@{ Ok = $false; Placeholders = @() }
+        }
+    }
+
+    $placeholders = [System.Collections.Generic.List[object]]::new()
+    $seenNumbers  = [System.Collections.Generic.HashSet[int]]::new()
+
+    foreach ($match in $strict) {
+        $number = [int]$match.Groups[1].Value
+
+        if (-not $seenNumbers.Add($number)) {
+            Write-Host "  Duplicate body-template placeholder number PROMPT_$number. Give each placeholder a unique number." -ForegroundColor Yellow
+            return [PSCustomObject]@{ Ok = $false; Placeholders = @() }
+        }
+
+        $label = $match.Groups[2].Value.Trim()
+        $placeholders.Add([PSCustomObject]@{ Number = $number; Label = $label })
+    }
+
+    $ordered = @($placeholders | Sort-Object Number)
+    return [PSCustomObject]@{ Ok = $true; Placeholders = $ordered }
+}
+
+
+function Read-AzDevOpsTemplatedBody {
+    # Drive a custom body template: parse [[ PROMPT_<n>--<text> ]] placeholders,
+    # prompt for each in ascending <n> order (the text after `--` is the exact
+    # Read-Host prompt, each required like the fixed clause readers), then
+    # substitute every answer back at its placeholder position and return the
+    # filled body. A placeholder-free template is returned verbatim (no prompts).
+    # A malformed template yields $null after a warning so the caller can fall
+    # back to its default reader rather than send a half-substituted body to az.
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Template)
+
+    $parsed = Get-AzDevOpsBodyPlaceholders -Template $Template
+    if (-not $parsed.Ok) {
+        return $null
+    }
+
+    $answers = @{}
+    foreach ($placeholder in $parsed.Placeholders) {
+        $answer = ''
+        while (-not $answer) {
+            $answer = (Read-Host $placeholder.Label).Trim()
+        }
+
+        $answers[$placeholder.Number] = $answer
+    }
+
+    $ignoreCase = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    $evaluator = {
+        param($match)
+
+        $number = [int]$match.Groups[1].Value
+        return $answers[$number]
+    }.GetNewClosure()
+
+    $filled = [regex]::Replace($Template, $script:AzDevOpsBodyPlaceholderPattern, $evaluator, $ignoreCase)
+    return $filled
+}
+
+
+function Read-AzDevOpsUserStoryBody {
+    # Resolve the User Story Description: a configured custom body template
+    # (Resolve-AzDevOpsTypeBodyTemplate) drives Read-AzDevOpsTemplatedBody; with
+    # no template configured - or a malformed one - it falls back to the fixed
+    # As-a / I-want / So-that reader so an unconfigured profile behaves exactly
+    # as before this feature existed. Single seam shared by az-New-AzDevOpsUserStory,
+    # the az-New-AzDevOpsFeatureStories batch loop, and the draft brain-dump.
+    $template = $null
+    if (Get-Command Resolve-AzDevOpsTypeBodyTemplate -ErrorAction SilentlyContinue) {
+        $template = Resolve-AzDevOpsTypeBodyTemplate -Type 'USER_STORY'
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($template)) {
+        $templated = Read-AzDevOpsTemplatedBody -Template $template
+        if ($null -ne $templated) {
+            return $templated
+        }
+
+        Write-Host "  Falling back to the default As a / I want / So that prompts." -ForegroundColor Yellow
+    }
+
+    $description = Read-AzDevOpsUserStoryDescription
     return $description
 }
 

@@ -373,6 +373,12 @@ Field-templates config (extra `az boards work-item create` fields per type — s
 az-Open-FieldTemplates   # config/field-templates.json  (+ the seeded .example.json)
 ```
 
+Body-templates config (custom User Story Description body with prompt placeholders — see "Custom User Story body templates" below):
+
+```powershell
+az-Open-BodyTemplates    # config/body-templates.json   (+ the seeded .example.json)
+```
+
 Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
 
 ```powershell
@@ -545,7 +551,104 @@ Grid mode never blocks a create: if `Out-ConsoleGridView` isn't installed, the o
 az-Open-FieldTemplates
 ```
 
-The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
+The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
+
+#### Custom User Story body templates (`body-templates.json`)
+
+Don't like the built-in **As a / I want / So that** Description prompts? Supply your own body template — a single string with numbered **prompt placeholders** — and `az-New-AzDevOpsUserStory` will ask *your* questions in *your* order and drop each answer back exactly where its placeholder sat. A placeholder looks like:
+
+```
+[[ PROMPT_<n>--<prompt text shown to you> ]]
+```
+
+- `<n>` is a unique integer that drives **ask order** — `PROMPT_1` is asked before `PROMPT_2`, no matter where each sits in the template.
+- The text after `--` is the exact prompt you see at the `Read-Host`.
+- Where the placeholder sits in the template is where your answer lands (ask-order and text-position are independent).
+
+Declare one template per work-item type (User Story today) in `~/.bashcuts-az-devops-app/config/body-templates.json`, keyed by work-item type. Because JSON is single-line, use `<br/>` for line breaks and `\n`-escape as needed:
+
+```json
+{
+  "USER_STORY": "<b>Scenario</b><br/>Given [[ PROMPT_2--the starting state ]]<br/>When [[ PROMPT_3--the action taken ]]<br/>Then [[ PROMPT_1--the expected outcome ]]"
+}
+```
+
+With that in place the creator asks **the expected outcome** first (`PROMPT_1`), then **the starting state** (`PROMPT_2`), then **the action taken** (`PROMPT_3`), and renders a Given/When/Then body with each answer in position. A template with no placeholders is used verbatim; a malformed one (a stray `[[ PROMPT… ]]` block or a duplicate number) warns and falls back to the stock prompts, so a create is never blocked.
+
+`az-Connect-AzDevOps` (and the first create / `az-Open-BodyTemplates`) seeds an empty `body-templates.json` (`{}`, so you keep the stock prompts until you opt in) plus a `body-templates.example.json` documenting the Given/When/Then example. Open both for editing with:
+
+```powershell
+az-Open-BodyTemplates
+```
+
+For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type:
+
+```powershell
+USER_STORY = @{
+    BodyTemplate = @'
+Given [[ PROMPT_2--the starting state ]]
+When [[ PROMPT_3--the action taken ]]
+Then [[ PROMPT_1--the expected outcome ]]
+'@
+}
+```
+
+The custom template also feeds the `az-New-AzDevOpsFeatureStories` batch loop and the `az-New-AzDevOpsDraft` brain-dump, since all three share the same Description reader.
+
+**Worked example — what you'll see.** With the Given/When/Then template above configured, running `az-New-AzDevOpsUserStory` prompts you in *numeric* order (not the order the placeholders appear in the template):
+
+```text
+the expected outcome: the cart shows the promo discount
+the starting state: a shopper has a $50 cart and a valid 10%-off code
+the action taken: they apply the code at checkout
+```
+
+…and the created work item's **Description** field renders with each answer dropped into its placeholder's spot:
+
+```html
+<b>Scenario</b>
+Given a shopper has a $50 cart and a valid 10%-off code
+When they apply the code at checkout
+Then the cart shows the promo discount
+```
+
+**More template shapes.** The placeholder mechanism is structure-agnostic — the numbers only drive *ask order*, and the surrounding text is whatever you want. A few more you can drop into `body-templates.json`:
+
+```json
+{
+  "USER_STORY": "<b>Bug repro</b><br/><b>Steps:</b> [[ PROMPT_1--the exact steps to reproduce ]]<br/><b>Expected:</b> [[ PROMPT_2--what should happen ]]<br/><b>Actual:</b> [[ PROMPT_3--what actually happens ]]<br/><b>Env:</b> [[ PROMPT_4--browser / OS / build ]]"
+}
+```
+
+```json
+{
+  "USER_STORY": "As a [[ PROMPT_1--persona ]] I want [[ PROMPT_2--capability ]] so that [[ PROMPT_3--benefit ]].<br/><br/><b>Notes:</b> [[ PROMPT_4--anything the implementer should know ]]"
+}
+```
+
+Or the project-scoped here-string equivalent (multi-line, no `\n`/`<br/>` juggling) in your `$profile`:
+
+```powershell
+$global:AzDevOpsProjectMap = @{
+    ProjectABC = @{
+        Org       = 'https://dev.azure.com/myorg'
+        Project   = 'Project ABC'
+        WORKITEMTYPE_OVERRIDES = @{
+            USER_STORY = @{
+                BodyTemplate = @'
+<b>Bug repro</b>
+Steps: [[ PROMPT_1--the exact steps to reproduce ]]
+Expected: [[ PROMPT_2--what should happen ]]
+Actual: [[ PROMPT_3--what actually happens ]]
+Env: [[ PROMPT_4--browser / OS / build ]]
+'@
+            }
+        }
+    }
+}
+```
+
+Numbers don't have to start at 1 or be contiguous — `PROMPT_10`, `PROMPT_20`, `PROMPT_30` sorts the same as `1, 2, 3` and leaves room to insert a prompt later without renumbering. Each number must be unique within a template; every prompt is required (you'll be re-asked until you enter a non-empty value), matching the stock clause prompts.
 
 ### Creating a new Feature
 

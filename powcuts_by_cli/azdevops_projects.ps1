@@ -17,7 +17,7 @@
 #           Area      = 'Project ABC\Team Phoenix'
 #           Iteration = 'Project ABC\Sprint 42'
 #           Tags      = @('team-phoenix')
-#           Types = @{
+#           WORKITEMTYPE_OVERRIDES = @{      # per-work-item-type overrides (was 'Types')
 #               EPIC = @{
 #                   Area      = 'Project ABC\Portfolio'
 #                   Iteration = 'Project ABC'
@@ -41,6 +41,11 @@
 #                       Type      = 'FEATURE'
 #                       AreaPaths = @('Project ABC\Team Phoenix')
 #                   }
+#                   BodyTemplate = @'
+# Given [[ PROMPT_2--the starting state ]]
+# When [[ PROMPT_3--the action taken ]]
+# Then [[ PROMPT_1--the expected outcome ]]
+# '@
 #               }
 #           }
 #       }
@@ -134,11 +139,22 @@ function Get-AzDevOpsTypeConfig {
         return $null
     }
 
-    if (-not $project.ContainsKey('Types')) {
+    $overridesKey = $null
+    if ($project.ContainsKey('WORKITEMTYPE_OVERRIDES')) {
+        $overridesKey = 'WORKITEMTYPE_OVERRIDES'
+    }
+    elseif ($project.ContainsKey('Types')) {
+        # Back-compat: 'Types' was the original (undescriptive) name for the
+        # per-work-item-type override map. Still honored so an existing profile
+        # keeps working; author new maps with WORKITEMTYPE_OVERRIDES.
+        $overridesKey = 'Types'
+    }
+
+    if ($null -eq $overridesKey) {
         return $null
     }
 
-    $types = $project['Types']
+    $types = $project[$overridesKey]
     if ($null -eq $types -or $types -isnot [hashtable]) {
         return $null
     }
@@ -268,7 +284,7 @@ function Resolve-AzDevOpsTypeRequiredFields {
     # sources so both the JSON config and the ProjectMap feed the same reader:
     #   1. field-templates.json (Get-AzDevOpsFieldTemplateForType) - lower
     #      precedence, machine-wide extra fields per type.
-    #   2. $global:AzDevOpsProjectMap[...].Types..RequiredFields - higher
+    #   2. $global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES..RequiredFields - higher
     #      precedence, overriding the JSON entry for any field it names.
     # Each <spec> is either the literal 'prompt' string, a literal passthrough
     # value, or a hashtable @{ Mode = 'grid'|'prompt'; Options = @(...) }.
@@ -297,6 +313,39 @@ function Resolve-AzDevOpsTypeRequiredFields {
     }
 
     return $merged
+}
+
+
+function Resolve-AzDevOpsTypeBodyTemplate {
+    # Returns the custom Description body template string for the given type, or
+    # $null when none is configured (callers fall through to their fixed reader).
+    # Merges two sources like Resolve-AzDevOpsTypeRequiredFields:
+    #   1. body-templates.json (Get-AzDevOpsBodyTemplateForType) - lower
+    #      precedence, machine-wide per-type template.
+    #   2. $global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES..BodyTemplate - higher
+    #      precedence, overriding the JSON entry when set.
+    # The template itself is a here-string carrying [[ PROMPT_<n>--<text> ]]
+    # placeholders; Read-AzDevOpsTemplatedBody parses and fills it at create time.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $template = $null
+
+    if (Get-Command Get-AzDevOpsBodyTemplateForType -ErrorAction SilentlyContinue) {
+        $fromJson = Get-AzDevOpsBodyTemplateForType -Type $Type
+        if (-not [string]::IsNullOrWhiteSpace($fromJson)) {
+            $template = $fromJson
+        }
+    }
+
+    $typeConfig = Get-AzDevOpsTypeConfig -Type $Type
+    if ($null -ne $typeConfig -and $typeConfig.ContainsKey('BodyTemplate')) {
+        $override = [string]$typeConfig['BodyTemplate']
+        if (-not [string]::IsNullOrWhiteSpace($override)) {
+            $template = $override
+        }
+    }
+
+    return $template
 }
 
 

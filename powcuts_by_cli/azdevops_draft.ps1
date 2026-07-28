@@ -546,7 +546,7 @@ function Read-AzDevOpsDraftDetails {
 
     $details.Description = switch ($Type) {
         $script:AzDevOpsDraftStoryType {
-            Read-AzDevOpsUserStoryDescription
+            Read-AzDevOpsUserStoryBody
         }
 
         $script:AzDevOpsDraftFeatureType {
