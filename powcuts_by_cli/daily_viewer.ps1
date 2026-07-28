@@ -1495,6 +1495,28 @@ function New-AzDevOpsDailyViewerWorkItem {
         }
     }
 
+    # Append the new item to hierarchy.json so a chained create in the same
+    # session sees it — the parent pickers and az-Show-Tree read that cache, so a
+    # Feature just made from the browser is immediately pickable as a Story's
+    # parent without waiting for the next az-Sync-AzDevOpsCache. Best-effort: the
+    # helper swallows any cache-write failure so it never fails the create that
+    # just succeeded. The recorded parent reflects the actual server link — the
+    # parent id only when the link succeeded, 0 (parentless) otherwise — matching
+    # the terminal creators' Invoke-AzDevOpsCreateAndLink behavior.
+    $linkedParentId = if ($ParentId -gt 0 -and $result.linked) {
+        $ParentId
+    } else {
+        0
+    }
+
+    Add-AzDevOpsHierarchyCacheItem `
+        -Id        $created.Id `
+        -Type      $CreateType `
+        -Title     $Title `
+        -Iteration $Iteration `
+        -AreaPath  $Area `
+        -ParentId  $linkedParentId
+
     return $result
 }
 
