@@ -218,14 +218,40 @@ function Get-AzDevOpsBodyPlaceholders {
 }
 
 
+function Format-AzDevOpsBodyLineBreaks {
+    # Convert raw newlines in a filled body template to <br/>. Two reasons: the
+    # AzDO Description field stores HTML (so a bare newline renders as a space,
+    # not a line break), and the native `az` CLI hand-off mangles embedded
+    # newlines in an argument - so a multi-line here-string template that keeps
+    # its raw newlines reaches `az` broken. Every other description reader already
+    # emits <br/>; this brings the templated body in line so a plain multi-line
+    # template "just works" without the author hand-typing <br/>.
+    #
+    # A <br/> the author already placed at a line end is collapsed with the
+    # following newline so it isn't doubled; a bare newline becomes one <br/>,
+    # preserving blank lines 1:1 (a blank line -> <br/><br/>). A single-line
+    # template (no newlines) is returned unchanged.
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Body)
+
+    $lineBreak = '<br/>'
+
+    $normalized = $Body -replace '\r\n?', "`n"
+    $withBreaks = $normalized -replace '(<br\s*/?>)?\n', $lineBreak
+
+    return $withBreaks
+}
+
+
 function Read-AzDevOpsTemplatedBody {
     # Drive a custom body template: parse [[ PROMPT_<n>--<text> ]] placeholders,
     # prompt for each in ascending <n> order (the text after `--` is the exact
     # Read-Host prompt, each required like the fixed clause readers), then
     # substitute every answer back at its placeholder position and return the
-    # filled body. A placeholder-free template is returned verbatim (no prompts).
-    # A malformed template yields $null after a warning so the caller can fall
-    # back to its default reader rather than send a half-substituted body to az.
+    # filled body with raw newlines normalized to <br/> (Format-AzDevOpsBodyLineBreaks).
+    # A placeholder-free template is returned verbatim (aside from that newline
+    # normalization). A malformed template yields $null after a warning so the
+    # caller can fall back to its default reader rather than send a half-
+    # substituted body to az.
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Template)
 
     $parsed = Get-AzDevOpsBodyPlaceholders -Template $Template
@@ -252,7 +278,9 @@ function Read-AzDevOpsTemplatedBody {
     }.GetNewClosure()
 
     $filled = [regex]::Replace($Template, $script:AzDevOpsBodyPlaceholderPattern, $evaluator, $ignoreCase)
-    return $filled
+
+    $body = Format-AzDevOpsBodyLineBreaks -Body $filled
+    return $body
 }
 
 
