@@ -99,7 +99,7 @@ function Invoke-AzDevOpsWorkItemCreate {
     # echo shows them going out and az exits 0. Reconcile any requested extra
     # field that did not land by re-applying it through a work-item update.
     if ($ExtraFields -and $ExtraFields.Count -gt 0) {
-        Set-AzDevOpsExtraFieldsPostCreate -Id $newId -ExtraFields $ExtraFields -CreatedFields $created.fields
+        [void](Set-AzDevOpsExtraFieldsPostCreate -Id $newId -ExtraFields $ExtraFields -CreatedFields $created.fields)
     }
 
     $urlPrefix = Get-AzDevOpsWorkItemUrlPrefix
@@ -118,7 +118,7 @@ function Invoke-AzDevOpsWorkItemCreate {
 }
 
 
-function Get-AzDevOpsCreatedFieldValue {
+function Get-AzDevOpsWorkItemFieldValue {
     # Reads a single field value out of a created / updated work item's `fields`
     # object by its Azure DevOps reference name. Ref names carry dots (e.g.
     # 'Custom.Swimlane'), so the lookup goes through PSObject.Properties rather
@@ -141,6 +141,32 @@ function Get-AzDevOpsCreatedFieldValue {
 
     $value = $property.Value
     return $value
+}
+
+
+function Get-AzDevOpsUnappliedFields {
+    # Given a work item's returned `fields` object and a list of wanted
+    # { RefName; Desired } pairs, returns the subset whose value has not landed -
+    # either absent from `fields` or not stringwise-equal to the desired value.
+    # Shared by the create-side detection and the update-side re-check in
+    # Set-AzDevOpsExtraFieldsPostCreate so the two comparisons can't drift. The
+    # string coercion is deliberate and correct for the scalar swimlane / custom
+    # fields this path targets. Private helper.
+    param(
+        $Fields,
+        [object[]] $Wanted = @()
+    )
+
+    $unapplied = New-Object System.Collections.Generic.List[object]
+
+    foreach ($field in $Wanted) {
+        $actual = Get-AzDevOpsWorkItemFieldValue -Fields $Fields -RefName $field.RefName
+        if ("$actual" -ne "$($field.Desired)") {
+            $unapplied.Add($field)
+        }
+    }
+
+    return $unapplied
 }
 
 
@@ -169,7 +195,7 @@ function Set-AzDevOpsExtraFieldsPostCreate {
         $CreatedFields
     )
 
-    $notApplied = New-Object System.Collections.Generic.List[object]
+    $wanted = New-Object System.Collections.Generic.List[object]
 
     foreach ($refName in $ExtraFields.Keys) {
         $desired = $ExtraFields[$refName]
@@ -177,11 +203,10 @@ function Set-AzDevOpsExtraFieldsPostCreate {
             continue
         }
 
-        $actual = Get-AzDevOpsCreatedFieldValue -Fields $CreatedFields -RefName $refName
-        if ("$actual" -ne "$desired") {
-            $notApplied.Add([PSCustomObject]@{ RefName = $refName; Desired = $desired })
-        }
+        $wanted.Add([PSCustomObject]@{ RefName = $refName; Desired = $desired })
     }
+
+    $notApplied = @(Get-AzDevOpsUnappliedFields -Fields $CreatedFields -Wanted $wanted)
 
     if ($notApplied.Count -eq 0) {
         return
@@ -213,14 +238,7 @@ function Set-AzDevOpsExtraFieldsPostCreate {
         $updatedFields = $null
     }
 
-    $stillMissing = New-Object System.Collections.Generic.List[object]
-
-    foreach ($field in $notApplied) {
-        $confirmed = Get-AzDevOpsCreatedFieldValue -Fields $updatedFields -RefName $field.RefName
-        if ("$confirmed" -ne "$($field.Desired)") {
-            $stillMissing.Add($field)
-        }
-    }
+    $stillMissing = @(Get-AzDevOpsUnappliedFields -Fields $updatedFields -Wanted $notApplied)
 
     if ($stillMissing.Count -gt 0) {
         Write-Host "  !  These field(s) were accepted by neither create nor update on $Id - check the reference name and that the field is settable for this work-item type:" -ForegroundColor Yellow
