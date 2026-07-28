@@ -127,27 +127,79 @@
           <p class="creator-sub">Azure DevOps work items, drafts, timer sessions, and unplanned work &mdash; driven from the browser, run by the same bashcuts helpers as the terminal.</p>
           <p class="creator-status" id="creator-status"><span class="dot" aria-hidden="true"></span><span class="ctext" id="creator-status-text">Not checked yet</span></p>
         </header>
+
+        <!-- Creator sub-nav — Work item (the per-type create form, sub-issue B) vs
+             Draft (the brain-dump hierarchy builder, sub-issue C). A nested tablist
+             inside the Create view; timer (#232) / unplanned (#233) add their own
+             tabs here. app.js adds roving tabindex + arrow-key nav and shows the
+             matching panel. -->
+        <nav class="creator-subnav" role="tablist" aria-label="Create surface">
+          <button class="sub-tab" type="button" role="tab" id="subtab-workitem" aria-controls="panel-workitem" aria-selected="true" tabindex="0">Work item</button>
+          <button class="sub-tab" type="button" role="tab" id="subtab-draft" aria-controls="panel-draft" aria-selected="false" tabindex="-1">Draft</button>
+        </nav>
+
         <div class="creator-body" id="creator-body">
-          <form class="create-form" id="create-form" novalidate>
-            <div class="field">
-              <label for="create-type">Work-item type</label>
-              <select id="create-type">
-                <option value="User Story">User Story</option>
-                <option value="Task">Task</option>
-                <option value="Feature">Feature</option>
-                <option value="Epic">Epic</option>
-                <option value="FeatureStories">Feature + child Stories</option>
-              </select>
+
+          <div id="panel-workitem" role="tabpanel" aria-labelledby="subtab-workitem" tabindex="0">
+            <form class="create-form" id="create-form" novalidate>
+              <div class="field">
+                <label for="create-type">Work-item type</label>
+                <select id="create-type">
+                  <option value="User Story">User Story</option>
+                  <option value="Task">Task</option>
+                  <option value="Feature">Feature</option>
+                  <option value="Epic">Epic</option>
+                  <option value="FeatureStories">Feature + child Stories</option>
+                </select>
+              </div>
+              <!-- Per-type fields are rendered here by app.js from a field spec, so
+                   the form is a function of the selected type rather than five
+                   hand-authored form blocks. -->
+              <div id="create-fields" class="create-fields"></div>
+              <div class="create-actions">
+                <button class="btn primary" type="submit" id="create-submit">Create</button>
+              </div>
+            </form>
+            <div class="create-result" id="create-result" role="status" aria-live="polite"></div>
+          </div>
+
+          <!-- Draft brain-dump builder (sub-issue C). The tree + summary render from
+               GET /api/draft/state; the add/edit form, per-node actions, and publish
+               block POST to /api/draft/*. Every item's text is injected via el()
+               (textContent) in app.js — never innerHTML — so cached Azure DevOps
+               titles stay inert. Empty until the Draft sub-tab is first shown. -->
+          <div id="panel-draft" class="is-hidden" role="tabpanel" aria-labelledby="subtab-draft" tabindex="0" hidden>
+            <div class="draft-panel">
+              <p class="draft-intro">Lay out an Epic &rarr; Feature &rarr; User Story &rarr; Task hierarchy locally, then publish it in one action. Nothing hits Azure DevOps until you publish.</p>
+
+              <div class="draft-summary" id="draft-summary" role="status" aria-live="polite"></div>
+
+              <div class="draft-tree" id="draft-tree"></div>
+
+              <form class="draft-form" id="draft-form" novalidate>
+                <h3 class="draft-form-title" id="draft-form-title">Add an item</h3>
+                <!-- Type / title / details / parent render here, a function of the
+                     chosen type (parent options come from the current draft tree). -->
+                <div id="draft-fields" class="create-fields"></div>
+                <div class="create-actions">
+                  <button class="btn primary" type="submit" id="draft-submit">Add to draft</button>
+                  <button class="btn" type="button" id="draft-cancel-edit" hidden>Cancel edit</button>
+                </div>
+              </form>
+
+              <div class="draft-result" id="draft-result" role="status" aria-live="polite"></div>
+
+              <div class="draft-publish">
+                <h3 class="draft-form-title">Publish</h3>
+                <div id="draft-publish-fields" class="create-fields"></div>
+                <div class="create-actions">
+                  <button class="btn primary" type="button" id="draft-publish-btn">Publish draft</button>
+                  <button class="btn danger" type="button" id="draft-clear-btn">Clear draft</button>
+                </div>
+              </div>
             </div>
-            <!-- Per-type fields are rendered here by app.js from a field spec, so
-                 the form is a function of the selected type rather than five
-                 hand-authored form blocks. -->
-            <div id="create-fields" class="create-fields"></div>
-            <div class="create-actions">
-              <button class="btn primary" type="submit" id="create-submit">Create</button>
-            </div>
-          </form>
-          <div class="create-result" id="create-result" role="status" aria-live="polite"></div>
+          </div>
+
         </div>
       </div>
     </section>

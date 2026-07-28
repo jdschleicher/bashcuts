@@ -83,6 +83,12 @@ $script:AzDevOpsDailyViewerDefaultPriority    = 2                 # ADO 1-4 ramp
 $script:AzDevOpsDailyViewerMinPriority        = 1
 $script:AzDevOpsDailyViewerMaxPriority        = 4
 
+# Draft-mode item types (Epic #228 sub-issue C). The browser brain-dump builder
+# nests these four tiers exactly like the terminal draft (azdevops_draft.ps1);
+# the add endpoint validates a supplied type against this set and the parent /
+# child tier rules against the draft's own Test-AzDevOpsDraftTypeMatchesTier.
+$script:AzDevOpsDailyViewerDraftTypes = @('Epic', 'Feature', 'User Story', 'Task')
+
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
     '.css'  = 'text/css; charset=utf-8'
@@ -1744,6 +1750,668 @@ function Invoke-AzDevOpsDailyViewerCreateRequest {
 }
 
 
+# ---------------------------------------------------------------------------
+# Draft surface — the browser brain-dump builder (Epic #228 sub-issue C)
+# Assemble an Epic -> Feature -> User Story -> Task hierarchy locally, then
+# publish it once. Every endpoint reuses the non-interactive helpers in
+# azdevops_draft.ps1 so the browser and terminal share one draft.json store.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerDraftRoute {
+    # Parse an /api/draft/<action> path into { Action } or $null. `state` reads the
+    # on-disk draft (GET); every mutation (add/set/remove/clear/publish) is POST +
+    # JSON only, enforced by the handler. Single-segment actions only.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/draft/'
+    if ($null -eq $segments) {
+        return $null
+    }
+
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Get-AzDevOpsDailyViewerParentRef {
+    # Parse a form-supplied draft Ref / work-item id to a positive int, or 0 when
+    # absent / blank / non-positive (the draft's "no parent" sentinel).
+    param([AllowNull()] $Value)
+
+    if ($null -eq $Value -or [string]$Value -eq '') {
+        return 0
+    }
+
+    $parsed = 0
+    if ([int]::TryParse([string]$Value, [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+    return 0
+}
+
+
+function Get-AzDevOpsDailyViewerDraftPriority {
+    # Parse a form-supplied priority to the ADO 1-4 range, or -1 when absent /
+    # blank / out of range. Unlike the create form's coercer this keeps "unset" as
+    # -1 (which lowers the drafted item's completeness) rather than defaulting to
+    # the midpoint — a drafted item is meant to be filled in later.
+    param([AllowNull()] $Value)
+
+    if ($null -eq $Value -or [string]$Value -eq '') {
+        return -1
+    }
+
+    $parsed = -1
+    $inRange =
+        [int]::TryParse([string]$Value, [ref]$parsed) -and
+        $parsed -ge $script:AzDevOpsDailyViewerMinPriority -and
+        $parsed -le $script:AzDevOpsDailyViewerMaxPriority
+
+    if ($inRange) {
+        return $parsed
+    }
+    return -1
+}
+
+
+function New-AzDevOpsDailyViewerDraftNode {
+    # Flatten one draft item into the JSON shape the browser tree renders: the raw
+    # editable fields plus the completeness score / missing-field labels computed by
+    # the same helpers az-Show-AzDevOpsDraft uses, and an isRoot flag (true for a
+    # top-level item or one whose ParentRef dangles) so the client groups roots
+    # exactly like the terminal tree.
+    param(
+        [Parameter(Mandatory)] $Item,
+        [Parameter(Mandatory)] [hashtable] $RefSet
+    )
+
+    $completeness = Get-AzDevOpsDraftCompleteness -Item $Item
+    $missing      = Get-AzDevOpsDraftMissingLabels -Item $Item
+
+    $parentRef = [int]$Item.ParentRef
+    $isRoot    = ($parentRef -le 0 -or -not $RefSet.ContainsKey($parentRef))
+
+    $node = [ordered]@{
+        ref                = [int]$Item.Ref
+        type               = [string]$Item.Type
+        title              = [string]$Item.Title
+        description        = [string]$Item.Description
+        priority           = [int]$Item.Priority
+        storyPoints        = [int]$Item.StoryPoints
+        acceptanceCriteria = [string]$Item.AcceptanceCriteria
+        iteration          = [string]$Item.Iteration
+        area               = [string]$Item.Area
+        parentRef          = $parentRef
+        parentId           = [int]$Item.ParentId
+        percent            = $completeness.Percent
+        filled             = $completeness.Filled
+        total              = $completeness.Total
+        missing            = @($missing)
+        isRoot             = $isRoot
+    }
+    return $node
+}
+
+
+function Get-AzDevOpsDailyViewerDraftState {
+    # Build the full draft snapshot the browser renders: every item as a flat node
+    # (the client nests them by parentRef) plus the summary counts az-Show prints.
+    # Read-only, cache-only — no `az`. Reuses Read-AzDevOpsDraft so the browser and
+    # terminal share one store; an absent cache yields an empty, valid snapshot.
+    $draft  = @(Read-AzDevOpsDraft)
+    $refSet = Get-AzDevOpsDraftRefSet -Draft $draft
+
+    $nodes      = New-Object System.Collections.Generic.List[object]
+    $percentSum = 0
+    $readyCount = 0
+
+    foreach ($item in $draft) {
+        $node = New-AzDevOpsDailyViewerDraftNode -Item $item -RefSet $refSet
+        $nodes.Add($node)
+
+        $percentSum += $node.percent
+        if ($node.percent -ge 100) {
+            $readyCount++
+        }
+    }
+
+    $count = $nodes.Count
+    $avgPercent = if ($count -gt 0) {
+        [int][math]::Round($percentSum / $count)
+    } else {
+        0
+    }
+
+    $state = [ordered]@{
+        ok         = $true
+        items      = $nodes
+        count      = $count
+        avgPercent = $avgPercent
+        readyCount = $readyCount
+    }
+    return $state
+}
+
+
+function Test-AzDevOpsDailyViewerDraftParent {
+    # Enforce the draft tier rules before an add / re-parent writes: a parent, when
+    # one is given, must be the tier the child nests under (Feature under Epic,
+    # Story under Feature, Task under Story). The terminal add relies on its
+    # interactive picker to filter candidates by tier; the browser passes an
+    # explicit ParentRef / ParentId, so the constraint (Test-AzDevOpsDraftType-
+    # MatchesTier) is re-checked here. An orphan (no parent) is always allowed.
+    # Returns { Ok; Error }.
+    param(
+        [Parameter(Mandatory)] [string] $ChildType,
+        [int] $ParentRef = 0,
+        [int] $ParentId = 0,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Draft
+    )
+
+    if ($ParentRef -le 0 -and $ParentId -le 0) {
+        $ok = [PSCustomObject]@{ Ok = $true; Error = '' }
+        return $ok
+    }
+
+    $expectedParentType = Get-AzDevOpsDraftParentType -Type $ChildType
+    if ($expectedParentType -eq '') {
+        $bad = [PSCustomObject]@{ Ok = $false; Error = "A $ChildType sits at the top of the tree and can't have a parent." }
+        return $bad
+    }
+
+    if ($ParentRef -gt 0) {
+        $parent = Get-AzDevOpsDraftItemByRef -Draft $Draft -Ref $ParentRef
+        if ($null -eq $parent) {
+            $bad = [PSCustomObject]@{ Ok = $false; Error = "No draft item with ref #$ParentRef to nest under." }
+            return $bad
+        }
+
+        $candidateType = [string]$parent.Type
+        if (-not (Test-AzDevOpsDraftTypeMatchesTier -CandidateType $candidateType -ParentType $expectedParentType)) {
+            $bad = [PSCustomObject]@{ Ok = $false; Error = "A $ChildType must nest under a $expectedParentType, not a $candidateType." }
+            return $bad
+        }
+    }
+
+    if ($ParentId -gt 0) {
+        $hierarchy = @(Read-AzDevOpsHierarchyCache)
+        $existing  = $hierarchy | Where-Object { [int]$_.Id -eq $ParentId } | Select-Object -First 1
+
+        if ($null -ne $existing) {
+            $candidateType = [string]$existing.Type
+            if (-not (Test-AzDevOpsDraftTypeMatchesTier -CandidateType $candidateType -ParentType $expectedParentType)) {
+                $bad = [PSCustomObject]@{ Ok = $false; Error = "A $ChildType must nest under a $expectedParentType, not a $candidateType." }
+                return $bad
+            }
+        }
+    }
+
+    $ok = [PSCustomObject]@{ Ok = $true; Error = '' }
+    return $ok
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftAdd {
+    # Validate an add payload and append one item to the draft via the same
+    # az-Add-AzDevOpsDraftItem helper the terminal uses — params supplied, so no
+    # prompt runs. Type + title are required; a parent, if given, is tier-checked
+    # first. Returns { StatusCode; Body } with the refreshed draft state so the
+    # browser re-renders in one round-trip.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $type = [string]$Payload.type
+    if ($type -notin $script:AzDevOpsDailyViewerDraftTypes) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message "Unknown draft item type '$type'."
+        return $failure
+    }
+
+    $title = ([string]$Payload.title).Trim()
+    if (-not $title) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Title is required.'
+        return $failure
+    }
+
+    $draft     = @(Read-AzDevOpsDraft)
+    $parentRef = Get-AzDevOpsDailyViewerParentRef -Value $Payload.parentRef
+    $parentId  = Get-AzDevOpsDailyViewerParentRef -Value $Payload.parentId
+
+    $parentCheck = Test-AzDevOpsDailyViewerDraftParent -ChildType $type -ParentRef $parentRef -ParentId $parentId -Draft $draft
+    if (-not $parentCheck.Ok) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message $parentCheck.Error
+        return $failure
+    }
+
+    $addArgs = @{
+        Type               = $type
+        Title              = $title
+        Description        = [string]$Payload.description
+        Priority           = Get-AzDevOpsDailyViewerDraftPriority -Value $Payload.priority
+        StoryPoints        = Get-AzDevOpsDailyViewerCreatePoints  -Value $Payload.storyPoints
+        AcceptanceCriteria = [string]$Payload.acceptanceCriteria
+    }
+
+    if ($parentRef -gt 0) {
+        $addArgs.ParentRef = $parentRef
+    } elseif ($parentId -gt 0) {
+        $addArgs.ParentId = $parentId
+    } else {
+        $addArgs.Orphan = $true
+    }
+
+    $ref = az-Add-AzDevOpsDraftItem @addArgs
+    if (-not $ref -or [int]$ref -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Could not save the draft — is a project cache available (az-Connect-AzDevOps)? See the server console.'
+        return $failure
+    }
+
+    $state = Get-AzDevOpsDailyViewerDraftState
+    $body  = [ordered]@{ ok = $true; ref = [int]$ref; draft = $state }
+    $outcome = @{ StatusCode = 200; Body = $body }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftSet {
+    # Edit an existing draft item via az-Set-AzDevOpsDraftItem — only the fields the
+    # payload carries are written (the helper's ContainsKey semantics), and -Details
+    # is never passed so no reader prompts. A re-parent (orphan / parentRef /
+    # parentId) is tier-checked first. Returns { StatusCode; Body } with the
+    # refreshed draft state.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $ref = Get-AzDevOpsDailyViewerParentRef -Value $Payload.ref
+    if ($ref -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'A draft item ref is required.'
+        return $failure
+    }
+
+    $draft = @(Read-AzDevOpsDraft)
+    $item  = Get-AzDevOpsDraftItemByRef -Draft $draft -Ref $ref
+    if ($null -eq $item) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message "No draft item with ref #$ref."
+        return $failure
+    }
+
+    $setArgs = @{ Ref = $ref }
+
+    if ($null -ne $Payload.title) {
+        $setArgs.Title = ([string]$Payload.title).Trim()
+    }
+    if ($null -ne $Payload.description) {
+        $setArgs.Description = [string]$Payload.description
+    }
+    if ($null -ne $Payload.priority -and [string]$Payload.priority -ne '') {
+        $setArgs.Priority = Get-AzDevOpsDailyViewerDraftPriority -Value $Payload.priority
+    }
+    if ($null -ne $Payload.storyPoints -and [string]$Payload.storyPoints -ne '') {
+        $setArgs.StoryPoints = Get-AzDevOpsDailyViewerCreatePoints -Value $Payload.storyPoints
+    }
+    if ($null -ne $Payload.acceptanceCriteria) {
+        $setArgs.AcceptanceCriteria = [string]$Payload.acceptanceCriteria
+    }
+
+    $childType = [string]$item.Type
+
+    if ($Payload.orphan -eq $true) {
+        $setArgs.Orphan = $true
+    } elseif ($null -ne $Payload.parentRef -and [string]$Payload.parentRef -ne '') {
+        $newParentRef = Get-AzDevOpsDailyViewerParentRef -Value $Payload.parentRef
+
+        if ($newParentRef -eq $ref) {
+            $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message "A draft item can't be its own parent."
+            return $failure
+        }
+
+        $parentCheck = Test-AzDevOpsDailyViewerDraftParent -ChildType $childType -ParentRef $newParentRef -Draft $draft
+        if (-not $parentCheck.Ok) {
+            $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message $parentCheck.Error
+            return $failure
+        }
+
+        $setArgs.ParentRef = $newParentRef
+    } elseif ($null -ne $Payload.parentId -and [string]$Payload.parentId -ne '') {
+        $newParentId = Get-AzDevOpsDailyViewerParentRef -Value $Payload.parentId
+
+        $parentCheck = Test-AzDevOpsDailyViewerDraftParent -ChildType $childType -ParentId $newParentId -Draft $draft
+        if (-not $parentCheck.Ok) {
+            $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message $parentCheck.Error
+            return $failure
+        }
+
+        $setArgs.ParentId = $newParentId
+    }
+
+    az-Set-AzDevOpsDraftItem @setArgs | Out-Null
+
+    $state = Get-AzDevOpsDailyViewerDraftState
+    $body  = [ordered]@{ ok = $true; ref = $ref; draft = $state }
+    $outcome = @{ StatusCode = 200; Body = $body }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftRemove {
+    # Remove one draft item via az-Remove-AzDevOpsDraftItem. By default its children
+    # reparent to the grandparent; a truthy `recurse` deletes the whole sub-tree.
+    # Returns { StatusCode; Body } with the refreshed draft state.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $ref = Get-AzDevOpsDailyViewerParentRef -Value $Payload.ref
+    if ($ref -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'A draft item ref is required.'
+        return $failure
+    }
+
+    $draft = @(Read-AzDevOpsDraft)
+    $item  = Get-AzDevOpsDraftItemByRef -Draft $draft -Ref $ref
+    if ($null -eq $item) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message "No draft item with ref #$ref."
+        return $failure
+    }
+
+    $recurse = ($Payload.recurse -eq $true)
+    if ($recurse) {
+        az-Remove-AzDevOpsDraftItem -Ref $ref -Recurse
+    } else {
+        az-Remove-AzDevOpsDraftItem -Ref $ref
+    }
+
+    $state = Get-AzDevOpsDailyViewerDraftState
+    $body  = [ordered]@{ ok = $true; draft = $state }
+    $outcome = @{ StatusCode = 200; Body = $body }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftClear {
+    # Discard the whole draft via az-Clear-AzDevOpsDraft -Force (the -Force skips
+    # the terminal's confirm prompt). Returns { StatusCode; Body } with the now-
+    # empty draft state.
+    az-Clear-AzDevOpsDraft -Force
+
+    $state = Get-AzDevOpsDailyViewerDraftState
+    $body  = [ordered]@{ ok = $true; draft = $state }
+    $outcome = @{ StatusCode = 200; Body = $body }
+    return $outcome
+}
+
+
+function New-AzDevOpsDailyViewerDraftPublishResult {
+    # Publish every drafted item to Azure DevOps in one parents-first pass and
+    # collect a per-item result the browser renders (created rows carry the new id /
+    # url; failed or skipped rows carry the reason). This mirrors az-Publish-
+    # AzDevOpsDraft's loop but reuses only its non-interactive building blocks —
+    # Sort-AzDevOpsDraftForPublish, Build-AzDevOpsDraftCreateArgs, the create/link
+    # core, and Update-AzDevOpsDraftAfterPublish — because the terminal command's
+    # picker prompt and console progress bar don't belong in an HTTP handler (the
+    # same split New-AzDevOpsDailyViewerWorkItem makes versus az-New-*).
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Draft,
+        [Parameter(Mandatory)] [string] $Area,
+        [Parameter(Mandatory)] [string] $Iteration,
+        [switch] $KeepDraft
+    )
+
+    $refSet  = Get-AzDevOpsDraftRefSet -Draft $Draft
+    $ordered = Sort-AzDevOpsDraftForPublish -Draft $Draft
+
+    $refToId   = @{}
+    $published = New-Object System.Collections.Generic.List[object]
+    $failed    = New-Object System.Collections.Generic.List[object]
+
+    foreach ($item in $ordered) {
+        $itemRef = [int]$item.Ref
+
+        # Resolve the real parent id. An existing Azure parent is used verbatim; a
+        # draft parent must have published earlier in this pass, else the child is
+        # skipped rather than silently orphaned.
+        $parentId         = 0
+        $parentUnresolved = $false
+
+        if ([int]$item.ParentId -gt 0) {
+            $parentId = [int]$item.ParentId
+        }
+        elseif ([int]$item.ParentRef -gt 0 -and $refSet.ContainsKey([int]$item.ParentRef)) {
+            $draftParentRef = [int]$item.ParentRef
+            if ($refToId.ContainsKey($draftParentRef)) {
+                $parentId = $refToId[$draftParentRef]
+            } else {
+                $parentUnresolved = $true
+            }
+        }
+
+        if ($parentUnresolved) {
+            $failed.Add([ordered]@{
+                ref    = $itemRef
+                type   = [string]$item.Type
+                title  = [string]$item.Title
+                reason = 'parent create failed'
+            })
+            continue
+        }
+
+        $createArgs   = Build-AzDevOpsDraftCreateArgs -Item $item -DefaultIteration $Iteration -DefaultArea $Area
+        $createResult = Invoke-AzDevOpsWorkItemCreate @createArgs
+
+        if (-not $createResult.Ok) {
+            $failed.Add([ordered]@{
+                ref    = $itemRef
+                type   = [string]$item.Type
+                title  = [string]$item.Title
+                reason = [string]$createResult.Error
+            })
+            continue
+        }
+
+        $newId = [int]$createResult.Id
+        $refToId[$itemRef] = $newId
+
+        $linkedParentId = 0
+        $linkError      = ''
+        if ($parentId -gt 0) {
+            $linkResult = Invoke-AzDevOpsParentLink -Id $newId -ParentId $parentId
+            if ($linkResult.Ok) {
+                $linkedParentId = $parentId
+            } else {
+                $linkError = [string]$linkResult.Error
+            }
+        }
+
+        Add-AzDevOpsHierarchyCacheItem `
+            -Id        $newId `
+            -Type      ([string]$item.Type) `
+            -Title     ([string]$item.Title) `
+            -Iteration $createArgs.Iteration `
+            -AreaPath  $createArgs.Area `
+            -ParentId  $linkedParentId
+
+        $row = [ordered]@{
+            ref      = $itemRef
+            type     = [string]$item.Type
+            title    = [string]$item.Title
+            id       = $newId
+            url      = [string]$createResult.Url
+            linked   = ($linkedParentId -gt 0)
+            parentId = $linkedParentId
+        }
+        if ($linkError) {
+            $row.linkError = $linkError
+        }
+
+        $published.Add($row)
+    }
+
+    Update-AzDevOpsDraftAfterPublish -Draft $Draft -RefToId $refToId -KeepDraft:$KeepDraft
+
+    $result = [ordered]@{
+        published = $published
+        failed    = $failed
+    }
+    return $result
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftPublish {
+    # Validate + auth-gate a publish, then create the whole draft. Area / iteration
+    # come from the payload (the same picker data create uses), so nothing prompts.
+    # Returns { StatusCode; Body } with the per-item results and the refreshed draft
+    # state — leftovers after a partial run, empty after a clean one.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $area      = [string]$Payload.area
+    $iteration = [string]$Payload.iteration
+    if (-not $area -or -not $iteration) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Area and iteration are required to publish.'
+        return $failure
+    }
+
+    $draft = @(Read-AzDevOpsDraft)
+    if ($draft.Count -eq 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Draft is empty — add items before publishing.'
+        return $failure
+    }
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer draft publish')) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.'
+        return $failure
+    }
+
+    $keepDraft = ($Payload.keepDraft -eq $true)
+    $results = New-AzDevOpsDailyViewerDraftPublishResult -Draft $draft -Area $area -Iteration $iteration -KeepDraft:$keepDraft
+
+    $state = Get-AzDevOpsDailyViewerDraftState
+
+    $publishedCount = @($results.published).Count
+    $failedCount    = @($results.failed).Count
+
+    $body = [ordered]@{
+        ok             = ($failedCount -eq 0)
+        published      = $results.published
+        failed         = $results.failed
+        publishedCount = $publishedCount
+        failedCount    = $failedCount
+        draft          = $state
+    }
+    $outcome = @{ StatusCode = 200; Body = $body }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerDraftRequest {
+    # Handle an /api/draft/<action> request (Epic #228 sub-issue C). `state` is a
+    # read-only GET; add / set / remove / clear / publish mutate the local draft and
+    # require POST + application/json (a JSON content-type forces a preflight this
+    # loopback server never answers, so a cross-origin simple-request forgery can't
+    # reach a write). Only publish touches `az`.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
+        [Parameter(Mandatory)] [PSCustomObject] $Route
+    )
+
+    $request  = $Context.Request
+    $response = $Context.Response
+
+    $action        = $Route.Action
+    $stateAction   = 'state'
+    $addAction     = 'add'
+    $setAction     = 'set'
+    $removeAction  = 'remove'
+    $clearAction   = 'clear'
+    $publishAction = 'publish'
+
+    if ($action -eq $stateAction) {
+        if ($request.HttpMethod -ne 'GET') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The state action is read-only (GET).'
+            return
+        }
+    }
+    else {
+        if ($request.HttpMethod -ne 'POST') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Draft actions require POST.'
+            return
+        }
+
+        if ([string]$request.ContentType -notlike '*application/json*') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Draft actions require an application/json body.'
+            return
+        }
+    }
+
+    switch ($action) {
+        $stateAction {
+            $state = Get-AzDevOpsDailyViewerDraftState
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $state
+            return
+        }
+
+        $addAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerDraftAdd -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        $setAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerDraftSet -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        $removeAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerDraftRemove -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        $clearAction {
+            $outcome = Invoke-AzDevOpsDailyViewerDraftClear
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        $publishAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerDraftPublish -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        default {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown draft action '$action'."
+            return
+        }
+    }
+}
+
+
 function Invoke-AzDevOpsDailyViewerApiRequest {
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
@@ -1861,6 +2529,12 @@ function Invoke-AzDevOpsDailyViewerRequest {
         $createRoute = Get-AzDevOpsDailyViewerCreateRoute -Path $path
         if ($null -ne $createRoute) {
             Invoke-AzDevOpsDailyViewerCreateRequest -Context $Context -Route $createRoute
+            return
+        }
+
+        $draftRoute = Get-AzDevOpsDailyViewerDraftRoute -Path $path
+        if ($null -ne $draftRoute) {
+            Invoke-AzDevOpsDailyViewerDraftRequest -Context $Context -Route $draftRoute
             return
         }
 
