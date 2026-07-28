@@ -94,6 +94,14 @@ function Invoke-AzDevOpsWorkItemCreate {
 
     $newId = [int]$created.id
 
+    # Some fields (board swimlane / lane and certain custom fields) are silently
+    # ignored by `az boards work-item create --fields` even though the create
+    # echo shows them going out and az exits 0. Reconcile any requested extra
+    # field that did not land by re-applying it through a work-item update.
+    if ($ExtraFields -and $ExtraFields.Count -gt 0) {
+        Set-AzDevOpsExtraFieldsPostCreate -Id $newId -ExtraFields $ExtraFields -CreatedFields $created.fields
+    }
+
     $urlPrefix = Get-AzDevOpsWorkItemUrlPrefix
     $url = if ($urlPrefix) {
         "$urlPrefix$newId"
@@ -107,6 +115,122 @@ function Invoke-AzDevOpsWorkItemCreate {
         Id    = $newId
         Url   = $url
     }
+}
+
+
+function Get-AzDevOpsCreatedFieldValue {
+    # Reads a single field value out of a created / updated work item's `fields`
+    # object by its Azure DevOps reference name. Ref names carry dots (e.g.
+    # 'Custom.Swimlane'), so the lookup goes through PSObject.Properties rather
+    # than member-access syntax to sidestep any nested-property surprise, and to
+    # return $null cleanly when the object or the field is absent - az omits a
+    # field from the returned `fields` map when it has no value. Private helper.
+    param(
+        $Fields,
+        [Parameter(Mandatory)] [string] $RefName
+    )
+
+    if ($null -eq $Fields) {
+        return $null
+    }
+
+    $property = $Fields.PSObject.Properties[$RefName]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    $value = $property.Value
+    return $value
+}
+
+
+function Set-AzDevOpsExtraFieldsPostCreate {
+    # Reliability layer for the -ExtraFields path of Invoke-AzDevOpsWorkItemCreate.
+    #
+    # Some Azure DevOps fields - notably board swimlane / lane fields and certain
+    # custom fields - are silently ignored by `az boards work-item create
+    # --fields`: the create exits 0 and returns the item, but the value never
+    # lands. The create echo shows the field going out, which makes the drop look
+    # impossible - yet the created item comes back blank.
+    #
+    # This reads the freshly-created item's returned fields and, for any requested
+    # extra field whose value did not stick, re-applies it through `az boards
+    # work-item update --fields` (which honors these fields on an existing item),
+    # then re-checks the update's returned fields. A field that neither the create
+    # nor the update managed to set emits a clear warning naming the ref name and
+    # value, so a wrong reference name or a genuinely unsettable field surfaces
+    # instead of failing silently.
+    #
+    # Best-effort by design: it never throws and never fails the create that has
+    # already succeeded. Private helper - unapproved-verb-free, not user-facing.
+    param(
+        [Parameter(Mandatory)] [int]       $Id,
+        [Parameter(Mandatory)] [hashtable] $ExtraFields,
+        $CreatedFields
+    )
+
+    $notApplied = New-Object System.Collections.Generic.List[object]
+
+    foreach ($refName in $ExtraFields.Keys) {
+        $desired = $ExtraFields[$refName]
+        if ($null -eq $desired) {
+            continue
+        }
+
+        $actual = Get-AzDevOpsCreatedFieldValue -Fields $CreatedFields -RefName $refName
+        if ("$actual" -ne "$desired") {
+            $notApplied.Add([PSCustomObject]@{ RefName = $refName; Desired = $desired })
+        }
+    }
+
+    if ($notApplied.Count -eq 0) {
+        return
+    }
+
+    $updateTokens = foreach ($field in $notApplied) {
+        "$($field.RefName)=$($field.Desired)"
+    }
+
+    Write-Host "  Applying $($notApplied.Count) extra field(s) not set by create via work-item update..." -ForegroundColor Cyan
+
+    $update = Set-AzDevOpsWorkItemField -Id $Id -Fields $updateTokens
+
+    if ($update.ExitCode -ne 0) {
+        Write-Host "  !  Could not apply extra field(s) to $Id - the create succeeded but these values are not set:" -ForegroundColor Yellow
+        foreach ($field in $notApplied) {
+            Write-Host "       $($field.RefName) = $($field.Desired)" -ForegroundColor Yellow
+        }
+        Write-Host "     $($update.Error)" -ForegroundColor Yellow
+        return
+    }
+
+    $updatedFields = $null
+    try {
+        $parsed = $update.Json | ConvertFrom-Json
+        $updatedFields = $parsed.fields
+    }
+    catch {
+        $updatedFields = $null
+    }
+
+    $stillMissing = New-Object System.Collections.Generic.List[object]
+
+    foreach ($field in $notApplied) {
+        $confirmed = Get-AzDevOpsCreatedFieldValue -Fields $updatedFields -RefName $field.RefName
+        if ("$confirmed" -ne "$($field.Desired)") {
+            $stillMissing.Add($field)
+        }
+    }
+
+    if ($stillMissing.Count -gt 0) {
+        Write-Host "  !  These field(s) were accepted by neither create nor update on $Id - check the reference name and that the field is settable for this work-item type:" -ForegroundColor Yellow
+        foreach ($field in $stillMissing) {
+            Write-Host "       $($field.RefName) = $($field.Desired)" -ForegroundColor Yellow
+        }
+        return
+    }
+
+    Write-Host "  OK Applied extra field(s) to $Id via update" -ForegroundColor Green
 }
 
 

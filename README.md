@@ -553,6 +553,8 @@ az-Open-FieldTemplates
 
 The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
 
+> **Fields that don't stick on create.** Some fields — board **swimlane / lane** fields and certain custom fields — are silently ignored by `az boards work-item create` even though the command echo shows them going out and `az` exits 0. After each create, the creators read the returned item back and re-apply any requested extra field that didn't land via a follow-up `az boards work-item update` (which honors these fields on an existing item). If a field is set by neither call, you'll see a yellow warning naming the ref name and value — the usual cause is a wrong **reference name** (use `Custom.Swimlane`, not the display name) or a field that isn't on that work-item type's process.
+
 #### Custom User Story body templates (`body-templates.json`)
 
 Don't like the built-in **As a / I want / So that** Description prompts? Supply your own body template — a single string with numbered **prompt placeholders** — and `az-New-AzDevOpsUserStory` will ask *your* questions in *your* order and drop each answer back exactly where its placeholder sat. A placeholder looks like:
