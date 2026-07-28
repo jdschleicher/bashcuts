@@ -551,7 +551,7 @@ Grid mode never blocks a create: if `Out-ConsoleGridView` isn't installed, the o
 az-Open-FieldTemplates
 ```
 
-The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
+The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
 
 #### Custom User Story body templates (`body-templates.json`)
 
@@ -581,7 +581,7 @@ With that in place the creator asks **the expected outcome** first (`PROMPT_1`),
 az-Open-BodyTemplates
 ```
 
-For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type:
+For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type:
 
 ```powershell
 USER_STORY = @{
@@ -633,7 +633,7 @@ $global:AzDevOpsProjectMap = @{
     ProjectABC = @{
         Org       = 'https://dev.azure.com/myorg'
         Project   = 'Project ABC'
-        Types = @{
+        WORKITEMTYPE_OVERRIDES = @{
             USER_STORY = @{
                 BodyTemplate = @'
 <b>Bug repro</b>

@@ -554,7 +554,7 @@ function Get-AzDevOpsFieldTemplateForType {
 # The seeded body-templates.json ships empty ({}) so a fresh machine keeps the
 # stock As-a / I-want / So-that prompts until the user opts in.
 # body-templates.example.json documents the Given/When/Then example. A matching
-# BodyTemplate entry in $global:AzDevOpsProjectMap[...].Types.<TYPE> overrides
+# BodyTemplate entry in $global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE> overrides
 # the JSON entry (see Resolve-AzDevOpsTypeBodyTemplate).
 # ---------------------------------------------------------------------------
 
