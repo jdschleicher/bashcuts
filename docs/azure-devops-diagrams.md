@@ -208,7 +208,7 @@ flowchart TD
     S4["Step 4 — az-Confirm-AzDevOpsProjectMap<br/>opt-in $global:AzDevOpsProjectMap<br/>+ optional az-Use-AzDevOpsProject prompt"]
     S5["Step 5 — az-Confirm-AzDevOpsLogin<br/>uses Test-AzDevOpsLoggedIn<br/>+ optional 'az login'"]
     S6["Step 6 — az-Set-AzDevOpsDefaults<br/>'az devops configure --defaults'"]
-    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles<br/>+ field-templates.json / .example.json via Initialize-AzDevOpsFieldTemplates"]
+    S7["Step 7 — az-Confirm-AzDevOpsQueryFiles<br/>seeds ~/.bashcuts-az-devops-app/config/queries/{epics,features,user-stories}.wiql<br/>via Initialize-AzDevOpsQueryFiles<br/>+ field-templates.json / .example.json via Initialize-AzDevOpsFieldTemplates<br/>+ body-templates.json / .example.json via Initialize-AzDevOpsBodyTemplates"]
     S8["Step 8 — az-Confirm-AzDevOpsSmokeQuery<br/>uses Invoke-AzDevOpsSmokeQuery"]
 
     Ready([READY])
@@ -452,7 +452,7 @@ flowchart TD
     Area -- yes --> Desc{Description param?}
     PickArea --> Desc
 
-    Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
+    Desc -- no --> ReadDesc["Read-AzDevOpsUserStoryBody<br/>→ Resolve-AzDevOpsTypeBodyTemplate (custom body-templates.json)<br/>→ Read-AzDevOpsTemplatedBody (fill [[ PROMPT_n--... ]] in order)<br/>else fall back to Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
     Desc -- yes --> Prio{Priority 1-4?}
     ReadDesc --> Prio
     Prio -- no --> ReadPrio[Read-AzDevOpsPriority]
@@ -551,7 +551,7 @@ DRY note: `Read-AzDevOpsEpicPick` and `Read-AzDevOpsFeaturePick` are 2-line wrap
 
 ## 9. `az-New-AzDevOpsFeatureStories` — batch child-story loop
 
-Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, description via `Read-AzDevOpsUserStoryDescription`, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
+Batch counterpart to `az-New-AzDevOpsUserStory`. Captures parent / area / iteration **once** at the top, then loops per-story prompts (title, description via `Read-AzDevOpsUserStoryBody`, AC, priority, story points) until the user submits an empty title or answers `n` to "Add another?". Mid-batch failures don't abort. Each child create runs through the same `Invoke-AzDevOpsWorkItemCreate` + `Invoke-AzDevOpsParentLink` pair the single-shot creator uses, so failure modes / schema enforcement stay identical.
 
 ```mermaid
 flowchart TD
@@ -570,7 +570,7 @@ flowchart TD
     Loop[Story loop iteration N] --> ReadTitle["Read-AzDevOpsTitle<br/>'Story title (Enter to finish batch)'<br/>(caps at 255)"]
     ReadTitle --> EmptyTitle{empty?}
     EmptyTitle -- yes --> Summary
-    EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryDescription<br/>(As-a / I-want / so-that prompts)"]
+    EmptyTitle -- no --> ReadDesc["Read-AzDevOpsUserStoryBody<br/>(custom body template or fixed<br/>As-a / I-want / so-that prompts)"]
     ReadDesc --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
     ReadAC --> ReadPrio["Read-AzDevOpsPriority -Previous $previousPriority<br/>(Enter reuses last answer)"]
     ReadPrio --> ReadSP["Read-AzDevOpsStoryPoints -Previous $previousStoryPoints"]
@@ -911,6 +911,11 @@ graph LR
     SeedFiles[Initialize-AzDevOpsSeededFiles]:::priv
     NormKey[Get-AzDevOpsNormalizedTypeKey]:::priv
 
+    %% Body templates (azdevops_paths.ps1)
+    BTInit[Initialize-AzDevOpsBodyTemplates]:::priv
+    BTGet[Get-AzDevOpsBodyTemplates]:::priv
+    BTForType[Get-AzDevOpsBodyTemplateForType]:::priv
+
     %% Data-plane wrappers (azdevops_db.ps1)
     AzJson[Invoke-AzDevOpsAzJson]:::priv
     Boards[Invoke-AzDevOpsBoardsQuery]:::priv
@@ -1065,6 +1070,9 @@ graph LR
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
     USDesc[Read-AzDevOpsUserStoryDescription]:::priv
+    USBody[Read-AzDevOpsUserStoryBody]:::priv
+    TmplBody[Read-AzDevOpsTemplatedBody]:::priv
+    BodyPlace[Get-AzDevOpsBodyPlaceholders]:::priv
     FeatDesc[Read-AzDevOpsFeatureDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
@@ -1110,6 +1118,7 @@ graph LR
     RIter[Resolve-AzDevOpsTypeIteration]:::priv
     RTags[Resolve-AzDevOpsTypeTags]:::priv
     RReq[Resolve-AzDevOpsTypeRequiredFields]:::priv
+    RBody[Resolve-AzDevOpsTypeBodyTemplate]:::priv
     RPri[Resolve-AzDevOpsTypeDefaultPriority]:::priv
     RPts[Resolve-AzDevOpsTypeDefaultStoryPoints]:::priv
     RScope[Resolve-AzDevOpsTypeParentScope]:::priv
@@ -1460,7 +1469,7 @@ graph LR
 
     NewS --> CGate
     NewS --> ReadH
-    NewS --> USDesc
+    NewS --> USBody
     NewS --> Pri
     NewS --> Pts
     NewS --> AC
@@ -1499,7 +1508,7 @@ graph LR
     NewSB --> ReadH
     NewSB --> ParentTest
     NewSB --> ResIA
-    NewSB --> USDesc
+    NewSB --> USBody
     NewSB --> AC
     NewSB --> Pri
     NewSB --> Pts
@@ -1666,6 +1675,21 @@ graph LR
     NormKey --> TypeKey
     FTInit --> QPaths
     FTInit --> SeedFiles
+
+    %% Body-template seam (shared by NewS / NewSB / draft Read-AzDevOpsDraftDetails)
+    USBody --> RBody
+    USBody --> TmplBody
+    USBody --> USDesc
+    TmplBody --> BodyPlace
+    RBody --> BTForType
+    RBody --> TypeCfg
+    BTForType --> BTGet
+    BTForType --> NormKey
+    BTGet --> BTInit
+    BTGet --> NormKey
+    BTInit --> QPaths
+    BTInit --> SeedFiles
+
     RPri --> TypeCfg
     RPts --> TypeCfg
     RScope --> TypeCfg
@@ -1720,10 +1744,12 @@ graph LR
     OpenFeats(["az-Open-FeaturesWiql"]):::pub
     OpenStories(["az-Open-UserStoriesWiql"]):::pub
     OpenFieldTmpl(["az-Open-FieldTemplates"]):::pub
+    OpenBodyTmpl(["az-Open-BodyTemplates"]):::pub
     OpenSchema(["az-Open-Schema"]):::pub
 
     %% Path-inspector helper + path-discovery helpers used by the openers above
     OpenPath[Open-AzDevOpsPathIfExists]:::priv
+    SeededOpen[Open-AzDevOpsSeededFiles]:::priv
     AppRoot[Get-AzDevOpsAppRoot]:::priv
     SPaths[Get-AzDevOpsSchemaPaths]:::priv
 
@@ -1754,10 +1780,14 @@ graph LR
     OpenEpics & OpenFeats & OpenStories & OpenSchema --> OpenPath
     OpenPath --> OSHandler
 
-    %% az-Open-FieldTemplates seeds via Initialize-AzDevOpsFieldTemplates, then
-    %% Start-Processes each seeded path directly (like az-Open-HierarchyWiqls).
+    %% az-Open-FieldTemplates / az-Open-BodyTemplates seed via their
+    %% Initialize-AzDevOps*Templates helper, then delegate to the shared
+    %% Open-AzDevOpsSeededFiles loop which Start-Processes each seeded path.
     OpenFieldTmpl --> FTInit
-    OpenFieldTmpl --> OSHandler
+    OpenBodyTmpl --> BTInit
+    OpenFieldTmpl --> SeededOpen
+    OpenBodyTmpl --> SeededOpen
+    SeededOpen --> OSHandler
 
     %% Schema management wiring
     GetSchema --> SchemaRead
