@@ -646,7 +646,7 @@ function az-New-AzDevOpsUserStory {
     $Area = $resolved.Area
 
     if (-not $PSBoundParameters.ContainsKey('Description')) {
-        $Description = Read-AzDevOpsUserStoryDescription
+        $Description = Read-AzDevOpsUserStoryBody
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
@@ -1095,7 +1095,7 @@ function az-New-AzDevOpsFeatureStories {
             break
         }
 
-        $description = Read-AzDevOpsUserStoryDescription
+        $description = Read-AzDevOpsUserStoryBody
         $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
         $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
         $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints

@@ -41,6 +41,11 @@
 #                       Type      = 'FEATURE'
 #                       AreaPaths = @('Project ABC\Team Phoenix')
 #                   }
+#                   BodyTemplate = @'
+# Given [[ PROMPT_2--the starting state ]]
+# When [[ PROMPT_3--the action taken ]]
+# Then [[ PROMPT_1--the expected outcome ]]
+# '@
 #               }
 #           }
 #       }
@@ -297,6 +302,39 @@ function Resolve-AzDevOpsTypeRequiredFields {
     }
 
     return $merged
+}
+
+
+function Resolve-AzDevOpsTypeBodyTemplate {
+    # Returns the custom Description body template string for the given type, or
+    # $null when none is configured (callers fall through to their fixed reader).
+    # Merges two sources like Resolve-AzDevOpsTypeRequiredFields:
+    #   1. body-templates.json (Get-AzDevOpsBodyTemplateForType) - lower
+    #      precedence, machine-wide per-type template.
+    #   2. $global:AzDevOpsProjectMap[...].Types..BodyTemplate - higher
+    #      precedence, overriding the JSON entry when set.
+    # The template itself is a here-string carrying [[ PROMPT_<n>--<text> ]]
+    # placeholders; Read-AzDevOpsTemplatedBody parses and fills it at create time.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $template = $null
+
+    if (Get-Command Get-AzDevOpsBodyTemplateForType -ErrorAction SilentlyContinue) {
+        $fromJson = Get-AzDevOpsBodyTemplateForType -Type $Type
+        if (-not [string]::IsNullOrWhiteSpace($fromJson)) {
+            $template = $fromJson
+        }
+    }
+
+    $typeConfig = Get-AzDevOpsTypeConfig -Type $Type
+    if ($null -ne $typeConfig -and $typeConfig.ContainsKey('BodyTemplate')) {
+        $override = [string]$typeConfig['BodyTemplate']
+        if (-not [string]::IsNullOrWhiteSpace($override)) {
+            $template = $override
+        }
+    }
+
+    return $template
 }
 
 

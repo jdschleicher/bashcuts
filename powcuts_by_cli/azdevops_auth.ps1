@@ -444,6 +444,18 @@ function az-Confirm-AzDevOpsQueryFiles {
         Write-Host "  OK  Field-template config at $($templateInit.Paths.FieldTemplates)" -ForegroundColor Green
     }
 
+    $bodyInit = Initialize-AzDevOpsBodyTemplates
+    $newlyBodied = @($bodyInit.Seeded | Where-Object { $_.Seeded })
+
+    if ($newlyBodied.Count -gt 0) {
+        foreach ($entry in $newlyBodied) {
+            Write-Host "  OK  Seeded $($entry.Name) at $($entry.Path)" -ForegroundColor Green
+        }
+        Write-Host "      Customize the User Story Description body in body-templates.json (az-Open-BodyTemplates)." -ForegroundColor DarkGray
+    } else {
+        Write-Host "  OK  Body-template config at $($bodyInit.Paths.BodyTemplates)" -ForegroundColor Green
+    }
+
     $stepResult = New-AzDevOpsStepResult -Ok $true
     return $stepResult
 }

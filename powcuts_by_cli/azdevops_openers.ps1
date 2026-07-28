@@ -161,6 +161,26 @@ function az-Open-FieldTemplates {
 }
 
 
+function az-Open-BodyTemplates {
+    # Opens the per-type Description body-template config (body-templates.json).
+    # Defensively seeds body-templates.json (empty {}) and body-templates.example.json
+    # (the Given/When/Then example) via Initialize-AzDevOpsBodyTemplates - mirrors
+    # az-Open-FieldTemplates - so a fresh machine can discover and edit the config
+    # in one step. The example is opened alongside so the placeholder shape is visible.
+    $init = Initialize-AzDevOpsBodyTemplates
+
+    foreach ($entry in $init.Seeded) {
+        if ($entry.Seeded) {
+            Write-Host "Wrote default $($entry.Name) to $($entry.Path) - opening for editing" -ForegroundColor Green
+        } else {
+            Write-Host "Opening $($entry.Path)" -ForegroundColor DarkGray
+        }
+
+        Start-Process $entry.Path
+    }
+}
+
+
 # --- Schema file opener (1) ------------------------------------------------
 
 function az-Open-Schema {

@@ -236,6 +236,8 @@ function Get-AzDevOpsConfigPaths {
         ActivityQuery         = Join-Path $queriesDir 'activity.wiql'
         FieldTemplates        = Join-Path $configDir 'field-templates.json'
         FieldTemplatesExample = Join-Path $configDir 'field-templates.example.json'
+        BodyTemplates         = Join-Path $configDir 'body-templates.json'
+        BodyTemplatesExample  = Join-Path $configDir 'body-templates.example.json'
     }
 }
 
@@ -531,6 +533,132 @@ function Get-AzDevOpsFieldTemplateForType {
     }
 
     return @{}
+}
+
+
+# ---------------------------------------------------------------------------
+# Body templates (custom Description body per type)
+#
+# Config file: $HOME/.bashcuts-az-devops-app/config/body-templates.json
+#   Declares a custom Description body template per work-item type
+#   (USER_STORY today), keyed by work-item type. Each value is a single
+#   template string containing zero or more prompt placeholders:
+#
+#     [[ PROMPT_<n>--<prompt text shown to the user> ]]
+#
+#   At create time the placeholders are asked in ascending <n> order (the
+#   text after `--` is the exact Read-Host prompt) and each answer is
+#   substituted back where its placeholder sat. See Read-AzDevOpsTemplatedBody
+#   (azdevops_create_pickers.ps1) for the parse/prompt/substitute engine.
+#
+# The seeded body-templates.json ships empty ({}) so a fresh machine keeps the
+# stock As-a / I-want / So-that prompts until the user opts in.
+# body-templates.example.json documents the Given/When/Then example. A matching
+# BodyTemplate entry in $global:AzDevOpsProjectMap[...].Types.<TYPE> overrides
+# the JSON entry (see Resolve-AzDevOpsTypeBodyTemplate).
+# ---------------------------------------------------------------------------
+
+$script:AzDevOpsEmptyBodyTemplatesJson = @"
+{}
+"@
+
+$script:AzDevOpsExampleBodyTemplatesJson = @"
+{
+  "USER_STORY": "<b>Scenario</b><br/>Given [[ PROMPT_2--the starting state ]]<br/>When [[ PROMPT_3--the action taken ]]<br/>Then [[ PROMPT_1--the expected outcome ]]"
+}
+"@
+
+
+function Initialize-AzDevOpsBodyTemplates {
+    # Idempotent: creates the config directory if absent and seeds
+    # body-templates.json (empty {}) plus body-templates.example.json (the
+    # documented Given/When/Then example) only when each file does not already
+    # exist. Mirrors Initialize-AzDevOpsFieldTemplates: returns the resolved
+    # paths plus per-file Seeded flags so callers can print consistent status
+    # lines.
+    $paths = Get-AzDevOpsConfigPaths
+    New-AzDevOpsDirectoryIfMissing -Path $paths.Dir
+
+    $files = @(
+        [PSCustomObject]@{
+            Name    = 'body-templates.json'
+            Path    = $paths.BodyTemplates
+            Default = $script:AzDevOpsEmptyBodyTemplatesJson
+        },
+        [PSCustomObject]@{
+            Name    = 'body-templates.example.json'
+            Path    = $paths.BodyTemplatesExample
+            Default = $script:AzDevOpsExampleBodyTemplatesJson
+        }
+    )
+
+    $seeded = Initialize-AzDevOpsSeededFiles -Directory $paths.Dir -Files $files
+
+    return [PSCustomObject]@{
+        Paths  = $paths
+        Seeded = $seeded
+    }
+}
+
+
+function Get-AzDevOpsBodyTemplates {
+    # Reads body-templates.json (seeding the defaults first, like
+    # Get-AzDevOpsFieldTemplates) and returns a hashtable keyed by normalized
+    # work-item type key (USER_STORY / FEATURE / TASK / EPIC) whose values are
+    # the raw template strings. An empty hashtable is returned on any miss,
+    # empty file, or parse failure so a create is never blocked by a malformed
+    # config.
+    $templates = @{}
+
+    $init = Initialize-AzDevOpsBodyTemplates
+    $path = $init.Paths.BodyTemplates
+
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $templates
+    }
+
+    $raw = Get-Content -LiteralPath $path -Raw
+    if (-not $raw -or -not $raw.Trim()) {
+        return $templates
+    }
+
+    try {
+        $parsed = $raw | ConvertFrom-Json
+    }
+    catch {
+        return $templates
+    }
+
+    if ($null -eq $parsed) {
+        return $templates
+    }
+
+    foreach ($typeProp in $parsed.PSObject.Properties) {
+        $typeKey = Get-AzDevOpsNormalizedTypeKey -Type $typeProp.Name
+        $templates[$typeKey] = [string]$typeProp.Value
+    }
+
+    return $templates
+}
+
+
+function Get-AzDevOpsBodyTemplateForType {
+    # Per-type accessor over Get-AzDevOpsBodyTemplates. Returns the raw template
+    # string for the given type, or $null when the type isn't declared, using
+    # the same case-insensitive type-key normalization the ProjectMap and
+    # field-template lookups use so 'User Story' / 'user story' / 'USER_STORY'
+    # all resolve alike.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $key = Get-AzDevOpsNormalizedTypeKey -Type $Type
+
+    $templates = Get-AzDevOpsBodyTemplates
+    if ($templates.ContainsKey($key)) {
+        $template = $templates[$key]
+        return $template
+    }
+
+    return $null
 }
 
 

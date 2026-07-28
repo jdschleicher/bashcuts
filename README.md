@@ -373,6 +373,12 @@ Field-templates config (extra `az boards work-item create` fields per type — s
 az-Open-FieldTemplates   # config/field-templates.json  (+ the seeded .example.json)
 ```
 
+Body-templates config (custom User Story Description body with prompt placeholders — see "Custom User Story body templates" below):
+
+```powershell
+az-Open-BodyTemplates    # config/body-templates.json   (+ the seeded .example.json)
+```
+
 Schema file (per-org `schema-<slug>.json`, falling back to `schema.json` when `$env:AZ_DEVOPS_ORG` is unset):
 
 ```powershell
@@ -546,6 +552,48 @@ az-Open-FieldTemplates
 ```
 
 The same shape can also be authored in your `$profile` under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.RequiredFields` — the two sources are merged, and a `RequiredFields` entry **overrides** the `field-templates.json` entry for the same field. This is the project-scoped escape hatch when one board needs a different option set than the machine-wide JSON.
+
+#### Custom User Story body templates (`body-templates.json`)
+
+Don't like the built-in **As a / I want / So that** Description prompts? Supply your own body template — a single string with numbered **prompt placeholders** — and `az-New-AzDevOpsUserStory` will ask *your* questions in *your* order and drop each answer back exactly where its placeholder sat. A placeholder looks like:
+
+```
+[[ PROMPT_<n>--<prompt text shown to you> ]]
+```
+
+- `<n>` is a unique integer that drives **ask order** — `PROMPT_1` is asked before `PROMPT_2`, no matter where each sits in the template.
+- The text after `--` is the exact prompt you see at the `Read-Host`.
+- Where the placeholder sits in the template is where your answer lands (ask-order and text-position are independent).
+
+Declare one template per work-item type (User Story today) in `~/.bashcuts-az-devops-app/config/body-templates.json`, keyed by work-item type. Because JSON is single-line, use `<br/>` for line breaks and `\n`-escape as needed:
+
+```json
+{
+  "USER_STORY": "<b>Scenario</b><br/>Given [[ PROMPT_2--the starting state ]]<br/>When [[ PROMPT_3--the action taken ]]<br/>Then [[ PROMPT_1--the expected outcome ]]"
+}
+```
+
+With that in place the creator asks **the expected outcome** first (`PROMPT_1`), then **the starting state** (`PROMPT_2`), then **the action taken** (`PROMPT_3`), and renders a Given/When/Then body with each answer in position. A template with no placeholders is used verbatim; a malformed one (a stray `[[ PROMPT… ]]` block or a duplicate number) warns and falls back to the stock prompts, so a create is never blocked.
+
+`az-Connect-AzDevOps` (and the first create / `az-Open-BodyTemplates`) seeds an empty `body-templates.json` (`{}`, so you keep the stock prompts until you opt in) plus a `body-templates.example.json` documenting the Given/When/Then example. Open both for editing with:
+
+```powershell
+az-Open-BodyTemplates
+```
+
+For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].Types.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type:
+
+```powershell
+USER_STORY = @{
+    BodyTemplate = @'
+Given [[ PROMPT_2--the starting state ]]
+When [[ PROMPT_3--the action taken ]]
+Then [[ PROMPT_1--the expected outcome ]]
+'@
+}
+```
+
+The custom template also feeds the `az-New-AzDevOpsFeatureStories` batch loop and the `az-New-AzDevOpsDraft` brain-dump, since all three share the same Description reader.
 
 ### Creating a new Feature
 
