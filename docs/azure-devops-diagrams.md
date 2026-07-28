@@ -62,9 +62,10 @@ flowchart LR
         NewFeat["az-New-AzDevOpsFeature"]
         NewStoryBatch["az-New-AzDevOpsFeatureStories"]
         NewTask["az-New-Task"]
+        NewEpic["az-New-AzDevOpsEpic"]
         ShowFeats["az-Show-Features"]
         Help["az-help"]
-        DailyViewer["daily-viewer backend<br/>(daily_viewer.ps1)<br/>per-tile live query"]
+        DailyViewer["daily-viewer backend<br/>(daily_viewer.ps1)<br/>per-tile live query + create"]
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-*)"]
@@ -169,6 +170,10 @@ flowchart LR
     NewTask --> AzBoards
 
     DailyViewer -.per-tile refresh.-> AzBoards
+    DailyViewer -.POST create.-> NewEpic
+    DailyViewer -.POST create.-> NewFeat
+    DailyViewer -.POST create.-> NewStory
+    DailyViewer -.POST create.-> NewTask
 
     BgSync -.spawns hidden pwsh when stale.-> Sync
 
@@ -798,6 +803,7 @@ graph LR
     NewF(["az-New-AzDevOpsFeature"]):::pub
     NewSB(["az-New-AzDevOpsFeatureStories"]):::pub
     NewTask(["az-New-Task"]):::pub
+    NewEpic(["az-New-AzDevOpsEpic"]):::pub
     Find(["az-Find-AzDevOpsWorkItem"]):::pub
     FindText(["az-Find-AzDevOpsText"]):::pub
     FindItem(["az-Find-AzDevOpsItem"]):::pub
@@ -942,6 +948,15 @@ graph LR
     DVFocus[Get-AzDevOpsDailyViewerFocusItems]:::priv
     DVWiNode[New-AzDevOpsDailyViewerWorkItemNode]:::priv
     DVShortDate[Format-AzDevOpsDailyViewerShortDate]:::priv
+
+    %% Daily-viewer backend (daily_viewer.ps1) — create seam (POST /api/create)
+    DVCreateReq[Invoke-AzDevOpsDailyViewerCreateRequest]:::priv
+    DVCreateOpts[Invoke-AzDevOpsDailyViewerCreateOptionsRequest]:::priv
+    DVGetOpts[Get-AzDevOpsDailyViewerCreateOptions]:::priv
+    DVParentBucket[Get-AzDevOpsDailyViewerParentBucket]:::priv
+    DVCreateWi[Invoke-AzDevOpsDailyViewerCreateWorkItem]:::priv
+    DVReadItem[Read-AzDevOpsDailyViewerCreateItem]:::priv
+    DVDispatch[Invoke-AzDevOpsDailyViewerDispatchCreate]:::priv
 
     %% Cross-cutting console spinner (pow_common.ps1)
     Spinner[Invoke-WithSpinner]:::priv
@@ -1198,6 +1213,18 @@ graph LR
     DVQuery -.converter.-> ConvA
     DVQuery -.converter.-> ConvM
     DVQuery -.converter.-> ConvAct
+
+    %% daily-viewer create seam (POST /api/create) — reuses the creators non-interactively
+    DVCreateReq --> DVCreateOpts
+    DVCreateReq --> DVCreateWi
+    DVCreateOpts --> DVGetOpts
+    DVGetOpts --> DVParentBucket
+    DVCreateWi --> DVReadItem
+    DVCreateWi --> DVDispatch
+    DVDispatch -.->|NonInteractive NoOpen| NewEpic
+    DVDispatch -.->|NonInteractive NoOpen| NewF
+    DVDispatch -.->|NonInteractive NoOpen| NewS
+    DVDispatch -.->|NonInteractive NoOpen| NewTask
 
     QInit --> QDefaults
     QInit --> QPaths
