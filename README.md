@@ -595,6 +595,61 @@ Then [[ PROMPT_1--the expected outcome ]]
 
 The custom template also feeds the `az-New-AzDevOpsFeatureStories` batch loop and the `az-New-AzDevOpsDraft` brain-dump, since all three share the same Description reader.
 
+**Worked example — what you'll see.** With the Given/When/Then template above configured, running `az-New-AzDevOpsUserStory` prompts you in *numeric* order (not the order the placeholders appear in the template):
+
+```text
+the expected outcome: the cart shows the promo discount
+the starting state: a shopper has a $50 cart and a valid 10%-off code
+the action taken: they apply the code at checkout
+```
+
+…and the created work item's **Description** field renders with each answer dropped into its placeholder's spot:
+
+```html
+<b>Scenario</b>
+Given a shopper has a $50 cart and a valid 10%-off code
+When they apply the code at checkout
+Then the cart shows the promo discount
+```
+
+**More template shapes.** The placeholder mechanism is structure-agnostic — the numbers only drive *ask order*, and the surrounding text is whatever you want. A few more you can drop into `body-templates.json`:
+
+```json
+{
+  "USER_STORY": "<b>Bug repro</b><br/><b>Steps:</b> [[ PROMPT_1--the exact steps to reproduce ]]<br/><b>Expected:</b> [[ PROMPT_2--what should happen ]]<br/><b>Actual:</b> [[ PROMPT_3--what actually happens ]]<br/><b>Env:</b> [[ PROMPT_4--browser / OS / build ]]"
+}
+```
+
+```json
+{
+  "USER_STORY": "As a [[ PROMPT_1--persona ]] I want [[ PROMPT_2--capability ]] so that [[ PROMPT_3--benefit ]].<br/><br/><b>Notes:</b> [[ PROMPT_4--anything the implementer should know ]]"
+}
+```
+
+Or the project-scoped here-string equivalent (multi-line, no `\n`/`<br/>` juggling) in your `$profile`:
+
+```powershell
+$global:AzDevOpsProjectMap = @{
+    ProjectABC = @{
+        Org       = 'https://dev.azure.com/myorg'
+        Project   = 'Project ABC'
+        Types = @{
+            USER_STORY = @{
+                BodyTemplate = @'
+<b>Bug repro</b>
+Steps: [[ PROMPT_1--the exact steps to reproduce ]]
+Expected: [[ PROMPT_2--what should happen ]]
+Actual: [[ PROMPT_3--what actually happens ]]
+Env: [[ PROMPT_4--browser / OS / build ]]
+'@
+            }
+        }
+    }
+}
+```
+
+Numbers don't have to start at 1 or be contiguous — `PROMPT_10`, `PROMPT_20`, `PROMPT_30` sorts the same as `1, 2, 3` and leaves room to insert a prompt later without renumbering. Each number must be unique within a template; every prompt is required (you'll be re-asked until you enter a non-empty value), matching the stock clause prompts.
+
 ### Creating a new Feature
 
 `az-New-AzDevOpsFeature` is the tier-one-up counterpart to the user-story creator. It walks you through title / description / priority, then offers an interactive picker for the parent Epic (active Epics pulled from `hierarchy.json`), the iteration, and the area path. Same `Out-ConsoleGridView` / Read-Host fallback rules. The description is built from two guided prompts — **Summary** and **Business Value** — each rendered as a bold heading in the work-item Description field. Story points and acceptance criteria are intentionally skipped — Features don't carry story points in the default Agile / Scrum templates, and acceptance criteria belong on the child User Stories.
