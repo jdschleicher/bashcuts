@@ -565,7 +565,7 @@ Don't like the built-in **As a / I want / So that** Description prompts? Supply 
 - The text after `--` is the exact prompt you see at the `Read-Host`.
 - Where the placeholder sits in the template is where your answer lands (ask-order and text-position are independent).
 
-Declare one template per work-item type (User Story today) in `~/.bashcuts-az-devops-app/config/body-templates.json`, keyed by work-item type. Because JSON is single-line, use `<br/>` for line breaks and `\n`-escape as needed:
+Declare one template per work-item type (User Story today) in `~/.bashcuts-az-devops-app/config/body-templates.json`, keyed by work-item type. JSON strings are single-line, so use `<br/>` for line breaks — or a `\n` escape, since **real newlines are automatically converted to `<br/>`** when the body is built (the AzDO Description field is HTML):
 
 ```json
 {
@@ -581,7 +581,7 @@ With that in place the creator asks **the expected outcome** first (`PROMPT_1`),
 az-Open-BodyTemplates
 ```
 
-For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type:
+For a project-scoped template, author it in your `$profile` as a here-string — the natural home for multi-line text — under `$global:AzDevOpsProjectMap[...].WORKITEMTYPE_OVERRIDES.<TYPE>.BodyTemplate`; it **overrides** the `body-templates.json` entry for that type. Just write it across multiple lines — **the real newlines are auto-converted to `<br/>`**, so each line renders on its own in the work item and you never hand-type `<br/>`. Use a single-quoted `@'…'@` here-string so a literal `$` in your template isn't interpolated:
 
 ```powershell
 USER_STORY = @{

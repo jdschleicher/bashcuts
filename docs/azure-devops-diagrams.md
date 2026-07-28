@@ -1073,6 +1073,7 @@ graph LR
     USBody[Read-AzDevOpsUserStoryBody]:::priv
     TmplBody[Read-AzDevOpsTemplatedBody]:::priv
     BodyPlace[Get-AzDevOpsBodyPlaceholders]:::priv
+    BodyBreak[Format-AzDevOpsBodyLineBreaks]:::priv
     FeatDesc[Read-AzDevOpsFeatureDescription]:::priv
     PFeat[Read-AzDevOpsFeaturePick]:::priv
     PEpic[Read-AzDevOpsEpicPick]:::priv
@@ -1681,6 +1682,7 @@ graph LR
     USBody --> TmplBody
     USBody --> USDesc
     TmplBody --> BodyPlace
+    TmplBody --> BodyBreak
     RBody --> BTForType
     RBody --> TypeCfg
     BTForType --> BTGet

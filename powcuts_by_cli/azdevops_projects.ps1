@@ -41,7 +41,7 @@
 #                       Type      = 'FEATURE'
 #                       AreaPaths = @('Project ABC\Team Phoenix')
 #                   }
-#                   BodyTemplate = @'
+#                   BodyTemplate = @'      # newlines auto-convert to <br/>
 # Given [[ PROMPT_2--the starting state ]]
 # When [[ PROMPT_3--the action taken ]]
 # Then [[ PROMPT_1--the expected outcome ]]
