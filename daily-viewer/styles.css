@@ -348,6 +348,38 @@ button:focus-visible {
 .creator-status.checking .dot { background: var(--accent); }
 .creator-status.ok .dot { background: var(--good); }
 .creator-status.offline .dot { background: var(--warn); }
+/* creator sub-nav — Work item / Draft, the same pill tablist as the top-level
+   modebar but scoped inside the Create view (sub-issue C). */
+.creator-subnav {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  align-self: flex-start;
+}
+.sub-tab {
+  font-family: inherit;
+  font-size: var(--fs-smd);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.sub-tab:hover { color: var(--text); }
+.sub-tab[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+.sub-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .creator-body {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -510,6 +542,132 @@ button:focus-visible {
 .create-item-title { color: var(--text-dim); }
 .create-warn { color: var(--warn); }
 .create-link { font-weight: 600; }
+
+/* small / destructive button variants, used by the draft node actions */
+.btn.tiny {
+  font-size: var(--fs-2xs);
+  padding: var(--space-1) var(--space-3);
+}
+.btn.danger { color: var(--crit); }
+.btn.danger:hover { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 40%, transparent); }
+
+/* ---------- draft-mode builder (sub-issue C) ---------- */
+.draft-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+.draft-intro {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+.draft-summary {
+  font-size: var(--fs-smd);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.draft-tree { font-size: var(--fs-md); }
+.draft-empty {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-faint);
+}
+.draft-root,
+.draft-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.draft-children {
+  padding-left: var(--space-8);
+  border-left: 1px solid var(--border);
+  margin-left: var(--space-4);
+}
+.draft-node > details > summary { list-style: none; }
+.draft-node > details > summary::-webkit-details-marker { display: none; }
+
+/* a node with children: the collapsible <details> takes the row, its action
+   buttons sit alongside as a sibling (kept out of <summary> for valid a11y). */
+.draft-row-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.draft-row-wrap > details { flex: 1; min-width: 0; }
+
+.draft-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.draft-node > details > summary.draft-row { cursor: pointer; }
+.draft-node > details > summary.draft-row:hover { background: var(--surface-2); }
+.draft-row.is-leaf { padding-left: calc(var(--space-4) + var(--icon) + var(--space-4)); }
+.draft-node > details > summary.draft-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.draft-ref {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.draft-title {
+  flex: 1;
+  min-width: 6rem;
+  color: var(--text);
+}
+.draft-pct {
+  flex: none;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xs);
+}
+.draft-pct.ready   { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.draft-pct.partial { color: var(--accent); background: var(--accent-weak); }
+.draft-pct.low     { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+.draft-missing {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+.draft-node-actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.draft-form,
+.draft-publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+.draft-form-title {
+  margin: 0;
+  font-size: var(--fs-smd);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.draft-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.draft-result:empty { display: none; }
 
 /* ---------- summary stat strip ---------- */
 .stats {

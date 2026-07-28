@@ -131,6 +131,7 @@ var MODEL = {
 
 var TYPE_CLASS = {
   Story: "t-story",
+  "User Story": "t-story",
   Bug: "t-bug",
   Task: "t-task",
   Feature: "t-feature",
@@ -2055,6 +2056,17 @@ function loadCreateOptions() {
     });
 }
 
+// Fetch the picker data at most once — the create form and the draft panel both
+// need it, so the second consumer reuses the in-flight / settled promise instead
+// of hitting GET /api/create/options twice.
+var createOptionsPromise = null;
+function ensureCreateOptions() {
+  if (!createOptionsPromise) {
+    createOptionsPromise = loadCreateOptions();
+  }
+  return createOptionsPromise;
+}
+
 // Wire + render once, the first time Create mode is shown.
 function ensureCreateForm() {
   if (createState.initialized) {
@@ -2068,8 +2080,691 @@ function ensureCreateForm() {
   });
   createForm.addEventListener("submit", submitCreate);
 
-  loadCreateOptions().then(function () {
+  ensureCreateOptions().then(function () {
     renderCreateFields();
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Creator sub-tabs — Work item (the per-type create form) vs Draft (the
+// brain-dump hierarchy builder). A nested tablist inside the Create view, the
+// same roving-tabindex pattern as the top-level mode tabs; the Draft panel wires
+// + loads lazily the first time it's shown. Timer (#232) / unplanned (#233) slot
+// their own tabs here.
+// ---------------------------------------------------------------------------
+
+var CREATOR_TABS = ["workitem", "draft"];
+var creatorTabs = {
+  workitem: document.getElementById("subtab-workitem"),
+  draft: document.getElementById("subtab-draft")
+};
+var creatorPanels = {
+  workitem: document.getElementById("panel-workitem"),
+  draft: document.getElementById("panel-draft")
+};
+var activeCreatorTab = "workitem";
+
+function setCreatorTab(tab, silent) {
+  if (CREATOR_TABS.indexOf(tab) === -1) {
+    tab = "workitem";
+  }
+  activeCreatorTab = tab;
+
+  CREATOR_TABS.forEach(function (t) {
+    var isActive = t === tab;
+    creatorTabs[t].setAttribute("aria-selected", isActive ? "true" : "false");
+    creatorTabs[t].tabIndex = isActive ? 0 : -1;
+
+    creatorPanels[t].classList.toggle("is-hidden", !isActive);
+    if (isActive) {
+      creatorPanels[t].removeAttribute("hidden");
+    } else {
+      creatorPanels[t].setAttribute("hidden", "");
+    }
+  });
+
+  if (!silent) {
+    announce(tab === "draft" ? "Draft builder." : "Work item form.");
+  }
+
+  if (tab === "draft") {
+    ensureDraftPanel();
+  }
+}
+
+function onCreatorTabKeydown(e) {
+  var idx = CREATOR_TABS.indexOf(activeCreatorTab);
+  var next = null;
+
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    next = (idx + 1) % CREATOR_TABS.length;
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    next = (idx - 1 + CREATOR_TABS.length) % CREATOR_TABS.length;
+  } else if (e.key === "Home") {
+    next = 0;
+  } else if (e.key === "End") {
+    next = CREATOR_TABS.length - 1;
+  }
+
+  if (next === null) {
+    return;
+  }
+
+  e.preventDefault();
+  var tab = CREATOR_TABS[next];
+  setCreatorTab(tab);
+  creatorTabs[tab].focus();
+}
+
+CREATOR_TABS.forEach(function (t) {
+  creatorTabs[t].addEventListener("click", function () { setCreatorTab(t); });
+  creatorTabs[t].addEventListener("keydown", onCreatorTabKeydown);
+});
+
+
+// ---------------------------------------------------------------------------
+// Draft mode — the brain-dump hierarchy builder (Epic #228 sub-issue C). The
+// tree renders from GET /api/draft/state (a flat item list the client nests by
+// parentRef); add / edit / remove / clear / publish POST to /api/draft/* and
+// return the refreshed state so one round-trip repaints. Area / iteration /
+// parent choices reuse the create-mode options. Every drafted title reaches the
+// DOM through el() (textContent), so an untrusted Azure DevOps title stays inert.
+// ---------------------------------------------------------------------------
+
+var DRAFT_API = "/api/draft/";
+var DRAFT_TYPES = ["Epic", "Feature", "User Story", "Task"];
+
+// The tier a given type nests under (null = a root tier) and, inversely, the
+// child tier it spawns — mirrors the backend's Get-AzDevOpsDraftParentType so the
+// browser offers the same parent candidates and "+ child" affordances.
+var DRAFT_PARENT_TYPE = { "Epic": null, "Feature": "Epic", "User Story": "Feature", "Task": "User Story" };
+var DRAFT_CHILD_TYPE = { "Epic": "Feature", "Feature": "User Story", "User Story": "Task", "Task": null };
+
+// Priority as a select, with a leading "Not set" so a drafted item can stay
+// unset (which lowers its completeness) rather than defaulting to a value — the
+// backend keeps -1 for unset too.
+var DRAFT_PRIORITY_OPTIONS = [{ value: "", label: "Not set" }].concat(PRIORITY_OPTIONS);
+
+// editingNode holds the item being edited (add mode when null), so a Save re-uses
+// its ref and only re-parents when the parent select actually changed.
+var draftState = { initialized: false, tree: null, editingNode: null };
+
+var draftForm = document.getElementById("draft-form");
+var draftFields = document.getElementById("draft-fields");
+var draftSubmit = document.getElementById("draft-submit");
+var draftCancelEdit = document.getElementById("draft-cancel-edit");
+var draftFormTitle = document.getElementById("draft-form-title");
+var draftTree = document.getElementById("draft-tree");
+var draftSummary = document.getElementById("draft-summary");
+var draftResult = document.getElementById("draft-result");
+var draftPublishFields = document.getElementById("draft-publish-fields");
+var draftPublishBtn = document.getElementById("draft-publish-btn");
+var draftClearBtn = document.getElementById("draft-clear-btn");
+
+
+// --- add / edit form ---
+
+function isStoryType(type) {
+  return type === "User Story";
+}
+
+// Parent candidates for a child type: the current draft items one tier up, keyed
+// by their local ref. Existing-Azure parents aren't offered here — building the
+// hierarchy inside the draft (or leaving an item top-level) is the browser flow.
+function draftParentOptions(childType) {
+  var expected = DRAFT_PARENT_TYPE[childType];
+  if (!expected || !draftState.tree) {
+    return [];
+  }
+
+  var items = asArray(draftState.tree.items);
+  return items.filter(function (it) {
+    return it.type === expected;
+  }).map(function (it) {
+    return { value: String(it.ref), label: "#" + it.ref + CREATE_DASH + it.title };
+  });
+}
+
+// Build the add/edit fields for a type. In edit mode the type select is disabled
+// (az-Set can't retype an item) and the fields prefill from the node.
+function renderDraftFields(type, preselectParentRef) {
+  var node = draftState.editingNode;
+  var editing = !!node;
+
+  var typeSelect = buildSelect(stringOptionModels(DRAFT_TYPES), null, { id: "d-type" });
+  typeSelect.value = type;
+  if (editing) {
+    typeSelect.disabled = true;
+  } else {
+    typeSelect.addEventListener("change", function () {
+      renderDraftFields(typeSelect.value);
+    });
+  }
+
+  var fields = [ labeledField("d-type", "Type", typeSelect) ];
+
+  var titleInput = el("input", { id: "d-title", type: "text", maxlength: "255", autocomplete: "off" });
+  if (editing) {
+    titleInput.value = node.title;
+  }
+  fields.push(labeledField("d-title", "Title", titleInput));
+
+  var descInput = el("textarea", { id: "d-description", rows: "3" });
+  if (editing) {
+    descInput.value = node.description;
+  }
+  fields.push(labeledField("d-description", "Description", descInput));
+
+  var prioritySelect = buildSelect(DRAFT_PRIORITY_OPTIONS, null, { id: "d-priority" });
+  prioritySelect.value = (editing && node.priority >= 1 && node.priority <= 4) ? String(node.priority) : "";
+  fields.push(labeledField("d-priority", "Priority", prioritySelect));
+
+  if (isStoryType(type)) {
+    var pointsInput = el("input", { id: "d-points", type: "number", min: "0", step: "1", inputmode: "numeric" });
+    if (editing && node.storyPoints >= 0) {
+      pointsInput.value = String(node.storyPoints);
+    }
+    fields.push(labeledField("d-points", "Story points", pointsInput, "Leave blank to omit."));
+
+    var acceptanceInput = el("textarea", { id: "d-acceptance", rows: "3" });
+    if (editing) {
+      acceptanceInput.value = node.acceptanceCriteria;
+    }
+    fields.push(labeledField("d-acceptance", "Acceptance criteria", acceptanceInput));
+  }
+
+  if (DRAFT_PARENT_TYPE[type]) {
+    var parentSelect = buildSelect(draftParentOptions(type), "No parent (top level)", { id: "d-parent" });
+    var wantParent = (preselectParentRef !== undefined && preselectParentRef !== null)
+      ? String(preselectParentRef)
+      : (editing && node.parentRef > 0 ? String(node.parentRef) : "");
+    parentSelect.value = wantParent;
+    fields.push(labeledField("d-parent", "Parent " + DRAFT_PARENT_TYPE[type], parentSelect,
+      "Nests this item under a " + DRAFT_PARENT_TYPE[type] + " already in the draft."));
+  }
+
+  draftFields.textContent = "";
+  fields.forEach(function (field) {
+    draftFields.appendChild(field);
+  });
+}
+
+function draftFormMode(editing) {
+  draftFormTitle.textContent = editing ? "Edit item" : "Add an item";
+  draftSubmit.textContent = editing ? "Save changes" : "Add to draft";
+  draftCancelEdit.hidden = !editing;
+}
+
+function startAddChild(node, childType) {
+  draftState.editingNode = null;
+  draftFormMode(false);
+  showDraftMessage("", "");
+  renderDraftFields(childType, node.ref);
+
+  draftForm.scrollIntoView({ block: "nearest" });
+  var title = document.getElementById("d-title");
+  if (title) {
+    title.focus();
+  }
+}
+
+function startEditItem(node) {
+  draftState.editingNode = node;
+  draftFormMode(true);
+  showDraftMessage("", "");
+  renderDraftFields(node.type);
+
+  draftForm.scrollIntoView({ block: "nearest" });
+  var title = document.getElementById("d-title");
+  if (title) {
+    title.focus();
+  }
+}
+
+function cancelDraftEdit() {
+  draftState.editingNode = null;
+  draftFormMode(false);
+  showDraftMessage("", "");
+  renderDraftFields(DRAFT_TYPES[0]);
+}
+
+
+// --- tree render ---
+
+function draftBand(percent) {
+  if (percent >= 100) {
+    return "ready";
+  }
+  if (percent >= 50) {
+    return "partial";
+  }
+  return "low";
+}
+
+function draftNodeActions(node) {
+  var actions = [];
+
+  var edit = el("button", { type: "button", class: "btn tiny" }, [ "Edit" ]);
+  edit.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    startEditItem(node);
+  });
+  actions.push(edit);
+
+  var childType = DRAFT_CHILD_TYPE[node.type];
+  if (childType) {
+    var add = el("button", { type: "button", class: "btn tiny" }, [ "+ " + childType ]);
+    add.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      startAddChild(node, childType);
+    });
+    actions.push(add);
+  }
+
+  var remove = el("button", { type: "button", class: "btn tiny danger", "aria-label": "Remove item #" + node.ref }, [ "Remove" ]);
+  remove.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    removeDraftItem(node);
+  });
+  actions.push(remove);
+
+  return el("div", { class: "draft-node-actions" }, actions);
+}
+
+function draftRowContent(node, hasChildren) {
+  var children = [];
+
+  if (hasChildren) {
+    children.push(chevron());
+  }
+
+  children.push(el("span", { class: "type " + (TYPE_CLASS[node.type] || ""), text: node.type }));
+  children.push(el("span", { class: "draft-ref", text: "#" + node.ref }));
+  children.push(el("span", { class: "draft-title", text: node.title }));
+
+  var missing = asArray(node.missing);
+  var pctTitle = missing.length ? "Missing: " + missing.join(", ") : "Ready to publish";
+  children.push(el("span", { class: "draft-pct " + draftBand(node.percent), text: node.percent + "%", title: pctTitle }));
+
+  if (missing.length) {
+    children.push(el("span", { class: "draft-missing", text: "missing: " + missing.join(", ") }));
+  }
+
+  return children;
+}
+
+// One tree node. childMap groups items by parentRef; `visited` guards a re-parent
+// that produced a cycle so recursion can't spin. Nodes with children collapse via
+// native <details>/<summary>; the action buttons sit OUTSIDE the summary (a sibling
+// of <details> in a flex wrap) so they're valid interactive content and don't
+// inflate the disclosure's accessible name — leaf rows carry the same buttons
+// inline since they have no summary.
+function draftTreeNode(node, childMap, visited) {
+  if (visited[node.ref]) {
+    return null;
+  }
+  visited[node.ref] = true;
+
+  var kids = childMap[node.ref] || [];
+  var hasChildren = kids.length > 0;
+  var rowChildren = draftRowContent(node, hasChildren);
+
+  if (!hasChildren) {
+    return el("li", { class: "draft-node" }, [
+      el("div", { class: "draft-row is-leaf" }, rowChildren.concat([ draftNodeActions(node) ]))
+    ]);
+  }
+
+  var summary = el("summary", { class: "draft-row" }, rowChildren);
+  var childList = el("ul", { class: "draft-children" }, kids.map(function (kid) {
+    return draftTreeNode(kid, childMap, visited);
+  }));
+
+  return el("li", { class: "draft-node" }, [
+    el("div", { class: "draft-row-wrap" }, [
+      el("details", { open: "" }, [ summary, childList ]),
+      draftNodeActions(node)
+    ])
+  ]);
+}
+
+function renderDraftTree() {
+  draftTree.textContent = "";
+
+  var tree = draftState.tree;
+  var items = tree ? asArray(tree.items) : [];
+
+  if (items.length === 0) {
+    draftTree.appendChild(el("p", { class: "draft-empty", text: "The draft is empty — add an item below to start a hierarchy." }));
+    return;
+  }
+
+  var childMap = {};
+  items.forEach(function (it) {
+    if (it.parentRef > 0) {
+      if (!childMap[it.parentRef]) {
+        childMap[it.parentRef] = [];
+      }
+      childMap[it.parentRef].push(it);
+    }
+  });
+
+  var visited = {};
+  var roots = items.filter(function (it) {
+    return it.isRoot;
+  });
+
+  var list = el("ul", { class: "draft-root" }, roots.map(function (root) {
+    return draftTreeNode(root, childMap, visited);
+  }));
+  draftTree.appendChild(list);
+}
+
+function renderDraftSummary() {
+  var tree = draftState.tree;
+  if (!tree || tree.count === 0) {
+    draftSummary.textContent = "Draft is empty.";
+    return;
+  }
+
+  var ready = tree.readyCount + " ready to publish";
+  draftSummary.textContent = tree.count + " item" + (tree.count === 1 ? "" : "s") +
+    CREATE_MIDDOT + "avg " + tree.avgPercent + "% complete" + CREATE_MIDDOT + ready;
+}
+
+
+// --- messages, mutations, publish ---
+
+function showDraftMessage(kind, text) {
+  draftResult.textContent = "";
+  if (!text) {
+    return;
+  }
+  draftResult.appendChild(el("div", { class: "create-banner " + kind }, [ text ]));
+}
+
+// Apply a mutation response: refresh the tree from the returned state and reset
+// the add form (so its parent options reflect the new tree), or surface the
+// endpoint's error text.
+function applyDraftResponse(res) {
+  var data = res.data;
+  if (!data) {
+    showDraftMessage("bad", "Draft update failed (HTTP " + res.status + ").");
+    return false;
+  }
+
+  if (!data.ok) {
+    showDraftMessage("bad", data.error || "Draft update failed.");
+    return false;
+  }
+
+  draftState.tree = data.draft;
+  renderDraftTree();
+  renderDraftSummary();
+  return true;
+}
+
+function collectDraftPayload(type) {
+  var payload = {
+    title: fieldValue("d-title").trim(),
+    description: fieldValue("d-description"),
+    priority: fieldValue("d-priority")
+  };
+
+  if (isStoryType(type)) {
+    payload.storyPoints = fieldValue("d-points");
+    payload.acceptanceCriteria = fieldValue("d-acceptance");
+  }
+
+  return payload;
+}
+
+function submitDraftItem(event) {
+  event.preventDefault();
+
+  var node = draftState.editingNode;
+  var type = node ? node.type : fieldValue("d-type");
+  var payload = collectDraftPayload(type);
+
+  if (!payload.title) {
+    showDraftMessage("bad", "Title is required.");
+    return;
+  }
+
+  var parentControl = document.getElementById("d-parent");
+  var newParentRef = (parentControl && parentControl.value) ? parseInt(parentControl.value, 10) : 0;
+  var url;
+
+  if (node) {
+    payload.ref = node.ref;
+
+    // Only touch the parent when the select actually changed, so an item whose
+    // parent the browser can't offer (an existing Azure parent) isn't orphaned.
+    if (DRAFT_PARENT_TYPE[type] && newParentRef !== node.parentRef) {
+      if (newParentRef > 0) {
+        payload.parentRef = String(newParentRef);
+      } else {
+        payload.orphan = true;
+      }
+    }
+    url = DRAFT_API + "set";
+  } else {
+    payload.type = type;
+    if (newParentRef > 0) {
+      payload.parentRef = String(newParentRef);
+    }
+    url = DRAFT_API + "add";
+  }
+
+  draftSubmit.disabled = true;
+  showDraftMessage("busy", node ? "Saving…" : "Adding…");
+
+  postCreateJson(url, payload).then(function (res) {
+    if (applyDraftResponse(res)) {
+      draftState.editingNode = null;
+      draftFormMode(false);
+      showDraftMessage("", "");
+      renderDraftFields(DRAFT_TYPES[0]);
+      announce(node ? "Draft item saved." : "Item added to draft.");
+    }
+  }).catch(function () {
+    showDraftMessage("bad", "Draft update failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    draftSubmit.disabled = false;
+  });
+}
+
+function removeDraftItem(node) {
+  showDraftMessage("busy", "Removing…");
+
+  postCreateJson(DRAFT_API + "remove", { ref: node.ref }).then(function (res) {
+    if (applyDraftResponse(res)) {
+      // The removed item may have been the one being edited.
+      if (draftState.editingNode && draftState.editingNode.ref === node.ref) {
+        draftState.editingNode = null;
+        draftFormMode(false);
+        renderDraftFields(DRAFT_TYPES[0]);
+      }
+      showDraftMessage("", "");
+      announce("Draft item removed.");
+    }
+  }).catch(function () {
+    showDraftMessage("bad", "Remove failed — the daily-viewer server isn't reachable.");
+  });
+}
+
+function clearDraft() {
+  showDraftMessage("busy", "Clearing…");
+
+  postCreateJson(DRAFT_API + "clear", {}).then(function (res) {
+    if (applyDraftResponse(res)) {
+      draftState.editingNode = null;
+      draftFormMode(false);
+      renderDraftFields(DRAFT_TYPES[0]);
+      showDraftMessage("", "");
+      announce("Draft cleared.");
+    }
+  }).catch(function () {
+    showDraftMessage("bad", "Clear failed — the daily-viewer server isn't reachable.");
+  });
+}
+
+
+// --- publish ---
+
+function renderDraftPublishFields() {
+  var opts = createState.options || {};
+
+  var areaSelect = buildSelect(stringOptionModels(opts.areas), "Select an area…", { id: "d-area" });
+  if (opts.defaultArea) {
+    areaSelect.value = opts.defaultArea;
+  }
+
+  var iterationSelect = buildSelect(stringOptionModels(opts.iterations), "Select an iteration…", { id: "d-iteration" });
+  if (opts.defaultIteration) {
+    iterationSelect.value = opts.defaultIteration;
+  }
+
+  draftPublishFields.textContent = "";
+  draftPublishFields.appendChild(labeledField("d-area", "Area path", areaSelect));
+  draftPublishFields.appendChild(labeledField("d-iteration", "Iteration path", iterationSelect));
+}
+
+// One published-item line: a link to the new work item (title is untrusted, so it
+// lands via el() text). Mirrors the create surface's createdLine vocabulary.
+function draftPublishedLine(row) {
+  var label = "Published " + row.type + " #" + row.id;
+  var children = [];
+
+  if (row.url) {
+    children.push(externalLink(label, row.url, "create-link"));
+  } else {
+    children.push(el("span", { text: label }));
+  }
+
+  if (row.title) {
+    children.push(el("span", { class: "create-item-title", text: CREATE_DASH + row.title }));
+  }
+
+  if (row.linked === false && row.linkError) {
+    children.push(el("span", { class: "create-warn", text: " (created, but parent link failed: " + row.linkError + ")" }));
+  }
+
+  return el("li", { class: "create-item good" }, children);
+}
+
+function draftFailedLine(row) {
+  var label = row.type + CREATE_DASH + row.title + ": " + (row.reason || "create failed");
+  return el("li", { class: "create-item bad" }, [ label ]);
+}
+
+function renderDraftPublishResult(res) {
+  draftResult.textContent = "";
+
+  var data = res.data;
+  if (!data) {
+    showDraftMessage("bad", "Publish failed (HTTP " + res.status + ").");
+    return;
+  }
+
+  var published = asArray(data.published);
+  var failed = asArray(data.failed);
+
+  if (!published.length && !failed.length) {
+    showDraftMessage("bad", data.error || "Publish failed.");
+    return;
+  }
+
+  var summary = published.length + " published" + (failed.length ? ", " + failed.length + " failed/skipped" : "");
+  var bannerKind = failed.length ? "create-banner bad" : "create-banner";
+  draftResult.appendChild(el("div", { class: bannerKind }, [ summary ]));
+
+  var list = el("ul", { class: "create-list" }, []);
+  published.forEach(function (row) {
+    list.appendChild(draftPublishedLine(row));
+  });
+  failed.forEach(function (row) {
+    list.appendChild(draftFailedLine(row));
+  });
+  draftResult.appendChild(list);
+
+  if (data.draft) {
+    draftState.tree = data.draft;
+    renderDraftTree();
+    renderDraftSummary();
+  }
+
+  announce(summary + ".");
+}
+
+function publishDraft() {
+  var area = fieldValue("d-area");
+  var iteration = fieldValue("d-iteration");
+
+  if (!area || !iteration) {
+    showDraftMessage("bad", "Select an area and iteration to publish.");
+    return;
+  }
+
+  if (!draftState.tree || draftState.tree.count === 0) {
+    showDraftMessage("bad", "The draft is empty — add items before publishing.");
+    return;
+  }
+
+  draftPublishBtn.disabled = true;
+  showDraftMessage("busy", "Publishing…");
+
+  postCreateJson(DRAFT_API + "publish", { area: area, iteration: iteration }).then(function (res) {
+    renderDraftPublishResult(res);
+  }).catch(function () {
+    showDraftMessage("bad", "Publish failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    draftPublishBtn.disabled = false;
+  });
+}
+
+
+// --- initial load ---
+
+// Read-only snapshot; an empty tree on any failure so the panel renders (offline
+// mock) — a mutation then surfaces the not-reachable message.
+function loadDraftState() {
+  return fetchJson(DRAFT_API + "state", { headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      draftState.tree = data;
+    })
+    .catch(function () {
+      draftState.tree = { items: [], count: 0, avgPercent: 0, readyCount: 0 };
+    })
+    .then(function () {
+      renderDraftTree();
+      renderDraftSummary();
+    });
+}
+
+// Wire + render once, the first time the Draft sub-tab is shown.
+function ensureDraftPanel() {
+  if (draftState.initialized) {
+    return;
+  }
+  draftState.initialized = true;
+
+  draftForm.addEventListener("submit", submitDraftItem);
+  draftCancelEdit.addEventListener("click", cancelDraftEdit);
+  draftPublishBtn.addEventListener("click", publishDraft);
+  draftClearBtn.addEventListener("click", clearDraft);
+
+  // Publish fields need the options; the add form's parent select needs the
+  // loaded tree — so render fields only after the state read settles.
+  ensureCreateOptions().then(function () {
+    renderDraftPublishFields();
+    return loadDraftState();
+  }).then(function () {
+    renderDraftFields(DRAFT_TYPES[0]);
   });
 }
 
