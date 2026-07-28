@@ -471,7 +471,7 @@ flowchart TD
     ReqF["Read-AzDevOpsRequiredFields<br/>(field-templates.json + ProjectMap RequiredFields, merged)<br/>grid → Read-AzDevOpsFieldGridValue → Read-AzDevOpsGridPick;<br/>prompt → Read-Host; literal → passthrough"]
     ReqF --> Create
 
-    Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create"]
+    Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create<br/>→ (if ExtraFields didn't land) Set-AzDevOpsExtraFieldsPostCreate<br/>→ Get-AzDevOpsUnappliedFields → az boards work-item update"]
     Create --> CreateOk{Ok?}
     CreateOk -- no --> Recover["Read-AzDevOpsCreateFieldEdit<br/>title-length → Read-AzDevOpsTitle;<br/>else field-edit menu<br/>(untouched fields preserved)"]
     Recover -- resubmit --> Create
