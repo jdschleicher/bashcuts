@@ -197,6 +197,17 @@ button:focus-visible {
   margin-bottom: var(--space-8);
   border-bottom: 1px solid var(--border);
 }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+.brand-mark {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--accent);
+}
 .brand h1 {
   margin: 0;
   font-size: var(--fs-h1);
