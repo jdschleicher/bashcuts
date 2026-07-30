@@ -58,6 +58,7 @@
   --radius-pill: 999px;
 
   --icon: 1rem;          /* 16px */
+  --icon-brand: 1.75rem; /* 28px — brand mark beside the title */
 
   --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
@@ -204,8 +205,8 @@ button:focus-visible {
 }
 .brand-mark {
   flex: none;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: var(--icon-brand);
+  height: var(--icon-brand);
   color: var(--accent);
 }
 .brand h1 {
