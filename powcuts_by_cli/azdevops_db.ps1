@@ -323,37 +323,37 @@ function New-AzDevOpsWorkItem {
     # Written UTF-8 WITHOUT BOM - PS 5.1's Set-Content -Encoding UTF8 emits a BOM
     # that az would read into the field - and deleted in the finally below.
     $descriptionFile = $null
-    if ($Description) {
-        $descriptionFile = [System.IO.Path]::GetTempFileName()
-        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText($descriptionFile, $Description, $utf8NoBom)
-
-        $argList += @('--description', "@$descriptionFile")
-    }
-
-    $optionalFlags = [ordered]@{
-        '--assigned-to' = $AssignedTo
-        '--project'     = $Project
-        '--area'        = $Area
-        '--iteration'   = $Iteration
-    }
-
-    foreach ($kv in $optionalFlags.GetEnumerator()) {
-        if ($kv.Value) {
-            $argList += @($kv.Key, $kv.Value)
-        }
-    }
-
-    if ($Fields -and $Fields.Count -gt 0) {
-        $argList += '--fields'
-        $argList += $Fields
-    }
-
-    if ($Open) {
-        $argList += '--open'
-    }
-
     try {
+        if ($Description) {
+            $descriptionFile = [System.IO.Path]::GetTempFileName()
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($descriptionFile, $Description, $utf8NoBom)
+
+            $argList += @('--description', "@$descriptionFile")
+        }
+
+        $optionalFlags = [ordered]@{
+            '--assigned-to' = $AssignedTo
+            '--project'     = $Project
+            '--area'        = $Area
+            '--iteration'   = $Iteration
+        }
+
+        foreach ($kv in $optionalFlags.GetEnumerator()) {
+            if ($kv.Value) {
+                $argList += @($kv.Key, $kv.Value)
+            }
+        }
+
+        if ($Fields -and $Fields.Count -gt 0) {
+            $argList += '--fields'
+            $argList += $Fields
+        }
+
+        if ($Open) {
+            $argList += '--open'
+        }
+
         $result = Invoke-AzDevOpsAzJson -ArgList $argList
     } finally {
         if ($descriptionFile) {
