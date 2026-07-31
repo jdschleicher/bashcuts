@@ -2793,7 +2793,7 @@ function renderUnplannedItems() {
   }
 
   unplannedState.items.forEach(function (item, index) {
-    var remove = el("button", { type: "button", class: "btn tiny" }, [ "Remove" ]);
+    var remove = el("button", { type: "button", class: "btn tiny", "aria-label": "Remove interruption: " + item.text }, [ "Remove" ]);
     remove.addEventListener("click", function () { removeUnplannedItem(index); });
 
     var row = el("li", { class: "unplanned-item" }, [
@@ -2861,9 +2861,10 @@ function fileUnplannedFirefight(event) {
     future: unplannedFieldValue("unplanned-future-text")
   };
 
+  // #unplanned-result is aria-live, so the busy banner announces on its own — no
+  // extra announce() (that would double-speak it), matching the success path below.
   setUnplannedFileBusy(true);
   showUnplannedMessage(unplannedResult, "busy", "Filing firefight…");
-  announce("Filing firefight.");
 
   postCreateJson(UNPLANNED_API + "firefight", payload).then(function (res) {
     renderUnplannedFileResult(res);
@@ -2927,9 +2928,9 @@ function postUnplannedRollup() {
     return;
   }
 
+  // #unplanned-rollup-result is aria-live, so the busy banner announces on its own.
   setUnplannedRollupBusy(true);
   showUnplannedMessage(unplannedRollupResult, "busy", "Posting daily roll-up…");
-  announce("Posting daily roll-up.");
 
   postCreateJson(UNPLANNED_API + "rollup", {}).then(function (res) {
     renderUnplannedRollupResult(res);

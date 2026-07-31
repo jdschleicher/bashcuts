@@ -97,6 +97,7 @@ $script:AzDevOpsDailyViewerDraftTypes = @('Epic', 'Feature', 'User Story', 'Task
 $script:AzDevOpsDailyViewerUnplannedDefaultMinutes = 5      # firefight minutes the panel pre-fills
 $script:AzDevOpsDailyViewerUnplannedMaxMinutes     = 1440   # sanity cap on client-reported minutes (one day)
 $script:AzDevOpsDailyViewerUnplannedMaxItems       = 200    # cap on captured items per firefight
+$script:AzDevOpsDailyViewerUnplannedMaxTitle       = 255    # server-side clamp on the firefight title (mirrors the client maxlength)
 
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
@@ -1277,6 +1278,72 @@ function Split-AzDevOpsDailyViewerApiPath {
 }
 
 
+function Get-AzDevOpsDailyViewerActionRoute {
+    # Parse a single-segment /api/<namespace>/<action> path into { Action } or $null.
+    # Shared by the create / draft / timer / unplanned route parsers — every one of
+    # those namespaces is a flat "one action per path" surface, so the only thing that
+    # varies is the prefix. (The tile route stays separate: it carries multi-segment
+    # /<name>/refresh|prep-marker paths.)
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Prefix
+    )
+
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix $Prefix
+    if ($null -eq $segments) {
+        return $null
+    }
+
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Test-AzDevOpsDailyViewerActionMethod {
+    # Shared method / content-type gate for the single-action write surfaces (create /
+    # draft / timer / unplanned): the read-only action answers a GET, every other
+    # action requires POST + application/json — a JSON content-type forces a preflight
+    # this loopback server never answers, so a cross-origin simple-request forgery
+    # can't reach a write. Writes the 405 / 415 error itself and returns $false when
+    # the method or content-type is wrong; $true when the handler may proceed to its
+    # action switch. Private helper, so an unapproved verb is fine.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerRequest]  $Request,
+        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
+        [Parameter(Mandatory)] [string] $Action,
+        [Parameter(Mandatory)] [string] $ReadOnlyAction,
+        [Parameter(Mandatory)] [string] $WriteLabel
+    )
+
+    if ($Action -eq $ReadOnlyAction) {
+        if ($Request.HttpMethod -ne 'GET') {
+            Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 405 -Message "The $ReadOnlyAction action is read-only (GET)."
+            return $false
+        }
+
+        return $true
+    }
+
+    if ($Request.HttpMethod -ne 'POST') {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 405 -Message "$WriteLabel require POST."
+        return $false
+    }
+
+    if ([string]$Request.ContentType -notlike '*application/json*') {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require an application/json body."
+        return $false
+    }
+
+    return $true
+}
+
+
 function Get-AzDevOpsDailyViewerTileRoute {
     # Parse an /api/tiles/... path into { Tile; IsRefresh; IsPrepMarker } or
     # $null when it isn't a tile route. Keeps the router readable and the API
@@ -1315,18 +1382,7 @@ function Get-AzDevOpsDailyViewerCreateRoute {
     # sub-issues B–E add their own actions to the handler's switch.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/create/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/create/'
     return $route
 }
 
@@ -1731,22 +1787,8 @@ function Invoke-AzDevOpsDailyViewerCreateRequest {
     $optionsAction  = 'options'
     $workitemAction = 'workitem'
 
-    if ($action -eq $optionsAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Create actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Create actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Create actions')) {
+        return
     }
 
     switch ($action) {
@@ -1794,18 +1836,7 @@ function Get-AzDevOpsDailyViewerDraftRoute {
     # JSON only, enforced by the handler. Single-segment actions only.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/draft/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/draft/'
     return $route
 }
 
@@ -2361,22 +2392,8 @@ function Invoke-AzDevOpsDailyViewerDraftRequest {
     $clearAction   = 'clear'
     $publishAction = 'publish'
 
-    if ($action -eq $stateAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The state action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Draft actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Draft actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $stateAction -WriteLabel 'Draft actions')) {
+        return
     }
 
     switch ($action) {
@@ -2443,18 +2460,7 @@ function Get-AzDevOpsDailyViewerTimerRoute {
     # debrief (POST + JSON only, enforced by the handler). Single-segment actions.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/timer/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/timer/'
     return $route
 }
 
@@ -2663,22 +2669,8 @@ function Invoke-AzDevOpsDailyViewerTimerRequest {
     $optionsAction = 'options'
     $postAction    = 'post'
 
-    if ($action -eq $optionsAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Timer actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Timer actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Timer actions')) {
+        return
     }
 
     switch ($action) {
@@ -2721,18 +2713,7 @@ function Get-AzDevOpsDailyViewerUnplannedRoute {
     # handler). Single-segment actions.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/unplanned/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/unplanned/'
     return $route
 }
 
@@ -2865,6 +2846,9 @@ function Invoke-AzDevOpsDailyViewerUnplannedFirefight {
         $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'A firefight title is required.'
         return $failure
     }
+    if ($title.Length -gt $script:AzDevOpsDailyViewerUnplannedMaxTitle) {
+        $title = $title.Substring(0, $script:AzDevOpsDailyViewerUnplannedMaxTitle)
+    }
 
     $minutes = Get-AzDevOpsDailyViewerUnplannedMinutes -Value $Payload.minutes
     # Normalize to an array so .Count is safe and correct whether the client sent
@@ -2948,20 +2932,19 @@ function Invoke-AzDevOpsDailyViewerUnplannedRollup {
         return $failure
     }
 
-    $path = Get-UnplannedLedgerPath
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    $ledger = Read-UnplannedLedgerTotals
+    if ($ledger.Reason -eq 'missing') {
         $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'No unplanned-work ledger for today yet - file a firefight first.'
         return $failure
     }
-
-    $entries = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-    if ($entries.Count -eq 0) {
+    if ($ledger.Reason -eq 'empty') {
         $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Today''s unplanned-work ledger is empty - file a firefight first.'
         return $failure
     }
 
-    $totalMinutes = [int]($entries | Measure-Object -Property Minutes -Sum).Sum
-    $storyId      = [int]$entries[0].StoryId
+    $entries      = $ledger.Entries
+    $totalMinutes = $ledger.TotalMinutes
+    $storyId      = $ledger.StoryId
 
     $body       = Format-UnplannedDailyDebrief -Entries $entries -TotalMinutes $totalMinutes -Mentions @()
     $postResult = Add-AzDevOpsDiscussionComment -Id $storyId -Body $body
@@ -3004,22 +2987,8 @@ function Invoke-AzDevOpsDailyViewerUnplannedRequest {
     $firefightAction = 'firefight'
     $rollupAction    = 'rollup'
 
-    if ($action -eq $optionsAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Unplanned-work actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Unplanned-work actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Unplanned-work actions')) {
+        return
     }
 
     switch ($action) {

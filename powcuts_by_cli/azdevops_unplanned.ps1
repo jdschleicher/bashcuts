@@ -592,6 +592,40 @@ function Add-UnplannedLedgerEntry {
 }
 
 
+function Read-UnplannedLedgerTotals {
+    # Read a day's unplanned-work ledger and roll it up in one place: the parsed
+    # entries, the total minutes across firefights, and the daily story id (from the
+    # first entry). Returns a result object with .Ok / .Reason ('missing' when there's
+    # no ledger file, 'empty' when it parses to nothing, 'ok' otherwise) so the two
+    # roll-up callers — the terminal New-UnplannedWorkDebrief and the browser
+    # Invoke-AzDevOpsDailyViewerUnplannedRollup — share one read + total and each
+    # phrases its own "nothing to post" message.
+    param([datetime] $Date = (Get-Date))
+
+    $path = Get-UnplannedLedgerPath -Date $Date
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+        return [PSCustomObject]@{ Ok = $false; Reason = 'missing'; Entries = @(); TotalMinutes = 0; StoryId = 0 }
+    }
+
+    $entries = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
+    if ($entries.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Reason = 'empty'; Entries = @(); TotalMinutes = 0; StoryId = 0 }
+    }
+
+    $totalMinutes = [int]($entries | Measure-Object -Property Minutes -Sum).Sum
+    $storyId      = [int]$entries[0].StoryId
+
+    $result = [PSCustomObject]@{
+        Ok           = $true
+        Reason       = 'ok'
+        Entries      = $entries
+        TotalMinutes = $totalMinutes
+        StoryId      = $storyId
+    }
+    return $result
+}
+
+
 function Format-UnplannedDailyDebrief {
     param(
         [Parameter(Mandatory)] [object[]] $Entries,
@@ -1262,20 +1296,19 @@ function New-UnplannedWorkDebrief {
         return
     }
 
-    $path = Get-UnplannedLedgerPath -Date $Date
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    $ledger = Read-UnplannedLedgerTotals -Date $Date
+    if ($ledger.Reason -eq 'missing') {
         Write-Host "No unplanned-work ledger for $($Date.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
         return
     }
-
-    $entries = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-    if ($entries.Count -eq 0) {
+    if ($ledger.Reason -eq 'empty') {
         Write-Host "Ledger is empty for $($Date.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
         return
     }
 
-    $totalMinutes = [int]($entries | Measure-Object -Property Minutes -Sum).Sum
-    $storyId = [int]$entries[0].StoryId
+    $entries      = $ledger.Entries
+    $totalMinutes = $ledger.TotalMinutes
+    $storyId      = $ledger.StoryId
 
     Write-Host ""
     Write-Host "Unplanned work - $($Date.ToString('yyyy-MM-dd'))" -ForegroundColor Cyan
