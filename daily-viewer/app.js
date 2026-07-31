@@ -30,7 +30,16 @@ var MODEL = {
         title: "Sprint Planning Sync",
         location: { badge: "Teams", url: "https://teams.microsoft.com/l/meetup-join/example", urlLabel: "Join meeting →" },
         details: [
-          { label: "With", text: "Platform Team · 6 attendees" }
+          { label: "With", text: "Platform Team" }
+        ],
+        body: "Review the sprint backlog, confirm story-point estimates, and lock the two-week commitment. Bring any carryover blockers from last sprint so we can re-scope before planning closes — the agenda tile and calendar-pull stories are the priorities this round.",
+        attendees: [
+          { name: "Ava Ramirez", status: "accepted" },
+          { name: "Liam Chen", status: "accepted" },
+          { name: "Priya Nair", status: "tentative" },
+          { name: "Marcus Webb", status: "declined" },
+          { name: "Sofia Rossi", status: "none" },
+          { name: "You", status: "accepted" }
         ]
       },
       {
@@ -39,6 +48,12 @@ var MODEL = {
         location: { badge: "In person", text: "Room 132" },
         details: [
           { label: "Prep", link: { text: "Design doc →", url: "https://dev.azure.com/org/project/_wiki/wikis/project.wiki/42/Design-Review" } }
+        ],
+        body: "Walk through the proposed service boundaries for the agenda sync module and decide between the polling and webhook approaches. Skim section 3 of the design doc beforehand so we can spend the hour on the open trade-offs, not the background.",
+        attendees: [
+          { name: "Deepak Rao", status: "accepted" },
+          { name: "Elena Fischer", status: "accepted" },
+          { name: "You", status: "accepted" }
         ]
       }
     ]
@@ -71,13 +86,26 @@ var MODEL = {
     items: [
       { id: "sample-planning", title: "Sprint Planning Sync", date: "Jul 16", datetime: "2026-07-16T09:00:00-05:00", marker: "needed",
         time: { label: "9:00 AM", tz: "EST" },
-        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example" } },
+        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example" },
+        body: "Review the sprint backlog, confirm story-point estimates, and lock the two-week commitment. Bring any carryover blockers from last sprint so we can re-scope before planning closes.",
+        attendees: [
+          { name: "Ava Ramirez", status: "accepted" },
+          { name: "Liam Chen", status: "tentative" },
+          { name: "Marcus Webb", status: "none" },
+          { name: "You", status: "accepted" }
+        ] },
       { id: "sample-arch", title: "Architecture Design Review", date: "Jul 18", datetime: "2026-07-18T11:00:00-05:00", marker: "set",
         time: { label: "11:00 AM", tz: "EST" },
-        location: { badge: "In person", text: "Room 132" } },
+        location: { badge: "In person", text: "Room 132" },
+        body: "Walk through the proposed service boundaries for the agenda sync module and decide between the polling and webhook approaches. Skim section 3 of the design doc beforehand." },
       { id: "sample-api", title: "Cross-team API Contract Review", date: "Jul 22", datetime: "2026-07-22T14:00:00-05:00", marker: "needed",
         time: { label: "2:00 PM", tz: "EST" },
-        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example2" } },
+        location: { badge: "Teams", urlLabel: "Join meeting →", url: "https://teams.microsoft.com/l/meetup-join/example2" },
+        attendees: [
+          { name: "Nadia Khoury", status: "accepted" },
+          { name: "Tom Becker", status: "declined" },
+          { name: "You", status: "tentative" }
+        ] },
       { id: "sample-roadmap", title: "Quarterly Roadmap Workshop", date: "Jul 27", datetime: "2026-07-27T10:00:00-05:00", marker: "needed" }
     ]
   },
@@ -661,6 +689,11 @@ function prepRow(item) {
     column.push(meta);
   }
 
+  var agenda = agendaBlock(item);
+  if (agenda) {
+    column.push(agenda);
+  }
+
   var children = [ el("div", { class: "wtitle" }, column) ];
 
   if (item.date) {
@@ -714,6 +747,65 @@ function whereLine(location) {
 }
 
 
+// RSVP status → display label. The backend maps Outlook's numeric ResponseStatus
+// through ConvertFrom-OutlookResponseStatus into these keys; an unknown or absent
+// status falls back to "No response" rather than rendering a raw key.
+var RSVP_LABELS = {
+  accepted: "Accepted",
+  declined: "Declined",
+  tentative: "Tentative",
+  organizer: "Organizer",
+  none: "No response"
+};
+
+function attendeeItem(person) {
+  var statusKey = RSVP_LABELS[person.status] ? person.status : "none";
+
+  return el("li", { class: "att" }, [
+    el("span", { class: "att-name", text: person.name }),
+    el("span", { class: "att-rsvp rsvp-" + statusKey, text: RSVP_LABELS[statusKey] })
+  ]);
+}
+
+
+// Collapsible agenda detail shared by the agenda and prep rows: the meeting body
+// clamped to a couple of lines with a native "See all" toggle that unclamps the
+// body and reveals every invited attendee with their RSVP. The body lives once —
+// in the <summary>, unclamped by CSS on [open] — so the preview and full text
+// can't drift. Returns null when the event carries neither a body nor attendees,
+// so a bare meeting renders exactly as it did before this tile learned agendas.
+function agendaBlock(item) {
+  var body = item.body;
+  var attendees = asArray(item.attendees);
+
+  if (!body && attendees.length === 0) {
+    return null;
+  }
+
+  var summaryChildren = [];
+  if (body) {
+    summaryChildren.push(el("p", { class: "agenda-body", text: body }));
+  }
+
+  var attendeeCue = attendees.length === 0
+    ? "See all"
+    : "See all · " + attendees.length + (attendees.length === 1 ? " attendee" : " attendees");
+
+  summaryChildren.push(el("span", { class: "agenda-cue" }, [
+    el("span", { class: "agenda-cue-more", text: attendeeCue }),
+    el("span", { class: "agenda-cue-less", text: "Show less" })
+  ]));
+
+  var children = [ el("summary", { class: "agenda-summary" }, summaryChildren) ];
+
+  if (attendees.length > 0) {
+    children.push(el("ul", { class: "attendees", "aria-label": "Attendees" }, attendees.map(attendeeItem)));
+  }
+
+  return el("details", { class: "agenda" }, children);
+}
+
+
 function eventRow(ev) {
   var metaLines = [ el("p", { class: "meta" }, [ whereLine(ev.location) ]) ];
 
@@ -727,7 +819,14 @@ function eventRow(ev) {
     metaLines.push(el("p", { class: "meta" }, line));
   });
 
-  var content = el("div", null, [ el("p", { class: "etitle", text: ev.title }) ].concat(metaLines));
+  var contentChildren = [ el("p", { class: "etitle", text: ev.title }) ].concat(metaLines);
+
+  var agenda = agendaBlock(ev);
+  if (agenda) {
+    contentChildren.push(agenda);
+  }
+
+  var content = el("div", null, contentChildren);
 
   return el("li", { class: "event" }, [ timeNode(ev.time), content ]);
 }

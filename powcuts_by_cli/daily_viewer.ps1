@@ -391,6 +391,63 @@ function New-AzDevOpsDailyViewerTime {
 }
 
 
+function ConvertTo-AzDevOpsDailyViewerRsvp {
+    # Map ol-Get-OutlookAgenda's readable ResponseStatus onto the compact status
+    # key the front-end's RSVP_LABELS expects (see app.js). Anything the switch
+    # doesn't recognize — a blank, a not-yet-responded invite — collapses to 'none'
+    # so the view never renders a raw backend token.
+    param([string] $ResponseStatus)
+
+    switch ($ResponseStatus) {
+        'Accepted' {
+            return 'accepted'
+        }
+
+        'Declined' {
+            return 'declined'
+        }
+
+        'Tentative' {
+            return 'tentative'
+        }
+
+        'Organizer' {
+            return 'organizer'
+        }
+
+        default {
+            return 'none'
+        }
+    }
+}
+
+
+function New-AzDevOpsDailyViewerAttendees {
+    # Normalize one calendar event's Attendees onto the front-end { name, status }
+    # shape, each RSVP mapped through ConvertTo-AzDevOpsDailyViewerRsvp. Shared by
+    # the agenda and prep nodes. Returns an empty list when the source carries no
+    # attendees so the view's "no attendees" path sees a real empty array.
+    param([Parameter(Mandatory)] $CalendarEvent)
+
+    $attendees = New-Object System.Collections.Generic.List[object]
+
+    foreach ($person in @($CalendarEvent.Attendees)) {
+        if ($null -eq $person) {
+            continue
+        }
+
+        $status = ConvertTo-AzDevOpsDailyViewerRsvp -ResponseStatus ([string]$person.ResponseStatus)
+
+        $attendees.Add([ordered]@{
+            name   = [string]$person.Name
+            status = $status
+        })
+    }
+
+    return ,$attendees
+}
+
+
 function New-AzDevOpsDailyViewerAgendaNode {
     # Normalize one ol-Get-OutlookAgenda row into the front-end event shape.
     param([Parameter(Mandatory)] $CalendarEvent)
@@ -405,10 +462,12 @@ function New-AzDevOpsDailyViewerAgendaNode {
     }
 
     $node = [ordered]@{
-        time     = $time
-        title    = [string]$CalendarEvent.Subject
-        location = $location
-        details  = $details
+        time      = $time
+        title     = [string]$CalendarEvent.Subject
+        location  = $location
+        details   = $details
+        body      = [string]$CalendarEvent.Body
+        attendees = New-AzDevOpsDailyViewerAttendees -CalendarEvent $CalendarEvent
     }
 
     return $node
@@ -445,13 +504,15 @@ function Get-AzDevOpsDailyViewerPrepItems {
 
     $prep = @($events | ForEach-Object {
         $node = [ordered]@{
-            id       = [string]$_.Id
-            title    = [string]$_.Subject
-            date     = Format-AzDevOpsDailyViewerShortDate -When $_.Start
-            datetime = $_.Start.ToString('o')
-            time     = New-AzDevOpsDailyViewerTime -CalendarEvent $_
-            location = New-AzDevOpsDailyViewerLocation -CalendarEvent $_
-            marker   = $script:AzDevOpsDailyViewerMarkerNeeded
+            id        = [string]$_.Id
+            title     = [string]$_.Subject
+            date      = Format-AzDevOpsDailyViewerShortDate -When $_.Start
+            datetime  = $_.Start.ToString('o')
+            time      = New-AzDevOpsDailyViewerTime -CalendarEvent $_
+            location  = New-AzDevOpsDailyViewerLocation -CalendarEvent $_
+            body      = [string]$_.Body
+            attendees = New-AzDevOpsDailyViewerAttendees -CalendarEvent $_
+            marker    = $script:AzDevOpsDailyViewerMarkerNeeded
         }
 
         $node
