@@ -144,6 +144,7 @@
         <nav class="creator-subnav" role="tablist" aria-label="Create surface">
           <button class="sub-tab" type="button" role="tab" id="subtab-workitem" aria-controls="panel-workitem" aria-selected="true" tabindex="0">Work item</button>
           <button class="sub-tab" type="button" role="tab" id="subtab-draft" aria-controls="panel-draft" aria-selected="false" tabindex="-1">Draft</button>
+          <button class="sub-tab" type="button" role="tab" id="subtab-timer" aria-controls="panel-timer" aria-selected="false" tabindex="-1">Timer</button>
         </nav>
 
         <div class="creator-body" id="creator-body">
@@ -205,6 +206,72 @@
                   <button class="btn danger" type="button" id="draft-clear-btn">Clear draft</button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Timer session (sub-issue D, #232). The setup form + the countdown run
+               in the browser; the debrief POSTs to /api/timer/post, which reuses the
+               pow_timer.ps1 helpers (Format-TimerCommentBody + the integration's
+               AddComment / CloseItem) — the same path az-Start-TimerSession takes.
+               Setup + item lists render from GET /api/timer/options via el()
+               (textContent), so cached Azure DevOps titles stay inert. Empty until
+               the Timer sub-tab is first shown. -->
+          <div id="panel-timer" class="is-hidden" role="tabpanel" aria-labelledby="subtab-timer" tabindex="0" hidden>
+            <div class="timer-panel">
+              <p class="timer-intro">Pick a work item, run a focus countdown here in the browser, then post a debrief comment &mdash; composed and posted by the same bashcuts helpers as <code>az-Start-TimerSession</code>. Nothing hits Azure DevOps until you post.</p>
+
+              <!-- Setup: integration (only shown when more than one is registered),
+                   work item, and minutes — rendered by app.js from the cached
+                   options. -->
+              <form class="timer-setup" id="timer-setup" novalidate>
+                <div id="timer-fields" class="create-fields"></div>
+                <div class="create-actions">
+                  <button class="btn primary" type="submit" id="timer-start">Start timer</button>
+                </div>
+              </form>
+
+              <!-- Running countdown. A JS interval drives #timer-clock and the
+                   decorative progress bar (aria-hidden, animation gated under
+                   prefers-reduced-motion). The clock is role="timer" with
+                   aria-live="off" so each tick isn't announced. -->
+              <div class="timer-running is-hidden" id="timer-running" hidden>
+                <p class="timer-item" id="timer-item"></p>
+                <div class="timer-clock" id="timer-clock" role="timer" aria-live="off">00:00</div>
+                <div class="timer-progress" aria-hidden="true"><span class="timer-progress-fill" id="timer-progress-fill"></span></div>
+                <div class="create-actions timer-controls">
+                  <button class="btn" type="button" id="timer-add5">+5 min</button>
+                  <button class="btn" type="button" id="timer-endnow">End &amp; debrief</button>
+                  <button class="btn danger" type="button" id="timer-cancel">Cancel</button>
+                </div>
+              </div>
+
+              <!-- Debrief form, revealed when the countdown ends (or via End &
+                   debrief). Posts to /api/timer/post; the resolve checkbox is shown
+                   only when the integration supplies a CloseItem. -->
+              <form class="timer-debrief is-hidden" id="timer-debrief" hidden novalidate>
+                <h3 class="draft-form-title" id="timer-debrief-title">Session debrief</h3>
+                <div class="field">
+                  <label for="timer-debrief-text">Debrief &mdash; what did you accomplish?</label>
+                  <textarea id="timer-debrief-text" rows="3"></textarea>
+                </div>
+                <div class="field">
+                  <label for="timer-next-text">Next &mdash; what's the next step?</label>
+                  <textarea id="timer-next-text" rows="3"></textarea>
+                </div>
+                <div class="field timer-resolve is-hidden" id="timer-resolve-field" hidden>
+                  <label for="timer-resolve" class="timer-check"><input type="checkbox" id="timer-resolve"> Work complete &mdash; resolve this item</label>
+                </div>
+                <div class="create-actions">
+                  <button class="btn primary" type="submit" id="timer-post">Post debrief</button>
+                  <button class="btn" type="button" id="timer-discard">Discard</button>
+                </div>
+              </form>
+
+              <div class="create-result" id="timer-result" role="status" aria-live="polite"></div>
+              <!-- Restart choice sits OUTSIDE the live region above, so a screen
+                   reader announces the posted-debrief outcome once (from
+                   #timer-result) without also reading the three button labels. -->
+              <div id="timer-again"></div>
             </div>
           </div>
 
