@@ -782,13 +782,15 @@ function agendaBlock(item) {
     return null;
   }
 
+  // A <summary>'s content model is phrasing content, so the body is a <span>
+  // (not a <p>) — the .agenda-body rule gives it block layout via display.
   var summaryChildren = [];
   if (body) {
-    summaryChildren.push(el("p", { class: "agenda-body", text: body }));
+    summaryChildren.push(el("span", { class: "agenda-body", text: body }));
   }
 
   var attendeeCue = attendees.length === 0
-    ? "See all"
+    ? "Read more"
     : "See all · " + attendees.length + (attendees.length === 1 ? " attendee" : " attendees");
 
   summaryChildren.push(el("span", { class: "agenda-cue" }, [

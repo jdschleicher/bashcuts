@@ -241,8 +241,9 @@ function Get-OutlookAppointmentBody {
     }
 
     $agenda = [regex]::Replace($body, $script:OutlookTeamsFooterPattern, '')
+    $trimmed = $agenda.Trim()
 
-    return $agenda.Trim()
+    return $trimmed
 }
 
 
