@@ -90,6 +90,15 @@ $script:AzDevOpsDailyViewerMaxPriority        = 4
 # child tier rules against the draft's own Test-AzDevOpsDraftTypeMatchesTier.
 $script:AzDevOpsDailyViewerDraftTypes = @('Epic', 'Feature', 'User Story', 'Task')
 
+# Unplanned-work capture (Epic #228 sub-issue E, #233). The browser files a
+# firefight against the daily catch-all story reusing azdevops_unplanned.ps1's
+# helpers; these bound a client-supplied payload so a bogus minutes / item count
+# stays sane.
+$script:AzDevOpsDailyViewerUnplannedDefaultMinutes = 5      # firefight minutes the panel pre-fills
+$script:AzDevOpsDailyViewerUnplannedMaxMinutes     = 1440   # sanity cap on client-reported minutes (one day)
+$script:AzDevOpsDailyViewerUnplannedMaxItems       = 200    # cap on captured items per firefight
+$script:AzDevOpsDailyViewerUnplannedMaxTitle       = 255    # server-side clamp on the firefight title (mirrors the client maxlength)
+
 $script:AzDevOpsDailyViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
     '.css'  = 'text/css; charset=utf-8'
@@ -1330,6 +1339,72 @@ function Split-AzDevOpsDailyViewerApiPath {
 }
 
 
+function Get-AzDevOpsDailyViewerActionRoute {
+    # Parse a single-segment /api/<namespace>/<action> path into { Action } or $null.
+    # Shared by the create / draft / timer / unplanned route parsers — every one of
+    # those namespaces is a flat "one action per path" surface, so the only thing that
+    # varies is the prefix. (The tile route stays separate: it carries multi-segment
+    # /<name>/refresh|prep-marker paths.)
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Prefix
+    )
+
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix $Prefix
+    if ($null -eq $segments) {
+        return $null
+    }
+
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Test-AzDevOpsDailyViewerActionMethod {
+    # Shared method / content-type gate for the single-action write surfaces (create /
+    # draft / timer / unplanned): the read-only action answers a GET, every other
+    # action requires POST + application/json — a JSON content-type forces a preflight
+    # this loopback server never answers, so a cross-origin simple-request forgery
+    # can't reach a write. Writes the 405 / 415 error itself and returns $false when
+    # the method or content-type is wrong; $true when the handler may proceed to its
+    # action switch. Private helper, so an unapproved verb is fine.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerRequest]  $Request,
+        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
+        [Parameter(Mandatory)] [string] $Action,
+        [Parameter(Mandatory)] [string] $ReadOnlyAction,
+        [Parameter(Mandatory)] [string] $WriteLabel
+    )
+
+    if ($Action -eq $ReadOnlyAction) {
+        if ($Request.HttpMethod -ne 'GET') {
+            Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 405 -Message "The $ReadOnlyAction action is read-only (GET)."
+            return $false
+        }
+
+        return $true
+    }
+
+    if ($Request.HttpMethod -ne 'POST') {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 405 -Message "$WriteLabel require POST."
+        return $false
+    }
+
+    if ([string]$Request.ContentType -notlike '*application/json*') {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require an application/json body."
+        return $false
+    }
+
+    return $true
+}
+
+
 function Get-AzDevOpsDailyViewerTileRoute {
     # Parse an /api/tiles/... path into { Tile; IsRefresh; IsPrepMarker } or
     # $null when it isn't a tile route. Keeps the router readable and the API
@@ -1368,18 +1443,7 @@ function Get-AzDevOpsDailyViewerCreateRoute {
     # sub-issues B–E add their own actions to the handler's switch.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/create/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/create/'
     return $route
 }
 
@@ -1784,22 +1848,8 @@ function Invoke-AzDevOpsDailyViewerCreateRequest {
     $optionsAction  = 'options'
     $workitemAction = 'workitem'
 
-    if ($action -eq $optionsAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Create actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Create actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Create actions')) {
+        return
     }
 
     switch ($action) {
@@ -1847,18 +1897,7 @@ function Get-AzDevOpsDailyViewerDraftRoute {
     # JSON only, enforced by the handler. Single-segment actions only.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/draft/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/draft/'
     return $route
 }
 
@@ -2414,22 +2453,8 @@ function Invoke-AzDevOpsDailyViewerDraftRequest {
     $clearAction   = 'clear'
     $publishAction = 'publish'
 
-    if ($action -eq $stateAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The state action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Draft actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Draft actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $stateAction -WriteLabel 'Draft actions')) {
+        return
     }
 
     switch ($action) {
@@ -2496,18 +2521,7 @@ function Get-AzDevOpsDailyViewerTimerRoute {
     # debrief (POST + JSON only, enforced by the handler). Single-segment actions.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/timer/'
-    if ($null -eq $segments) {
-        return $null
-    }
-
-    if ($segments.Count -ne 1) {
-        return $null
-    }
-
-    $route = [PSCustomObject]@{
-        Action = $segments[0]
-    }
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/timer/'
     return $route
 }
 
@@ -2716,22 +2730,8 @@ function Invoke-AzDevOpsDailyViewerTimerRequest {
     $optionsAction = 'options'
     $postAction    = 'post'
 
-    if ($action -eq $optionsAction) {
-        if ($request.HttpMethod -ne 'GET') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
-            return
-        }
-    }
-    else {
-        if ($request.HttpMethod -ne 'POST') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Timer actions require POST.'
-            return
-        }
-
-        if ([string]$request.ContentType -notlike '*application/json*') {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Timer actions require an application/json body.'
-            return
-        }
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Timer actions')) {
+        return
     }
 
     switch ($action) {
@@ -2750,6 +2750,331 @@ function Invoke-AzDevOpsDailyViewerTimerRequest {
 
         default {
             Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown timer action '$action'."
+            return
+        }
+    }
+}
+
+
+# Unplanned-work surface — the browser firefight capture (Epic #228 sub-issue E,
+# #233). The page collects the firefight title, the captured interruptions, and
+# the debrief; resolving the daily story, creating the Task, composing the item
+# log / debrief, and recording the ledger all stay server-side in
+# azdevops_unplanned.ps1's helpers, so the terminal (az-Start-UnplannedWork) and
+# the browser share one story-resolution, one item format, and one posting path.
+# azdevops_unplanned.ps1 is dot-sourced alongside this file, so those helpers are
+# already in scope. The WPF stopwatch overlay stays terminal-only (out of scope);
+# the browser reports the minutes spent instead of running a live clock.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerUnplannedRoute {
+    # Parse an /api/unplanned/<action> path into { Action } or $null. `options` reads
+    # today's story + parent-Feature candidates (GET); `firefight` files one captured
+    # firefight and `rollup` posts the day's roll-up (POST + JSON only, enforced by the
+    # handler). Single-segment actions.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $route = Get-AzDevOpsDailyViewerActionRoute -Path $Path -Prefix '/api/unplanned/'
+    return $route
+}
+
+
+function Get-AzDevOpsDailyViewerUnplannedOptions {
+    # Unplanned-work picker data, cache-backed like the create / timer options — a GET,
+    # so never a live az call. Surfaces today's daily-story title and its cached id
+    # (Get-UnplannedCachedStoryId, 0 when the story hasn't been created yet) so the
+    # panel can show "today's story" without a round-trip, plus the parent-Feature
+    # candidates from hierarchy.json — the same data source Read-UnplannedParentFeature
+    # picks from — so the browser offers a real Feature (cache-driven pick, not free
+    # text) for the day's first firefight. Empty caches yield an empty feature list.
+    $cachedStoryId = Get-UnplannedCachedStoryId
+    $storyTitle    = Get-UnplannedWorkDailyStoryTitle
+
+    $hierarchy = Read-AzDevOpsHierarchyCache
+    $features  = Get-AzDevOpsDailyViewerParentCandidates -Hierarchy $hierarchy -Type $script:AzDevOpsDailyViewerFeatureType
+
+    $options = [ordered]@{
+        storyTitle     = $storyTitle
+        cachedStoryId  = $cachedStoryId
+        features       = @($features)
+        defaultMinutes = $script:AzDevOpsDailyViewerUnplannedDefaultMinutes
+        area           = $env:AZ_AREA
+        iteration      = $env:AZ_ITERATION
+    }
+    return $options
+}
+
+
+function Get-AzDevOpsDailyViewerUnplannedMinutes {
+    # Parse the client-reported firefight minutes to an int in [1, max], falling back to
+    # the panel default when it's absent or unparseable so a bogus value can't skew the
+    # debrief header or the ledger total.
+    param([AllowNull()] $Value)
+
+    $parsed = 0
+    if ([int]::TryParse([string]$Value, [ref]$parsed) -and $parsed -ge 1) {
+        $capped = [math]::Min($parsed, $script:AzDevOpsDailyViewerUnplannedMaxMinutes)
+        return $capped
+    }
+
+    return $script:AzDevOpsDailyViewerUnplannedDefaultMinutes
+}
+
+
+function Get-AzDevOpsDailyViewerUnplannedParentId {
+    # Resolve the parent Feature the day's first firefight links its daily story to: a
+    # positive id when the panel picked a Feature, else 0 (parentless). Never -1 — the
+    # headless path must not fall back to New-UnplannedWorkStory's interactive
+    # Read-UnplannedParentFeature pick, which would block this HTTP handler. When the
+    # story already exists for today the id is ignored (the cached / existing story is
+    # reused without re-parenting).
+    param([AllowNull()] $Value)
+
+    $parsed = 0
+    if ([int]::TryParse([string]$Value, [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+    return 0
+}
+
+
+function Get-AzDevOpsDailyViewerUnplannedItems {
+    # Normalize the client-captured interruption list into the { Time; Text } records
+    # Format-UnplannedItemsDescription expects. Blank-text rows are dropped, the list is
+    # capped so a runaway payload can't blow up the Task description, and a missing time
+    # falls back to now — the browser stamps HH:mm when the user adds a row, but the
+    # server never trusts it to be present.
+    param([AllowNull()] $Value)
+
+    $records = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $Value) {
+        return $records
+    }
+
+    $nowStamp = (Get-Date).ToString('HH:mm')
+
+    foreach ($raw in @($Value)) {
+        if ($records.Count -ge $script:AzDevOpsDailyViewerUnplannedMaxItems) {
+            break
+        }
+
+        $text = ([string]$raw.text).Trim()
+        if (-not $text) {
+            continue
+        }
+
+        $time = ([string]$raw.time).Trim()
+        if (-not $time) {
+            $time = $nowStamp
+        }
+
+        $records.Add([PSCustomObject]@{
+            Time = $time
+            Text = $text
+        })
+    }
+
+    return $records
+}
+
+
+function Invoke-AzDevOpsDailyViewerUnplannedFirefight {
+    # File one browser-captured firefight against today's daily Unplanned Work story,
+    # reusing the exact terminal helpers so nothing about resolving the story, creating
+    # the Task, composing the item log / debrief, or recording the ledger is duplicated
+    # client-side:
+    #   Get-UnplannedWorkDailyStory - find-or-create today's story (cached-id reuse via
+    #                                 Get-UnplannedCachedStoryId), headless: the chosen
+    #                                 parent Feature + env classification are passed so
+    #                                 it never prompts.
+    #   New-UnplannedWorkTask       - create + link the firefight Task.
+    #   Save-UnplannedItemsToTask   - flush the captured items to the Task description
+    #                                 (via Format-UnplannedItemsDescription).
+    #   Format-UnplannedDebriefComment + Add-AzDevOpsDiscussionComment - post the debrief.
+    #   Add-UnplannedLedgerEntry    - record the session in the day's ledger so the
+    #                                 roll-up can total it.
+    # Returns { StatusCode; Body }: 400 for a malformed payload, 200 with ok:$false for a
+    # missing classification / auth / az failure the form surfaces, so nothing 500s.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $title = ([string]$Payload.title).Trim()
+    if (-not $title) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'A firefight title is required.'
+        return $failure
+    }
+    if ($title.Length -gt $script:AzDevOpsDailyViewerUnplannedMaxTitle) {
+        $title = $title.Substring(0, $script:AzDevOpsDailyViewerUnplannedMaxTitle)
+    }
+
+    $minutes = Get-AzDevOpsDailyViewerUnplannedMinutes -Value $Payload.minutes
+    # Normalize to an array so .Count is safe and correct whether the client sent
+    # zero, one, or many interruptions (a returned List unrolls to a scalar / $null
+    # on assignment); nothing .Add()s to it after this, so @() is the right tool.
+    $items   = @(Get-AzDevOpsDailyViewerUnplannedItems -Value $Payload.items)
+    $debrief = [string]$Payload.debrief
+    $future  = [string]$Payload.future
+
+    $parentFeatureId = Get-AzDevOpsDailyViewerUnplannedParentId -Value $Payload.parentFeatureId
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer unplanned')) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.'
+        return $failure
+    }
+
+    $area      = $env:AZ_AREA
+    $iteration = $env:AZ_ITERATION
+    if (-not $area -or -not $iteration) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Set $env:AZ_AREA and $env:AZ_ITERATION (run az-Connect-AzDevOps) before capturing unplanned work from the browser.'
+        return $failure
+    }
+
+    $storyId = Get-UnplannedWorkDailyStory -ParentFeatureId $parentFeatureId -Area $area -Iteration $iteration
+    if ($storyId -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Could not resolve or create today''s Unplanned Work story. See the server console.'
+        return $failure
+    }
+
+    $taskId = New-UnplannedWorkTask -Title $title -StoryId $storyId
+    if ($taskId -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Could not create the firefight Task. See the server console.'
+        return $failure
+    }
+
+    Save-UnplannedItemsToTask -TaskId $taskId -Title $title -Items $items
+
+    $commentBody = Format-UnplannedDebriefComment `
+        -ElapsedMinutes $minutes `
+        -ItemCount      $items.Count `
+        -Debrief        $debrief `
+        -FutureFeature  $future `
+        -Mentions       @()
+
+    $postResult = Add-AzDevOpsDiscussionComment -Id $taskId -Body $commentBody
+    $postExit   = Get-TimerResultExitCode -Result $postResult
+
+    Add-UnplannedLedgerEntry -StoryId $storyId -TaskId $taskId -Title $title -Minutes $minutes -ItemCount $items.Count
+
+    $result = [ordered]@{
+        ok        = $true
+        storyId   = $storyId
+        taskId    = $taskId
+        title     = $title
+        minutes   = $minutes
+        itemCount = $items.Count
+        posted    = ($postExit -eq 0)
+    }
+
+    if ($postExit -ne 0) {
+        $result.postError = Get-AzDevOpsDailyViewerTimerErrorMessage -Result $postResult -Fallback "Debrief comment failed (exit=$postExit). The Task and its item log were saved."
+    }
+
+    $outcome = @{ StatusCode = 200; Body = $result }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerUnplannedRollup {
+    # Post the end-of-day roll-up on today's daily Unplanned Work story, reusing the
+    # terminal New-UnplannedWorkDebrief's exact pieces: read the day's ledger
+    # (Get-UnplannedLedgerPath), total the minutes across firefights, and compose the
+    # comment with Format-UnplannedDailyDebrief before posting via
+    # Add-AzDevOpsDiscussionComment. No mentions from the browser — the terminal's tag
+    # picker is interactive. Returns { StatusCode; Body }: 200 with ok:$false when the
+    # ledger is empty or a post fails, so the panel surfaces it.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer unplanned rollup')) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.'
+        return $failure
+    }
+
+    $ledger = Read-UnplannedLedgerTotals
+    if ($ledger.Reason -eq 'missing') {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'No unplanned-work ledger for today yet - file a firefight first.'
+        return $failure
+    }
+    if ($ledger.Reason -eq 'empty') {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Today''s unplanned-work ledger is empty - file a firefight first.'
+        return $failure
+    }
+
+    $entries      = $ledger.Entries
+    $totalMinutes = $ledger.TotalMinutes
+    $storyId      = $ledger.StoryId
+
+    $body       = Format-UnplannedDailyDebrief -Entries $entries -TotalMinutes $totalMinutes -Mentions @()
+    $postResult = Add-AzDevOpsDiscussionComment -Id $storyId -Body $body
+    $postExit   = Get-TimerResultExitCode -Result $postResult
+
+    if ($postExit -ne 0) {
+        $postError = Get-AzDevOpsDailyViewerTimerErrorMessage -Result $postResult -Fallback "Roll-up comment failed (exit=$postExit)."
+        $failure   = New-AzDevOpsDailyViewerCreateError -Code 200 -Message $postError
+        return $failure
+    }
+
+    $result = [ordered]@{
+        ok           = $true
+        storyId      = $storyId
+        count        = $entries.Count
+        totalMinutes = $totalMinutes
+    }
+
+    $outcome = @{ StatusCode = 200; Body = $result }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerUnplannedRequest {
+    # Handle an /api/unplanned/<action> request (Epic #228 sub-issue E). `options` is a
+    # read-only GET; `firefight` files one captured firefight and `rollup` posts the
+    # day's roll-up — both require POST + application/json (a JSON content-type forces a
+    # preflight this loopback server never answers, so a cross-origin simple-request
+    # forgery can't reach the writes).
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
+        [Parameter(Mandatory)] [PSCustomObject] $Route
+    )
+
+    $request  = $Context.Request
+    $response = $Context.Response
+
+    $action          = $Route.Action
+    $optionsAction   = 'options'
+    $firefightAction = 'firefight'
+    $rollupAction    = 'rollup'
+
+    if (-not (Test-AzDevOpsDailyViewerActionMethod -Request $request -Response $response -Action $action -ReadOnlyAction $optionsAction -WriteLabel 'Unplanned-work actions')) {
+        return
+    }
+
+    switch ($action) {
+        $optionsAction {
+            $options = Get-AzDevOpsDailyViewerUnplannedOptions
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $options
+            return
+        }
+
+        $firefightAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerUnplannedFirefight -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        $rollupAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerUnplannedRollup -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        default {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown unplanned-work action '$action'."
             return
         }
     }
@@ -2851,9 +3176,9 @@ function Invoke-AzDevOpsDailyViewerStaticRequest {
 
 function Invoke-AzDevOpsDailyViewerRequest {
     # Front door: /api/tiles/* goes to the tile handler (cheap GET / expensive
-    # POST), /api/create/* + /api/draft/* + /api/timer/* to the creation-mode
-    # handlers, everything else is treated as a static-asset GET. Any handler
-    # failure is turned into a 500 so one bad request can never kill the serving loop.
+    # POST), /api/create/* + /api/draft/* + /api/timer/* + /api/unplanned/* to the
+    # creation-mode handlers, everything else is treated as a static-asset GET. Any
+    # handler failure is turned into a 500 so one bad request can never kill the loop.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
         [Parameter(Mandatory)] [string] $StaticRoot
@@ -2885,6 +3210,12 @@ function Invoke-AzDevOpsDailyViewerRequest {
         $timerRoute = Get-AzDevOpsDailyViewerTimerRoute -Path $path
         if ($null -ne $timerRoute) {
             Invoke-AzDevOpsDailyViewerTimerRequest -Context $Context -Route $timerRoute
+            return
+        }
+
+        $unplannedRoute = Get-AzDevOpsDailyViewerUnplannedRoute -Path $path
+        if ($null -ne $unplannedRoute) {
+            Invoke-AzDevOpsDailyViewerUnplannedRequest -Context $Context -Route $unplannedRoute
             return
         }
 

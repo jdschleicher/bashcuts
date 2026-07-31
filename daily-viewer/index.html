@@ -136,15 +136,16 @@
           <p class="creator-status" id="creator-status"><span class="dot" aria-hidden="true"></span><span class="ctext" id="creator-status-text">Not checked yet</span></p>
         </header>
 
-        <!-- Creator sub-nav — Work item (the per-type create form, sub-issue B) vs
-             Draft (the brain-dump hierarchy builder, sub-issue C). A nested tablist
-             inside the Create view; timer (#232) / unplanned (#233) add their own
-             tabs here. app.js adds roving tabindex + arrow-key nav and shows the
-             matching panel. -->
+        <!-- Creator sub-nav — Work item (the per-type create form, sub-issue B),
+             Draft (the brain-dump hierarchy builder, sub-issue C), Timer (the focus
+             session, sub-issue D), and Unplanned (firefight capture, sub-issue E). A
+             nested tablist inside the Create view. app.js adds roving tabindex +
+             arrow-key nav and shows the matching panel. -->
         <nav class="creator-subnav" role="tablist" aria-label="Create surface">
           <button class="sub-tab" type="button" role="tab" id="subtab-workitem" aria-controls="panel-workitem" aria-selected="true" tabindex="0">Work item</button>
           <button class="sub-tab" type="button" role="tab" id="subtab-draft" aria-controls="panel-draft" aria-selected="false" tabindex="-1">Draft</button>
           <button class="sub-tab" type="button" role="tab" id="subtab-timer" aria-controls="panel-timer" aria-selected="false" tabindex="-1">Timer</button>
+          <button class="sub-tab" type="button" role="tab" id="subtab-unplanned" aria-controls="panel-unplanned" aria-selected="false" tabindex="-1">Unplanned</button>
         </nav>
 
         <div class="creator-body" id="creator-body">
@@ -272,6 +273,76 @@
                    reader announces the posted-debrief outcome once (from
                    #timer-result) without also reading the three button labels. -->
               <div id="timer-again"></div>
+            </div>
+          </div>
+
+          <!-- Unplanned-work capture (sub-issue E, #233). Capture a firefight's
+               interruptions in the browser and file them as a child Task under
+               today's Unplanned Work story; File firefight POSTs to
+               /api/unplanned/firefight, which reuses the azdevops_unplanned.ps1
+               helpers (resolve/create the daily story, create + link the Task, save
+               the item log, post the debrief, record the ledger) — the same path
+               az-Start-UnplannedWork takes. The parent-Feature pick and the item
+               list render via el() (textContent), so cached Azure DevOps titles stay
+               inert. The WPF stopwatch overlay stays terminal-only; the browser
+               reports the minutes spent. Empty until the Unplanned sub-tab is shown. -->
+          <div id="panel-unplanned" class="is-hidden" role="tabpanel" aria-labelledby="subtab-unplanned" tabindex="0" hidden>
+            <div class="unplanned-panel">
+              <p class="unplanned-intro">Capture a firefight and the interruptions it brought, then file it as a child Task under today's <strong>Unplanned Work</strong> story &mdash; created, logged, and debriefed by the same bashcuts helpers as <code>az-Start-UnplannedWork</code>. Nothing hits Azure DevOps until you file.</p>
+
+              <!-- Today's daily-story status, set on open + after each file from GET
+                   /api/unplanned/options. A plain line (not a live region) so it
+                   doesn't announce on open. -->
+              <p class="unplanned-story" id="unplanned-story"></p>
+
+              <form class="unplanned-form" id="unplanned-form" novalidate>
+                <!-- Firefight title, minutes, and (for the day's first firefight) a
+                     cache-driven parent Feature for the daily story render here from
+                     the cached options. -->
+                <div id="unplanned-fields" class="create-fields"></div>
+
+                <!-- Captured interruptions. Add builds a { time, text } row
+                     client-side (time stamped now); the list renders via el() so
+                     titles stay inert. -->
+                <fieldset class="unplanned-capture">
+                  <legend>Captured interruptions</legend>
+                  <div class="field unplanned-add">
+                    <label for="unplanned-item-input">Log an interruption</label>
+                    <div class="unplanned-add-row">
+                      <input type="text" id="unplanned-item-input" maxlength="500" autocomplete="off" placeholder="What happened?">
+                      <button class="btn" type="button" id="unplanned-item-add">Add item</button>
+                    </div>
+                  </div>
+                  <ul class="unplanned-items" id="unplanned-items"></ul>
+                </fieldset>
+
+                <div class="field">
+                  <label for="unplanned-debrief-text">Debrief &mdash; how did this firefight go?</label>
+                  <textarea id="unplanned-debrief-text" rows="3"></textarea>
+                </div>
+                <div class="field">
+                  <label for="unplanned-future-text">Future opportunity (optional) &mdash; a feature/story to prevent this firefight?</label>
+                  <textarea id="unplanned-future-text" rows="2"></textarea>
+                </div>
+
+                <div class="create-actions">
+                  <button class="btn primary" type="submit" id="unplanned-file">File firefight</button>
+                </div>
+              </form>
+
+              <div class="create-result" id="unplanned-result" role="status" aria-live="polite"></div>
+
+              <!-- End-of-day roll-up. Posts to /api/unplanned/rollup, which totals
+                   the day's ledger and comments on the daily story (reusing
+                   Format-UnplannedDailyDebrief). -->
+              <div class="unplanned-rollup">
+                <h3 class="draft-form-title">End of day</h3>
+                <p class="field-hint">Post a roll-up comment on today's Unplanned Work story totalling every firefight you filed.</p>
+                <div class="create-actions">
+                  <button class="btn" type="button" id="unplanned-rollup-btn">Post daily roll-up</button>
+                </div>
+                <div class="create-result" id="unplanned-rollup-result" role="status" aria-live="polite"></div>
+              </div>
             </div>
           </div>
 

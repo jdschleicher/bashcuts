@@ -744,7 +744,7 @@ flowchart TD
     FutureStory --> Ledger["Add-UnplannedLedgerEntry<br/>unplanned-YYYY-MM-DD.json"]
     Ledger --> Done([end])
 
-    DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["read day ledger<br/>Measure-Object -Property Minutes"]
+    DebriefDay([New-UnplannedWorkDebrief]) --> ReadLedger["Read-UnplannedLedgerTotals<br/>read day ledger + total minutes"]
     ReadLedger --> TagDay["Select-AzDevOpsMention<br/>(same shared typed tag field)"]
     TagDay --> Rollup["Format-UnplannedDailyDebrief<br/>(+ @-mention anchors)<br/>→ Add-AzDevOpsDiscussionComment on daily story"]
     Rollup --> Done2([end])
@@ -832,6 +832,7 @@ graph LR
     UWBalloon[New-UnplannedBalloon]:::priv
     WpfStopwatch[Show-WpfStopwatch]:::priv
     UWLedger[Add-UnplannedLedgerEntry]:::priv
+    UWLedgerTotals[Read-UnplannedLedgerTotals]:::priv
     UWLedgerPath[Get-UnplannedLedgerPath]:::priv
 
     %% Team tagging — shared by the unplanned debriefs and the timer (azdevops_team.ps1)
@@ -1574,7 +1575,8 @@ graph LR
     InvUWDebriefConsole --> UWFutureStory
     UWFutureStory --> NewS
     NewUWDebrief --> AddDisc
-    NewUWDebrief --> UWLedger
+    NewUWDebrief --> UWLedgerTotals
+    UWLedgerTotals --> UWLedgerPath
 
     %% Team tagging — shared by the unplanned debriefs and the timer (azdevops_team.ps1)
     SyncUWTeam --> CGate

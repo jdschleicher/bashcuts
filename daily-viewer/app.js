@@ -2195,21 +2195,24 @@ function ensureCreateForm() {
 // their own tabs here.
 // ---------------------------------------------------------------------------
 
-var CREATOR_TABS = ["workitem", "draft", "timer"];
+var CREATOR_TABS = ["workitem", "draft", "timer", "unplanned"];
 var CREATOR_TAB_LABELS = {
   workitem: "Work item form.",
   draft: "Draft builder.",
-  timer: "Timer session."
+  timer: "Timer session.",
+  unplanned: "Unplanned work capture."
 };
 var creatorTabs = {
   workitem: document.getElementById("subtab-workitem"),
   draft: document.getElementById("subtab-draft"),
-  timer: document.getElementById("subtab-timer")
+  timer: document.getElementById("subtab-timer"),
+  unplanned: document.getElementById("subtab-unplanned")
 };
 var creatorPanels = {
   workitem: document.getElementById("panel-workitem"),
   draft: document.getElementById("panel-draft"),
-  timer: document.getElementById("panel-timer")
+  timer: document.getElementById("panel-timer"),
+  unplanned: document.getElementById("panel-unplanned")
 };
 var activeCreatorTab = "workitem";
 
@@ -2240,6 +2243,8 @@ function setCreatorTab(tab, silent) {
     ensureDraftPanel();
   } else if (tab === "timer") {
     ensureTimerPanel();
+  } else if (tab === "unplanned") {
+    ensureUnplannedPanel();
   }
 }
 
@@ -2747,6 +2752,352 @@ function ensureTimerPanel() {
 
   loadTimerOptions().then(function () {
     renderTimerFields();
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Unplanned mode — headless firefight capture (Epic #228 sub-issue E, #233). The
+// browser collects the firefight title, the captured interruptions, and the
+// debrief; resolving today's daily story, creating the Task, saving the item log,
+// posting the debrief, and recording the ledger all stay server-side in the
+// azdevops_unplanned.ps1 helpers via POST /api/unplanned/firefight, so the
+// terminal (az-Start-UnplannedWork) and the browser share one story-resolution,
+// one item format, and one posting path. Setup data (today's story + the
+// parent-Feature candidates) comes from GET /api/unplanned/options. Every echoed
+// title reaches the DOM through el() (textContent), so an untrusted Azure DevOps
+// title stays inert. The WPF stopwatch overlay stays terminal-only; the browser
+// reports the minutes spent instead of running a live clock.
+// ---------------------------------------------------------------------------
+
+var UNPLANNED_API = "/api/unplanned/";
+var UNPLANNED_DEFAULT_MINUTES = 5;
+var UNPLANNED_MAX_MINUTES = 1440;
+
+var unplannedState = {
+  initialized: false,
+  busy: false,
+  storyTitle: "",
+  cachedStoryId: 0,
+  features: [],
+  defaultMinutes: UNPLANNED_DEFAULT_MINUTES,
+  hasClassification: false,
+  items: []
+};
+
+var unplannedForm = document.getElementById("unplanned-form");
+var unplannedFields = document.getElementById("unplanned-fields");
+var unplannedStory = document.getElementById("unplanned-story");
+var unplannedItemsList = document.getElementById("unplanned-items");
+var unplannedResult = document.getElementById("unplanned-result");
+var unplannedRollupResult = document.getElementById("unplanned-rollup-result");
+
+
+function unplannedFieldValue(id) {
+  var node = document.getElementById(id);
+  return node ? node.value : "";
+}
+
+// One transient banner in a given result region — busy/bad/good, or cleared when
+// text is empty. Takes the node so #unplanned-result (file) and
+// #unplanned-rollup-result (roll-up) share it.
+function showUnplannedMessage(node, kind, text) {
+  node.textContent = "";
+  if (!text) {
+    return;
+  }
+  node.appendChild(el("div", { class: "create-banner " + kind }, [ text ]));
+}
+
+function setUnplannedFileBusy(busy) {
+  unplannedState.busy = busy;
+  var btn = document.getElementById("unplanned-file");
+  if (btn) {
+    btn.disabled = busy;
+    btn.textContent = busy ? "Filing…" : "File firefight";
+  }
+}
+
+function setUnplannedRollupBusy(busy) {
+  unplannedState.busy = busy;
+  var btn = document.getElementById("unplanned-rollup-btn");
+  if (btn) {
+    btn.disabled = busy;
+    btn.textContent = busy ? "Posting…" : "Post daily roll-up";
+  }
+}
+
+function formatUnplannedNow() {
+  var d = new Date();
+  return timerPad2(d.getHours()) + ":" + timerPad2(d.getMinutes());
+}
+
+
+// --- setup stage: story status, title / minutes / parent Feature ---
+
+function renderUnplannedStory() {
+  var title = unplannedState.storyTitle || "Today's Unplanned Work story";
+  if (unplannedState.cachedStoryId > 0) {
+    unplannedStory.textContent = "Today's story: #" + unplannedState.cachedStoryId + CREATE_DASH + title + ". This firefight files as a child Task.";
+  } else {
+    unplannedStory.textContent = title + " will be created when you file your first firefight.";
+  }
+}
+
+function renderUnplannedFields() {
+  unplannedFields.textContent = "";
+
+  if (!unplannedState.hasClassification) {
+    unplannedFields.appendChild(el("p", { class: "field-hint", text:
+      "Set $env:AZ_AREA and $env:AZ_ITERATION (run az-Connect-AzDevOps), then reopen this tab, to file unplanned work from the browser." }));
+  }
+
+  unplannedFields.appendChild(labeledField("unplanned-title", "Firefight title",
+    el("input", { id: "unplanned-title", type: "text", maxlength: "255", autocomplete: "off" })));
+
+  unplannedFields.appendChild(labeledField("unplanned-minutes", "Minutes spent",
+    el("input", { id: "unplanned-minutes", type: "number", min: "1", max: String(UNPLANNED_MAX_MINUTES), value: String(unplannedState.defaultMinutes) })));
+
+  // The parent Feature only applies to the day's first firefight — once today's
+  // story exists (cachedStoryId set) it's reused as-is, so drop the picker.
+  if (unplannedState.cachedStoryId <= 0 && unplannedState.features.length) {
+    var models = unplannedState.features.map(function (f) {
+      var suffix = f.state ? CREATE_MIDDOT + f.state : "";
+      return { value: String(f.id), label: "#" + f.id + CREATE_DASH + f.title + suffix };
+    });
+    var select = buildSelect(models, "— none (leave the daily story parentless) —", { id: "unplanned-feature" });
+    unplannedFields.appendChild(labeledField("unplanned-feature", "Parent Feature for today's story", select,
+      "Used only when today's story is created — the day's first firefight."));
+  }
+}
+
+function readUnplannedMinutes() {
+  var raw = parseInt(unplannedFieldValue("unplanned-minutes"), 10);
+  if (isNaN(raw) || raw < 1) {
+    return unplannedState.defaultMinutes;
+  }
+  if (raw > UNPLANNED_MAX_MINUTES) {
+    return UNPLANNED_MAX_MINUTES;
+  }
+  return raw;
+}
+
+
+// --- captured interruptions: an in-memory { time, text } list ---
+
+function renderUnplannedItems() {
+  unplannedItemsList.textContent = "";
+
+  if (!unplannedState.items.length) {
+    unplannedItemsList.appendChild(el("li", { class: "unplanned-empty", text: "No interruptions captured yet." }));
+    return;
+  }
+
+  unplannedState.items.forEach(function (item, index) {
+    var remove = el("button", { type: "button", class: "btn tiny", "aria-label": "Remove interruption: " + item.text }, [ "Remove" ]);
+    remove.addEventListener("click", function () { removeUnplannedItem(index); });
+
+    var row = el("li", { class: "unplanned-item" }, [
+      el("span", { class: "unplanned-item-time", text: "[" + item.time + "]" }),
+      el("span", { class: "unplanned-item-text", text: item.text }),
+      remove
+    ]);
+    unplannedItemsList.appendChild(row);
+  });
+}
+
+function addUnplannedItem() {
+  var input = document.getElementById("unplanned-item-input");
+  var text = input.value.trim();
+  if (!text) {
+    return;
+  }
+
+  unplannedState.items.push({ time: formatUnplannedNow(), text: text });
+  input.value = "";
+  renderUnplannedItems();
+  announce("Interruption logged. " + unplannedState.items.length + " captured.");
+  input.focus();
+}
+
+function removeUnplannedItem(index) {
+  unplannedState.items.splice(index, 1);
+  renderUnplannedItems();
+  announce("Interruption removed. " + unplannedState.items.length + " captured.");
+}
+
+// The item input lives inside the firefight form, so a bare Enter would submit
+// (file the firefight). Intercept it to add the interruption instead.
+function onUnplannedItemKeydown(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addUnplannedItem();
+  }
+}
+
+
+// --- file the firefight ---
+
+function fileUnplannedFirefight(event) {
+  event.preventDefault();
+  if (unplannedState.busy) {
+    return;
+  }
+
+  var title = unplannedFieldValue("unplanned-title").trim();
+  if (!title) {
+    showUnplannedMessage(unplannedResult, "bad", "Enter a firefight title before filing.");
+    return;
+  }
+
+  var featureNode = document.getElementById("unplanned-feature");
+  var parentFeatureId = featureNode && featureNode.value ? parseInt(featureNode.value, 10) : 0;
+
+  var payload = {
+    title: title,
+    minutes: readUnplannedMinutes(),
+    parentFeatureId: parentFeatureId || 0,
+    items: unplannedState.items.map(function (i) { return { time: i.time, text: i.text }; }),
+    debrief: unplannedFieldValue("unplanned-debrief-text"),
+    future: unplannedFieldValue("unplanned-future-text")
+  };
+
+  // #unplanned-result is aria-live, so the busy banner announces on its own — no
+  // extra announce() (that would double-speak it), matching the success path below.
+  setUnplannedFileBusy(true);
+  showUnplannedMessage(unplannedResult, "busy", "Filing firefight…");
+
+  postCreateJson(UNPLANNED_API + "firefight", payload).then(function (res) {
+    renderUnplannedFileResult(res);
+  }).catch(function () {
+    showUnplannedMessage(unplannedResult, "bad", "File failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    setUnplannedFileBusy(false);
+  });
+}
+
+function renderUnplannedFileResult(res) {
+  unplannedResult.textContent = "";
+
+  var data = res.data;
+  if (!data) {
+    showUnplannedMessage(unplannedResult, "bad", "File failed (HTTP " + res.status + ").");
+    return;
+  }
+
+  if (!data.ok) {
+    showUnplannedMessage(unplannedResult, "bad", data.error || "File failed.");
+    return;
+  }
+
+  var itemWord = data.itemCount === 1 ? " item" : " items";
+  var line = "Filed firefight as Task #" + data.taskId + " under story #" + data.storyId +
+    " (" + data.minutes + " min, " + data.itemCount + itemWord + ").";
+  if (data.posted === false) {
+    line += " " + (data.postError || "The debrief comment didn't post.");
+  }
+
+  // #unplanned-result is an aria-live region, so appending the banner announces the
+  // outcome on its own — no extra announce() (that would double-speak it).
+  unplannedResult.appendChild(el("div", { class: "create-banner good" }, [ line ]));
+
+  resetUnplannedAfterFile(data.storyId);
+}
+
+// Clear the just-filed firefight so a follow-up firefight starts fresh, and record
+// the now-known daily-story id so the next file reuses it (and the parent-Feature
+// picker drops away — the story exists now).
+function resetUnplannedAfterFile(storyId) {
+  unplannedState.items = [];
+  if (storyId > 0) {
+    unplannedState.cachedStoryId = storyId;
+  }
+
+  document.getElementById("unplanned-debrief-text").value = "";
+  document.getElementById("unplanned-future-text").value = "";
+
+  renderUnplannedStory();
+  renderUnplannedFields();
+  renderUnplannedItems();
+}
+
+
+// --- end-of-day roll-up ---
+
+function postUnplannedRollup() {
+  if (unplannedState.busy) {
+    return;
+  }
+
+  // #unplanned-rollup-result is aria-live, so the busy banner announces on its own.
+  setUnplannedRollupBusy(true);
+  showUnplannedMessage(unplannedRollupResult, "busy", "Posting daily roll-up…");
+
+  postCreateJson(UNPLANNED_API + "rollup", {}).then(function (res) {
+    renderUnplannedRollupResult(res);
+  }).catch(function () {
+    showUnplannedMessage(unplannedRollupResult, "bad", "Roll-up failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    setUnplannedRollupBusy(false);
+  });
+}
+
+function renderUnplannedRollupResult(res) {
+  unplannedRollupResult.textContent = "";
+
+  var data = res.data;
+  if (!data) {
+    showUnplannedMessage(unplannedRollupResult, "bad", "Roll-up failed (HTTP " + res.status + ").");
+    return;
+  }
+
+  if (!data.ok) {
+    showUnplannedMessage(unplannedRollupResult, "bad", data.error || "Roll-up failed.");
+    return;
+  }
+
+  var fireWord = data.count === 1 ? " firefight" : " firefights";
+  var line = "Posted daily roll-up on story #" + data.storyId + " — " +
+    data.count + fireWord + ", " + data.totalMinutes + " min total.";
+  unplannedRollupResult.appendChild(el("div", { class: "create-banner good" }, [ line ]));
+}
+
+
+// --- lazy init + options load ---
+
+function loadUnplannedOptions() {
+  return fetchJson(UNPLANNED_API + "options", { headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      unplannedState.storyTitle = (data && data.storyTitle) || "";
+      unplannedState.cachedStoryId = (data && data.cachedStoryId) || 0;
+      unplannedState.features = (data && data.features) || [];
+      if (data && data.defaultMinutes) {
+        unplannedState.defaultMinutes = data.defaultMinutes;
+      }
+      unplannedState.hasClassification = !!(data && data.area && data.iteration);
+    })
+    .catch(function () {
+      unplannedState.features = [];
+      unplannedState.hasClassification = false;
+    });
+}
+
+function ensureUnplannedPanel() {
+  if (unplannedState.initialized) {
+    return;
+  }
+  unplannedState.initialized = true;
+
+  unplannedForm.addEventListener("submit", fileUnplannedFirefight);
+  document.getElementById("unplanned-item-add").addEventListener("click", addUnplannedItem);
+  document.getElementById("unplanned-item-input").addEventListener("keydown", onUnplannedItemKeydown);
+  document.getElementById("unplanned-rollup-btn").addEventListener("click", postUnplannedRollup);
+
+  renderUnplannedItems();
+
+  loadUnplannedOptions().then(function () {
+    renderUnplannedStory();
+    renderUnplannedFields();
   });
 }
 

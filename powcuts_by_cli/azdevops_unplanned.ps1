@@ -164,9 +164,19 @@ function New-UnplannedWorkStory {
     # or 0 on failure. -Progress is the session's WPF progress controller (a
     # no-op stub off Windows); the parent pick is interactive, so the window is
     # suspended around it and the az writes report their step.
+    #
+    # -ParentFeatureId / -Area / -Iteration drive the headless (browser) path: a
+    # caller that already knows the parent Feature and classification supplies them
+    # so nothing prompts. -ParentFeatureId -1 (the default) runs the interactive
+    # Read-UnplannedParentFeature pick; 0 means "parentless, don't prompt"; any
+    # positive id links to that Feature. Empty -Area / -Iteration fall back to the
+    # per-type / env resolution Resolve-AzDevOpsIterationArea already does.
     param(
         [Parameter(Mandatory)] [string] $Title,
-        [object] $Progress
+        [object] $Progress,
+        [int]    $ParentFeatureId = -1,
+        [string] $Area,
+        [string] $Iteration
     )
 
     if ($null -eq $Progress) {
@@ -174,8 +184,14 @@ function New-UnplannedWorkStory {
     }
 
     & $Progress.Suspend
-    $featureId = Read-UnplannedParentFeature
-    $resolved  = Resolve-AzDevOpsIterationArea -Type 'USER_STORY'
+
+    $featureId = if ($ParentFeatureId -ge 0) {
+        $ParentFeatureId
+    } else {
+        Read-UnplannedParentFeature
+    }
+
+    $resolved = Resolve-AzDevOpsIterationArea -Type 'USER_STORY' -Area $Area -Iteration $Iteration
     & $Progress.Resume
 
     if (-not $resolved.Ok) {
@@ -281,10 +297,16 @@ function Get-UnplannedWorkDailyStory {
     # then creates. The resolved id is cached on the way out. -NoCreate returns
     # 0 instead of creating when none exists (used by the daily-debrief reader).
     # -Progress flows the session's WPF progress controller into the create path
-    # so New-UnplannedWorkStory can report its az-boards steps.
+    # so New-UnplannedWorkStory can report its az-boards steps. -ParentFeatureId /
+    # -Area / -Iteration are the headless (browser) pass-throughs to
+    # New-UnplannedWorkStory so the create path never prompts; the terminal
+    # defaults (-1 / empty) keep the interactive parent pick + env resolution.
     param(
         [switch] $NoCreate,
-        [object] $Progress
+        [object] $Progress,
+        [int]    $ParentFeatureId = -1,
+        [string] $Area,
+        [string] $Iteration
     )
 
     $title = Get-UnplannedWorkDailyStoryTitle
@@ -307,7 +329,7 @@ function Get-UnplannedWorkDailyStory {
     }
 
     Write-Host "No daily story for today yet - creating '$title'..." -ForegroundColor Cyan
-    $newId = New-UnplannedWorkStory -Title $title -Progress $Progress
+    $newId = New-UnplannedWorkStory -Title $title -Progress $Progress -ParentFeatureId $ParentFeatureId -Area $Area -Iteration $Iteration
     if ($newId -gt 0) {
         Save-UnplannedCachedStoryId -Id $newId
     }
@@ -567,6 +589,40 @@ function Add-UnplannedLedgerEntry {
     $all = @($existing) + $entry
 
     Save-AzDevOpsJsonArrayCache -Path $path -Items $all
+}
+
+
+function Read-UnplannedLedgerTotals {
+    # Read a day's unplanned-work ledger and roll it up in one place: the parsed
+    # entries, the total minutes across firefights, and the daily story id (from the
+    # first entry). Returns a result object with .Ok / .Reason ('missing' when there's
+    # no ledger file, 'empty' when it parses to nothing, 'ok' otherwise) so the two
+    # roll-up callers — the terminal New-UnplannedWorkDebrief and the browser
+    # Invoke-AzDevOpsDailyViewerUnplannedRollup — share one read + total and each
+    # phrases its own "nothing to post" message.
+    param([datetime] $Date = (Get-Date))
+
+    $path = Get-UnplannedLedgerPath -Date $Date
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+        return [PSCustomObject]@{ Ok = $false; Reason = 'missing'; Entries = @(); TotalMinutes = 0; StoryId = 0 }
+    }
+
+    $entries = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
+    if ($entries.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Reason = 'empty'; Entries = @(); TotalMinutes = 0; StoryId = 0 }
+    }
+
+    $totalMinutes = [int]($entries | Measure-Object -Property Minutes -Sum).Sum
+    $storyId      = [int]$entries[0].StoryId
+
+    $result = [PSCustomObject]@{
+        Ok           = $true
+        Reason       = 'ok'
+        Entries      = $entries
+        TotalMinutes = $totalMinutes
+        StoryId      = $storyId
+    }
+    return $result
 }
 
 
@@ -1240,20 +1296,19 @@ function New-UnplannedWorkDebrief {
         return
     }
 
-    $path = Get-UnplannedLedgerPath -Date $Date
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    $ledger = Read-UnplannedLedgerTotals -Date $Date
+    if ($ledger.Reason -eq 'missing') {
         Write-Host "No unplanned-work ledger for $($Date.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
         return
     }
-
-    $entries = @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
-    if ($entries.Count -eq 0) {
+    if ($ledger.Reason -eq 'empty') {
         Write-Host "Ledger is empty for $($Date.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
         return
     }
 
-    $totalMinutes = [int]($entries | Measure-Object -Property Minutes -Sum).Sum
-    $storyId = [int]$entries[0].StoryId
+    $entries      = $ledger.Entries
+    $totalMinutes = $ledger.TotalMinutes
+    $storyId      = $ledger.StoryId
 
     Write-Host ""
     Write-Host "Unplanned work - $($Date.ToString('yyyy-MM-dd'))" -ForegroundColor Cyan
