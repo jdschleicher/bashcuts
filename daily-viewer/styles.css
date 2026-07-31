@@ -971,6 +971,85 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   background: var(--accent-weak); color: var(--accent);
 }
 
+/* ---------- agenda body + attendees (click-to-expand) ---------- */
+/* One <details> per meeting: the body lives in the <summary>, clamped to a couple
+   of lines while closed and unclamped on [open]; the attendee list is revealed on
+   [open]. The body text has a single source — the preview can't drift from the
+   full copy. */
+.agenda { margin-top: var(--space-3); }
+.agenda > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.agenda > summary::-webkit-details-marker { display: none; }
+
+.agenda-body {
+  --clamp-lines: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--clamp-lines);
+  line-clamp: var(--clamp-lines);
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+.agenda[open] .agenda-body {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
+
+.agenda-cue { font-size: var(--fs-sm); font-weight: 600; color: var(--accent); }
+.agenda > summary:hover .agenda-cue { text-decoration: underline; }
+.agenda-cue-less { display: none; }
+.agenda[open] .agenda-cue-more { display: none; }
+.agenda[open] .agenda-cue-less { display: inline; }
+
+.attendees {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.att {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--fs-md);
+}
+.att-name { color: var(--text); }
+.att-rsvp {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.rsvp-accepted, .rsvp-organizer { background: var(--accent-weak); color: var(--accent); }
+.rsvp-declined { color: var(--text-faint); text-decoration: line-through; }
+
+/* The reveal is a subtle fade so the attendee list doesn't pop; motion-sensitive
+   users get the instant, unanimated open. */
+.agenda[open] .attendees { animation: agenda-reveal 120ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .agenda[open] .attendees { animation: none; }
+}
+
+@keyframes agenda-reveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+
 /* ---------- nested drill-in groups ---------- */
 .group { border-top: 1px solid var(--border); }
 .group:first-child { border-top: 0; }

@@ -39,6 +39,12 @@ $script:OutlookNoDateYear = 4000
 # clickable "Join meeting" action.
 $script:OutlookTeamsJoinPattern = 'https://teams\.microsoft\.com/l/meetup-join/\S+'
 
+# Outlook appends a Teams meeting footer to the appointment body, led by a long
+# underscore rule; everything from that rule to the end is join/dial-in/legal
+# boilerplate, not agenda. Match it so Get-OutlookAppointmentBody can strip it and
+# surface only the organizer-authored agenda text.
+$script:OutlookTeamsFooterPattern = '(?s)_{10,}.*$'
+
 $script:OutlookIconCalendar = [char]::ConvertFromUtf32(0x1F4C5)   # calendar
 $script:OutlookIconTasks    = [char]::ConvertFromUtf32(0x1F5D2)   # spiral notepad
 $script:OutlookIconParty    = [char]::ConvertFromUtf32(0x1F389)   # party popper
@@ -214,6 +220,74 @@ function Get-OutlookMeetingJoinUrl {
 }
 
 
+function Get-OutlookAppointmentBody {
+    # Private. The organizer-authored agenda text for an appointment, with the
+    # auto-appended Teams meeting footer (join URL + dial-in boilerplate) stripped
+    # so the daily viewer shows only the real agenda. Body access is wrapped so a
+    # transient COM fault fails soft to '' rather than aborting the agenda pull.
+    # Unapproved verb is fine — not user-facing.
+    param([Parameter(Mandatory)] $Appointment)
+
+    $body = ''
+    try {
+        $body = [string]$Appointment.Body
+    }
+    catch {
+        return ''
+    }
+
+    if (-not $body) {
+        return ''
+    }
+
+    $agenda = [regex]::Replace($body, $script:OutlookTeamsFooterPattern, '')
+    $trimmed = $agenda.Trim()
+
+    return $trimmed
+}
+
+
+function Get-OutlookAttendees {
+    # Private. Every invited attendee on an appointment as { Name, ResponseStatus }
+    # objects, the status mapped through ConvertFrom-OutlookResponseStatus. Reads
+    # the Recipients collection (name + per-person response). A transient COM fault
+    # on the collection fails soft to an empty list, and a fault on any single
+    # recipient skips that recipient — neither aborts the agenda pull. Unapproved
+    # verb is fine — not user-facing.
+    param([Parameter(Mandatory)] $Appointment)
+
+    $attendees = New-Object System.Collections.Generic.List[object]
+
+    $recipients = $null
+    try {
+        $recipients = $Appointment.Recipients
+    }
+    catch {
+        return ,$attendees
+    }
+
+    if ($null -eq $recipients) {
+        return ,$attendees
+    }
+
+    foreach ($recipient in $recipients) {
+        try {
+            $status = ConvertFrom-OutlookResponseStatus -Status ([int]$recipient.MeetingResponseStatus)
+
+            $attendees.Add([ordered]@{
+                Name           = [string]$recipient.Name
+                ResponseStatus = $status
+            })
+        }
+        catch {
+            continue
+        }
+    }
+
+    return ,$attendees
+}
+
+
 function Get-OutlookAppointmentId {
     # Private. A stable identifier for a calendar appointment so downstream
     # callers (the daily viewer's prep markers) can pin per-meeting state across
@@ -287,6 +361,8 @@ function ol-Get-OutlookAgenda {
         $responseText = ConvertFrom-OutlookResponseStatus -Status ([int]$appointment.ResponseStatus)
         $joinUrl = Get-OutlookMeetingJoinUrl -Appointment $appointment
         $eventId = Get-OutlookAppointmentId -Appointment $appointment
+        $agendaBody = Get-OutlookAppointmentBody -Appointment $appointment
+        $attendees = Get-OutlookAttendees -Appointment $appointment
 
         $row = [PSCustomObject]@{
             Id             = $eventId
@@ -298,6 +374,8 @@ function ol-Get-OutlookAgenda {
             IsAllDay       = [bool]$appointment.AllDayEvent
             ResponseStatus = $responseText
             MeetingUrl     = $joinUrl
+            Body           = $agendaBody
+            Attendees      = $attendees
         }
 
         $events.Add($row)
