@@ -597,6 +597,8 @@ Then [[ PROMPT_1--the expected outcome ]]
 
 The custom template also feeds the `az-New-AzDevOpsFeatureStories` batch loop and the `az-New-AzDevOpsDraft` brain-dump, since all three share the same Description reader.
 
+**Real HTML is fine.** The AzDO Description field is HTML, so a body template can carry actual markup — headings, `<ul><li>` lists, styled `<span style="…">` blocks, and links with double-quoted attributes (`<a href="https://…" rel="nofollow noreferrer" target="_blank">`). The full markup reaches the work item untouched: the Description is handed to `az` through a temp file (azure-cli's `@file` value-loading convention) rather than on the command line, so quotes, raw `<`/`>`/`&`, and multi-line HTML all survive — none of it can be truncated by cmd.exe on Windows. Two caveats: real newlines are still auto-converted to `<br/>` (a bare newline renders as a space in HTML, so this is what makes line breaks show), and **Azure DevOps runs its own server-side HTML sanitizer on save** — scripts, forms, and some tags/attributes may be stripped or rewritten by AzDO once the item is created. That sanitization is AzDO's behavior, outside this tool's control.
+
 **Worked example — what you'll see.** With the Given/When/Then template above configured, running `az-New-AzDevOpsUserStory` prompts you in *numeric* order (not the order the placeholders appear in the template):
 
 ```text

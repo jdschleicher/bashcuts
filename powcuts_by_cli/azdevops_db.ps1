@@ -313,30 +313,54 @@ function New-AzDevOpsWorkItem {
         '--title', $Title
     )
 
-    $optionalFlags = [ordered]@{
-        '--description' = $Description
-        '--assigned-to' = $AssignedTo
-        '--project'     = $Project
-        '--area'        = $Area
-        '--iteration'   = $Iteration
-    }
+    # Route --description through a temp file via az's @<file> value-loading
+    # convention so arbitrary HTML (double-quoted attributes, raw </>, multi-line
+    # markup) never touches the command line. On Windows `az` is az.cmd, a batch
+    # wrapper, so a --description value travels through cmd.exe: an embedded "
+    # toggles quoting off and a following > becomes a redirection operator,
+    # truncating the Description at the first attribute quote or angle bracket.
+    # As file content the HTML bypasses cmd.exe entirely and survives intact.
+    # Written UTF-8 WITHOUT BOM - PS 5.1's Set-Content -Encoding UTF8 emits a BOM
+    # that az would read into the field - and deleted in the finally below.
+    $descriptionFile = $null
+    try {
+        if ($Description) {
+            $descriptionFile = [System.IO.Path]::GetTempFileName()
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($descriptionFile, $Description, $utf8NoBom)
 
-    foreach ($kv in $optionalFlags.GetEnumerator()) {
-        if ($kv.Value) {
-            $argList += @($kv.Key, $kv.Value)
+            $argList += @('--description', "@$descriptionFile")
+        }
+
+        $optionalFlags = [ordered]@{
+            '--assigned-to' = $AssignedTo
+            '--project'     = $Project
+            '--area'        = $Area
+            '--iteration'   = $Iteration
+        }
+
+        foreach ($kv in $optionalFlags.GetEnumerator()) {
+            if ($kv.Value) {
+                $argList += @($kv.Key, $kv.Value)
+            }
+        }
+
+        if ($Fields -and $Fields.Count -gt 0) {
+            $argList += '--fields'
+            $argList += $Fields
+        }
+
+        if ($Open) {
+            $argList += '--open'
+        }
+
+        $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    } finally {
+        if ($descriptionFile) {
+            Remove-Item -LiteralPath $descriptionFile -ErrorAction SilentlyContinue
         }
     }
 
-    if ($Fields -and $Fields.Count -gt 0) {
-        $argList += '--fields'
-        $argList += $Fields
-    }
-
-    if ($Open) {
-        $argList += '--open'
-    }
-
-    $result = Invoke-AzDevOpsAzJson -ArgList $argList
     return $result
 }
 
