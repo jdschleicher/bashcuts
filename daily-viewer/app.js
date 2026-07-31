@@ -2185,6 +2185,7 @@ CREATOR_TABS.forEach(function (t) {
 // ---------------------------------------------------------------------------
 
 var TIMER_API = "/api/timer/";
+var SECONDS_PER_MINUTE = 60;
 var TIMER_DEFAULT_MINUTES = 25;
 var TIMER_MAX_MINUTES = 180;
 var TIMER_ADD_SECONDS = 300;
@@ -2210,6 +2211,7 @@ var timerItemLabel = document.getElementById("timer-item");
 var timerClock = document.getElementById("timer-clock");
 var timerDebrief = document.getElementById("timer-debrief");
 var timerResult = document.getElementById("timer-result");
+var timerAgain = document.getElementById("timer-again");
 
 
 // Toggle the is-hidden class + hidden attribute together — the same pair the mode
@@ -2248,11 +2250,16 @@ function timerActionButton(label, handler) {
   return btn;
 }
 
+function clearTimerAgain() {
+  timerAgain.textContent = "";
+}
+
 // One transient status line in #timer-result — a busy/bad banner, or cleared when
-// text is empty. The success path (renderTimerResult) writes the banner + the
-// three-way restart choice directly instead.
+// text is empty. Also clears any restart choice so a stale "same item / pick
+// another" row can't linger under a fresh message.
 function showTimerMessage(kind, text) {
   timerResult.textContent = "";
+  clearTimerAgain();
   if (!text) {
     return;
   }
@@ -2427,7 +2434,7 @@ function startTimer(event) {
 
   timerState.item = findTimerItem(integ, itemId);
   timerState.minutes = readTimerMinutes();
-  timerState.total = timerState.minutes * 60;
+  timerState.total = timerState.minutes * SECONDS_PER_MINUTE;
 
   showTimerMessage("", "");
   renderTimerItemBanner(timerState.item);
@@ -2445,7 +2452,7 @@ function addTimerMinutes() {
   timerState.total += TIMER_ADD_SECONDS;
   timerState.remaining += TIMER_ADD_SECONDS;
   paintTimerClock();
-  announce("Added 5 minutes.");
+  announce("Added " + (TIMER_ADD_SECONDS / SECONDS_PER_MINUTE) + " minutes.");
 }
 
 function cancelTimer() {
@@ -2565,17 +2572,21 @@ function renderTimerResult(res) {
     line += " " + data.resolveError;
   }
 
+  // #timer-result is an aria-live region, so appending the banner announces the
+  // outcome on its own — no extra announce() (that would double-speak it).
   timerResult.appendChild(el("div", { class: "create-banner good" }, [ line ]));
-  announce(line);
 
   // Three-way restart — the browser mirror of the terminal Read-TimerNextAction
-  // choice: reuse the same item, return to the picker, or finish.
+  // choice: reuse the same item, return to the picker, or finish. Rendered into
+  // the sibling #timer-again (outside the live region) so the button labels aren't
+  // read out with the outcome.
   var again = el("div", { class: "timer-again" }, [
     timerActionButton("Same item", function () { restartTimer(true); }),
     timerActionButton("Pick another", function () { restartTimer(false); }),
     timerActionButton("Done", finishTimerSession)
   ]);
-  timerResult.appendChild(again);
+  clearTimerAgain();
+  timerAgain.appendChild(again);
 }
 
 function restartTimer(sameItem) {
@@ -2592,7 +2603,7 @@ function restartTimer(sameItem) {
     return;
   }
 
-  timerState.total = timerState.minutes * 60;
+  timerState.total = timerState.minutes * SECONDS_PER_MINUTE;
   runTimerCountdown();
   announce("New session started for the same item.");
 }

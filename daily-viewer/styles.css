@@ -751,6 +751,7 @@ button:focus-visible {
   display: flex;
   gap: var(--space-3);
   flex-wrap: wrap;
+  margin-top: var(--space-4);
 }
 @media (prefers-reduced-motion: reduce) {
   .timer-progress-fill { transition: none; }

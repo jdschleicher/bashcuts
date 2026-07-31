@@ -2533,6 +2533,25 @@ function Get-AzDevOpsDailyViewerTimerIntegration {
 }
 
 
+function Get-AzDevOpsDailyViewerTimerErrorMessage {
+    # Pull the .Error text off a timer AddComment / CloseItem envelope
+    # ({ Json; Error; ExitCode }), or fall back to a generic exit-coded message when
+    # the envelope carries none — the post arm and the resolve arm of
+    # Invoke-AzDevOpsDailyViewerTimerPost both need this, so it lives here once.
+    param(
+        [Parameter(Mandatory)] [AllowNull()] $Result,
+        [Parameter(Mandatory)] [string] $Fallback
+    )
+
+    if ($Result -and $Result.Error) {
+        $message = $Result.Error
+        return $message
+    }
+
+    return $Fallback
+}
+
+
 function Invoke-AzDevOpsDailyViewerTimerPost {
     # Post a timer-session debrief from the browser, reusing the exact terminal
     # helpers: Format-TimerCommentBody composes the <br/>-joined HTML body, the
@@ -2589,11 +2608,7 @@ function Invoke-AzDevOpsDailyViewerTimerPost {
     $postExit   = Get-TimerResultExitCode -Result $postResult
 
     if ($postExit -ne 0) {
-        $postError = if ($postResult -and $postResult.Error) {
-            $postResult.Error
-        } else {
-            "Comment post failed (exit=$postExit)."
-        }
+        $postError = Get-AzDevOpsDailyViewerTimerErrorMessage -Result $postResult -Fallback "Comment post failed (exit=$postExit)."
 
         $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message $postError
         return $failure
@@ -2614,11 +2629,7 @@ function Invoke-AzDevOpsDailyViewerTimerPost {
         if ($closeExit -eq 0) {
             $result.resolved = $true
         } else {
-            $result.resolveError = if ($closeResult -and $closeResult.Error) {
-                $closeResult.Error
-            } else {
-                "Resolve failed (exit=$closeExit). Comment was posted; state unchanged."
-            }
+            $result.resolveError = Get-AzDevOpsDailyViewerTimerErrorMessage -Result $closeResult -Fallback "Resolve failed (exit=$closeExit). Comment was posted; state unchanged."
         }
     }
 
