@@ -757,6 +757,95 @@ button:focus-visible {
   .timer-progress-fill { transition: none; }
 }
 
+/* ---------- unplanned work capture (sub-issue E / #233) ---------- */
+.unplanned-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.unplanned-intro {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.unplanned-story {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.unplanned-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.unplanned-capture {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.unplanned-capture > legend {
+  padding: 0 var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.unplanned-add-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.unplanned-add-row input {
+  flex: 1 1 12rem;
+}
+.unplanned-items {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.unplanned-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.unplanned-item-time {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.unplanned-item-text {
+  flex: 1 1 auto;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.unplanned-empty {
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+.unplanned-rollup {
+  margin-top: var(--space-2);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
