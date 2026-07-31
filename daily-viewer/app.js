@@ -2094,14 +2094,21 @@ function ensureCreateForm() {
 // their own tabs here.
 // ---------------------------------------------------------------------------
 
-var CREATOR_TABS = ["workitem", "draft"];
+var CREATOR_TABS = ["workitem", "draft", "timer"];
+var CREATOR_TAB_LABELS = {
+  workitem: "Work item form.",
+  draft: "Draft builder.",
+  timer: "Timer session."
+};
 var creatorTabs = {
   workitem: document.getElementById("subtab-workitem"),
-  draft: document.getElementById("subtab-draft")
+  draft: document.getElementById("subtab-draft"),
+  timer: document.getElementById("subtab-timer")
 };
 var creatorPanels = {
   workitem: document.getElementById("panel-workitem"),
-  draft: document.getElementById("panel-draft")
+  draft: document.getElementById("panel-draft"),
+  timer: document.getElementById("panel-timer")
 };
 var activeCreatorTab = "workitem";
 
@@ -2125,11 +2132,13 @@ function setCreatorTab(tab, silent) {
   });
 
   if (!silent) {
-    announce(tab === "draft" ? "Draft builder." : "Work item form.");
+    announce(CREATOR_TAB_LABELS[tab] || "Work item form.");
   }
 
   if (tab === "draft") {
     ensureDraftPanel();
+  } else if (tab === "timer") {
+    ensureTimerPanel();
   }
 }
 
@@ -2161,6 +2170,473 @@ CREATOR_TABS.forEach(function (t) {
   creatorTabs[t].addEventListener("click", function () { setCreatorTab(t); });
   creatorTabs[t].addEventListener("keydown", onCreatorTabKeydown);
 });
+
+
+// ---------------------------------------------------------------------------
+// Timer mode — headless focus session (Epic #228 sub-issue D, #232). The browser
+// owns only the countdown (a JS interval, its progress bar gated by
+// prefers-reduced-motion) and the debrief form; composing and posting the comment
+// stay server-side in the pow_timer.ps1 helpers via POST /api/timer/post, so the
+// terminal (az-Start-TimerSession) and the browser share one debrief format and
+// one posting path. Setup data (the registered integrations + their cached items)
+// comes from GET /api/timer/options. Every echoed item/title reaches the DOM
+// through el() (textContent), so an untrusted Azure DevOps title stays inert. The
+// panel walks three stages — setup, running, debrief — shown one at a time.
+// ---------------------------------------------------------------------------
+
+var TIMER_API = "/api/timer/";
+var TIMER_DEFAULT_MINUTES = 25;
+var TIMER_MAX_MINUTES = 180;
+var TIMER_ADD_SECONDS = 300;
+var TIMER_TICK_MS = 1000;
+
+var timerState = {
+  initialized: false,
+  integrations: [],
+  defaultMinutes: TIMER_DEFAULT_MINUTES,
+  intervalId: null,
+  minutes: TIMER_DEFAULT_MINUTES,
+  total: 0,
+  remaining: 0,
+  interrupted: false,
+  item: null,
+  integration: null
+};
+
+var timerSetup = document.getElementById("timer-setup");
+var timerFields = document.getElementById("timer-fields");
+var timerRunning = document.getElementById("timer-running");
+var timerItemLabel = document.getElementById("timer-item");
+var timerClock = document.getElementById("timer-clock");
+var timerDebrief = document.getElementById("timer-debrief");
+var timerResult = document.getElementById("timer-result");
+
+
+// Toggle the is-hidden class + hidden attribute together — the same pair the mode
+// and sub-tab switches use, factored out here for the timer's three stages.
+function setNodeHidden(node, hidden) {
+  if (!node) {
+    return;
+  }
+  node.classList.toggle("is-hidden", hidden);
+  if (hidden) {
+    node.setAttribute("hidden", "");
+  } else {
+    node.removeAttribute("hidden");
+  }
+}
+
+function timerPad2(n) {
+  return n < 10 ? "0" + n : String(n);
+}
+
+function formatTimerClock(totalSeconds) {
+  var s = Math.max(0, Math.round(totalSeconds));
+  var m = Math.floor(s / 60);
+  var r = s % 60;
+  return timerPad2(m) + ":" + timerPad2(r);
+}
+
+function timerFieldValue(id) {
+  var node = document.getElementById(id);
+  return node ? node.value : "";
+}
+
+function timerActionButton(label, handler) {
+  var btn = el("button", { type: "button", class: "btn" }, [ label ]);
+  btn.addEventListener("click", handler);
+  return btn;
+}
+
+// One transient status line in #timer-result — a busy/bad banner, or cleared when
+// text is empty. The success path (renderTimerResult) writes the banner + the
+// three-way restart choice directly instead.
+function showTimerMessage(kind, text) {
+  timerResult.textContent = "";
+  if (!text) {
+    return;
+  }
+  timerResult.appendChild(el("div", { class: "create-banner " + kind }, [ text ]));
+}
+
+function showTimerStage(stage) {
+  setNodeHidden(timerSetup, stage !== "setup");
+  setNodeHidden(timerRunning, stage !== "running");
+  setNodeHidden(timerDebrief, stage !== "debrief");
+}
+
+function setTimerStartEnabled(enabled) {
+  var btn = document.getElementById("timer-start");
+  if (btn) {
+    btn.disabled = !enabled;
+  }
+}
+
+function setTimerPostBusy(busy) {
+  var btn = document.getElementById("timer-post");
+  if (btn) {
+    btn.disabled = busy;
+    btn.textContent = busy ? "Posting…" : "Post debrief";
+  }
+}
+
+
+// --- setup stage: integration + item + minutes, from the cached options ---
+
+function renderTimerFields() {
+  timerFields.textContent = "";
+
+  var integrations = timerState.integrations;
+  if (!integrations.length) {
+    timerFields.appendChild(el("p", { class: "field-hint", text:
+      "No timer integrations are registered, or the daily-viewer server isn't running. Start it with az-Start-AzDevOpsDailyViewer." }));
+    setTimerStartEnabled(false);
+    return;
+  }
+
+  timerState.integration = integrations[0];
+
+  if (integrations.length > 1) {
+    var integrationModels = integrations.map(function (integ, idx) {
+      return { value: String(idx), label: integ.name };
+    });
+    var integrationSelect = buildSelect(integrationModels, null, { id: "timer-integration" });
+    integrationSelect.addEventListener("change", function () {
+      timerState.integration = integrations[Number(integrationSelect.value)] || integrations[0];
+      renderTimerItemField();
+    });
+    timerFields.appendChild(labeledField("timer-integration", "Integration", integrationSelect));
+  }
+
+  timerFields.appendChild(el("div", { id: "timer-item-field" }));
+  renderTimerItemField();
+
+  var minutesInput = el("input", {
+    id: "timer-minutes", type: "number", min: "1", max: String(TIMER_MAX_MINUTES),
+    value: String(timerState.defaultMinutes), inputmode: "numeric", autocomplete: "off"
+  });
+  timerFields.appendChild(labeledField("timer-minutes", "Minutes", minutesInput));
+}
+
+// The item dropdown — repainted on its own when the integration changes, so the
+// list always matches the selected integration's cached items.
+function renderTimerItemField() {
+  var container = document.getElementById("timer-item-field");
+  if (!container) {
+    return;
+  }
+  container.textContent = "";
+
+  var integ = timerState.integration;
+  var items = (integ && integ.items) || [];
+
+  if (!items.length) {
+    var empty = buildSelect([], null, { id: "timer-item-select", disabled: "" });
+    empty.appendChild(el("option", { value: "", text: "No cached items — run az-Sync-AzDevOpsCache" }));
+    container.appendChild(labeledField("timer-item-select", "Work item", empty));
+    setTimerStartEnabled(false);
+    return;
+  }
+
+  var itemModels = items.map(function (it) {
+    var suffix = it.state ? CREATE_MIDDOT + it.state : "";
+    return { value: String(it.id), label: "#" + it.id + CREATE_DASH + it.title + suffix };
+  });
+  container.appendChild(labeledField("timer-item-select", "Work item",
+    buildSelect(itemModels, null, { id: "timer-item-select" })));
+  setTimerStartEnabled(true);
+}
+
+function findTimerItem(integ, id) {
+  var items = (integ && integ.items) || [];
+  for (var i = 0; i < items.length; i++) {
+    if (String(items[i].id) === String(id)) {
+      return items[i];
+    }
+  }
+  return { id: Number(id), title: "", type: "", state: "" };
+}
+
+function readTimerMinutes() {
+  var val = parseInt(timerFieldValue("timer-minutes"), 10);
+  if (!isFinite(val) || val < 1) {
+    val = timerState.defaultMinutes;
+  }
+  if (val > TIMER_MAX_MINUTES) {
+    val = TIMER_MAX_MINUTES;
+  }
+  return val;
+}
+
+
+// --- running stage: the JS countdown ---
+
+function clearTimerInterval() {
+  if (timerState.intervalId !== null) {
+    window.clearInterval(timerState.intervalId);
+    timerState.intervalId = null;
+  }
+}
+
+function paintTimerClock() {
+  timerClock.textContent = formatTimerClock(timerState.remaining);
+
+  var fill = document.getElementById("timer-progress-fill");
+  if (fill && timerState.total > 0) {
+    var pct = Math.max(0, Math.min(100, (timerState.remaining / timerState.total) * 100));
+    fill.style.width = pct + "%";
+  }
+}
+
+function onTimerTick() {
+  timerState.remaining -= 1;
+
+  if (timerState.remaining <= 0) {
+    timerState.remaining = 0;
+    paintTimerClock();
+    finishTimer(false);
+    return;
+  }
+
+  paintTimerClock();
+}
+
+function runTimerCountdown() {
+  timerState.remaining = timerState.total;
+  timerState.interrupted = false;
+
+  paintTimerClock();
+  showTimerStage("running");
+  clearTimerInterval();
+  timerState.intervalId = window.setInterval(onTimerTick, TIMER_TICK_MS);
+}
+
+function startTimer(event) {
+  event.preventDefault();
+
+  var integ = timerState.integration;
+  if (!integ) {
+    return;
+  }
+
+  var itemId = timerFieldValue("timer-item-select");
+  if (!itemId) {
+    showTimerMessage("bad", "Pick a work item to time.");
+    return;
+  }
+
+  timerState.item = findTimerItem(integ, itemId);
+  timerState.minutes = readTimerMinutes();
+  timerState.total = timerState.minutes * 60;
+
+  showTimerMessage("", "");
+  renderTimerItemBanner(timerState.item);
+  runTimerCountdown();
+  announce("Timer started for " + timerState.minutes + " minutes.");
+}
+
+function renderTimerItemBanner(item) {
+  timerItemLabel.textContent = "";
+  var label = "#" + item.id + (item.title ? CREATE_DASH + item.title : "");
+  timerItemLabel.appendChild(el("span", { text: label }));
+}
+
+function addTimerMinutes() {
+  timerState.total += TIMER_ADD_SECONDS;
+  timerState.remaining += TIMER_ADD_SECONDS;
+  paintTimerClock();
+  announce("Added 5 minutes.");
+}
+
+function cancelTimer() {
+  clearTimerInterval();
+  showTimerMessage("", "");
+  showTimerStage("setup");
+  announce("Timer cancelled.");
+}
+
+
+// --- debrief stage ---
+
+function updateTimerResolveVisibility() {
+  var field = document.getElementById("timer-resolve-field");
+  var canResolve = !!(timerState.integration && timerState.integration.canResolve);
+  setNodeHidden(field, !canResolve);
+}
+
+function finishTimer(interrupted) {
+  clearTimerInterval();
+  timerState.interrupted = interrupted;
+
+  updateTimerResolveVisibility();
+  showTimerStage("debrief");
+  announce(interrupted ? "Timer ended early. Add a debrief and post." : "Time's up. Add a debrief and post.");
+
+  var focus = document.getElementById("timer-debrief-text");
+  if (focus) {
+    focus.focus();
+  }
+}
+
+function resetTimerDebriefFields() {
+  [ "timer-debrief-text", "timer-next-text" ].forEach(function (id) {
+    var node = document.getElementById(id);
+    if (node) {
+      node.value = "";
+    }
+  });
+
+  var resolve = document.getElementById("timer-resolve");
+  if (resolve) {
+    resolve.checked = false;
+  }
+}
+
+function discardTimerDebrief() {
+  resetTimerDebriefFields();
+  showTimerMessage("", "");
+  showTimerStage("setup");
+  announce("Debrief discarded.");
+}
+
+function postTimerDebrief(event) {
+  event.preventDefault();
+
+  var integ = timerState.integration;
+  var item = timerState.item;
+  if (!integ || !item) {
+    return;
+  }
+
+  var debrief = timerFieldValue("timer-debrief-text");
+  var next = timerFieldValue("timer-next-text");
+  if (!debrief.trim() && !next.trim()) {
+    showTimerMessage("bad", "Enter a debrief or a next step before posting.");
+    return;
+  }
+
+  var resolveNode = document.getElementById("timer-resolve");
+  var resolve = !!(resolveNode && resolveNode.checked);
+  var elapsed = timerState.total - timerState.remaining;
+
+  var payload = {
+    integration: integ.name,
+    id: item.id,
+    title: item.title,
+    totalSeconds: timerState.total,
+    elapsedSeconds: elapsed,
+    interrupted: timerState.interrupted,
+    debrief: debrief,
+    next: next,
+    resolve: resolve
+  };
+
+  setTimerPostBusy(true);
+  showTimerMessage("busy", "Posting debrief…");
+  announce("Posting debrief.");
+
+  postCreateJson(TIMER_API + "post", payload).then(function (res) {
+    renderTimerResult(res);
+  }).catch(function () {
+    showTimerMessage("bad", "Post failed — the daily-viewer server isn't reachable. Start it with az-Start-AzDevOpsDailyViewer.");
+  }).then(function () {
+    setTimerPostBusy(false);
+  });
+}
+
+function renderTimerResult(res) {
+  timerResult.textContent = "";
+
+  var data = res.data;
+  if (!data) {
+    showTimerMessage("bad", "Post failed (HTTP " + res.status + ").");
+    return;
+  }
+
+  if (!data.ok) {
+    showTimerMessage("bad", data.error || "Post failed.");
+    return;
+  }
+
+  var line = "Debrief posted on #" + data.id + ".";
+  if (data.resolved) {
+    line += " Item resolved.";
+  } else if (data.resolveError) {
+    line += " " + data.resolveError;
+  }
+
+  timerResult.appendChild(el("div", { class: "create-banner good" }, [ line ]));
+  announce(line);
+
+  // Three-way restart — the browser mirror of the terminal Read-TimerNextAction
+  // choice: reuse the same item, return to the picker, or finish.
+  var again = el("div", { class: "timer-again" }, [
+    timerActionButton("Same item", function () { restartTimer(true); }),
+    timerActionButton("Pick another", function () { restartTimer(false); }),
+    timerActionButton("Done", finishTimerSession)
+  ]);
+  timerResult.appendChild(again);
+}
+
+function restartTimer(sameItem) {
+  resetTimerDebriefFields();
+  showTimerMessage("", "");
+
+  if (!sameItem) {
+    showTimerStage("setup");
+    announce("Pick another item.");
+    var sel = document.getElementById("timer-item-select");
+    if (sel) {
+      sel.focus();
+    }
+    return;
+  }
+
+  timerState.total = timerState.minutes * 60;
+  runTimerCountdown();
+  announce("New session started for the same item.");
+}
+
+function finishTimerSession() {
+  resetTimerDebriefFields();
+  showTimerMessage("", "");
+  showTimerStage("setup");
+  announce("Timer session finished.");
+}
+
+
+// --- lazy init + options load ---
+
+function loadTimerOptions() {
+  return fetchJson(TIMER_API + "options", { headers: { "Accept": "application/json" } })
+    .then(function (data) {
+      timerState.integrations = (data && data.integrations) || [];
+      if (data && data.defaultMinutes) {
+        timerState.defaultMinutes = data.defaultMinutes;
+      }
+    })
+    .catch(function () {
+      timerState.integrations = [];
+    });
+}
+
+function ensureTimerPanel() {
+  if (timerState.initialized) {
+    return;
+  }
+  timerState.initialized = true;
+
+  timerSetup.addEventListener("submit", startTimer);
+  document.getElementById("timer-add5").addEventListener("click", addTimerMinutes);
+  document.getElementById("timer-endnow").addEventListener("click", function () { finishTimer(true); });
+  document.getElementById("timer-cancel").addEventListener("click", cancelTimer);
+  timerDebrief.addEventListener("submit", postTimerDebrief);
+  document.getElementById("timer-discard").addEventListener("click", discardTimerDebrief);
+
+  loadTimerOptions().then(function () {
+    renderTimerFields();
+  });
+}
 
 
 // ---------------------------------------------------------------------------

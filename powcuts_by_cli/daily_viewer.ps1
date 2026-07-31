@@ -36,6 +36,7 @@ $script:AzDevOpsDailyViewerPrepTile        = 'prep'    # the tile whose prep lis
 $script:AzDevOpsDailyViewerMarkerStoreFile = 'prep-markers.json'  # durable "all set" ids, beside the tile cache
 $script:AzDevOpsDailyViewerMaxRequestBytes = 4096      # cap on an API request body (the marker POST is tiny)
 $script:AzDevOpsDailyViewerMaxCreateBytes  = 65536     # cap on a create POST body (description + AC + a story batch)
+$script:AzDevOpsDailyViewerTimerMaxSeconds = 86400     # sanity cap on a client-reported timer duration (one day)
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
@@ -2419,6 +2420,270 @@ function Invoke-AzDevOpsDailyViewerDraftRequest {
 }
 
 
+# ---------------------------------------------------------------------------
+# Timer surface — the browser focus-session (Epic #228 sub-issue D, #232). The
+# page runs the countdown and collects the debrief; composing and posting the
+# comment stay server-side in pow_timer.ps1's helpers, so the terminal
+# (az-Start-TimerSession) and the browser share one debrief format and one
+# posting path. pow_timer.ps1 is dot-sourced alongside this file, so
+# $script:TimerIntegrations and Format-TimerCommentBody are already in scope.
+# ---------------------------------------------------------------------------
+
+function Get-AzDevOpsDailyViewerTimerRoute {
+    # Parse an /api/timer/<action> path into { Action } or $null. `options` reads the
+    # registered integrations + their cached items (GET); `post` composes + posts a
+    # debrief (POST + JSON only, enforced by the handler). Single-segment actions.
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/timer/'
+    if ($null -eq $segments) {
+        return $null
+    }
+
+    if ($segments.Count -ne 1) {
+        return $null
+    }
+
+    $route = [PSCustomObject]@{
+        Action = $segments[0]
+    }
+    return $route
+}
+
+
+function Get-AzDevOpsDailyViewerTimerSeconds {
+    # Parse a client-reported second count (elapsed / total) to a non-negative int,
+    # falling back when it's absent or unparseable so a malformed field can't derail
+    # the debrief header math. Capped at a day so a bogus value stays sane.
+    param(
+        [AllowNull()] $Value,
+        [Parameter(Mandatory)] [int] $Fallback
+    )
+
+    $parsed = 0
+    if ([int]::TryParse([string]$Value, [ref]$parsed) -and $parsed -ge 0) {
+        $capped = [math]::Min($parsed, $script:AzDevOpsDailyViewerTimerMaxSeconds)
+        return $capped
+    }
+
+    return $Fallback
+}
+
+
+function Get-AzDevOpsDailyViewerTimerOptions {
+    # Timer picker data, cache-backed like the create options — never a live az call,
+    # since this answers a GET: the registered timer integrations
+    # ($script:TimerIntegrations) projected to the fields the browser needs, each
+    # with its FetchItems rows (an assigned-cache read, no live az) so the panel can
+    # pick an integration + item without a round-trip. `canResolve` mirrors whether
+    # the integration supplies a CloseItem, so the debrief only offers "resolve" when
+    # the terminal path would. Empty caches / no integrations yield empty lists.
+    $integrations = @($script:TimerIntegrations)
+
+    $projected = New-Object System.Collections.Generic.List[object]
+    foreach ($integration in $integrations) {
+        $rows = @(& $integration.FetchItems)
+
+        $items = New-Object System.Collections.Generic.List[object]
+        foreach ($row in $rows) {
+            $items.Add([ordered]@{
+                id        = $row.Id
+                type      = $row.Type
+                state     = $row.State
+                title     = $row.Title
+                priority  = $row.Priority
+                iteration = $row.Iteration
+            })
+        }
+
+        $projected.Add([ordered]@{
+            name             = $integration.Name
+            description      = $integration.Description
+            supportsMentions = [bool]$integration.SupportsMentions
+            canResolve       = ($null -ne $integration.CloseItem)
+            items            = $items
+        })
+    }
+
+    $options = [ordered]@{
+        integrations   = $projected
+        defaultMinutes = $script:TimerDefaultMinutes
+    }
+    return $options
+}
+
+
+function Get-AzDevOpsDailyViewerTimerIntegration {
+    # Resolve a registered timer integration by the name the browser picked from
+    # /api/timer/options. Returns $null when the name is empty or unmatched, so the
+    # caller turns it into a 400 the panel surfaces.
+    param([Parameter(Mandatory)] [AllowNull()] [string] $Name)
+
+    if (-not $Name) {
+        return $null
+    }
+
+    $match = @($script:TimerIntegrations | Where-Object { $_.Name -eq $Name })
+    if ($match.Count -eq 0) {
+        return $null
+    }
+
+    $integration = $match[0]
+    return $integration
+}
+
+
+function Invoke-AzDevOpsDailyViewerTimerPost {
+    # Post a timer-session debrief from the browser, reusing the exact terminal
+    # helpers: Format-TimerCommentBody composes the <br/>-joined HTML body, the
+    # picked integration's AddComment posts it, and — when the user ticked resolve
+    # and the integration supplies a CloseItem — CloseItem transitions the item. The
+    # browser owns only the countdown + form; nothing about composing or posting is
+    # duplicated client-side. Returns { StatusCode; Body }: 400 for a malformed
+    # payload, 200 with ok:$false for an auth / az failure the form surfaces, so
+    # nothing 500s silently.
+    param([Parameter(Mandatory)] [AllowNull()] $Payload)
+
+    if ($null -eq $Payload) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Request body must be JSON.'
+        return $failure
+    }
+
+    $integration = Get-AzDevOpsDailyViewerTimerIntegration -Name ([string]$Payload.integration)
+    if ($null -eq $integration) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Unknown or missing timer integration.'
+        return $failure
+    }
+
+    $id = 0
+    if (-not [int]::TryParse([string]$Payload.id, [ref]$id) -or $id -le 0) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'A work-item id is required.'
+        return $failure
+    }
+
+    $debrief = [string]$Payload.debrief
+    $next    = [string]$Payload.next
+    if (-not $debrief.Trim() -and -not $next.Trim()) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 400 -Message 'Enter a debrief or a next step before posting.'
+        return $failure
+    }
+
+    $totalSeconds   = Get-AzDevOpsDailyViewerTimerSeconds -Value $Payload.totalSeconds -Fallback ($script:TimerDefaultMinutes * 60)
+    $elapsedSeconds = Get-AzDevOpsDailyViewerTimerSeconds -Value $Payload.elapsedSeconds -Fallback $totalSeconds
+    $interrupted    = ($Payload.interrupted -eq $true)
+
+    if (-not (Test-AzDevOpsCreateGate -CommandName 'daily-viewer timer')) {
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message 'Not signed in to Azure DevOps (az login), or $env:AZ_USER_EMAIL is unset. See the server console.'
+        return $failure
+    }
+
+    $body = Format-TimerCommentBody `
+        -Interrupted $interrupted `
+        -ElapsedSeconds $elapsedSeconds `
+        -TotalSeconds $totalSeconds `
+        -Debrief $debrief `
+        -Next $next `
+        -Mentions @()
+
+    $postResult = & $integration.AddComment -Id $id -Body $body
+    $postExit   = Get-TimerResultExitCode -Result $postResult
+
+    if ($postExit -ne 0) {
+        $postError = if ($postResult -and $postResult.Error) {
+            $postResult.Error
+        } else {
+            "Comment post failed (exit=$postExit)."
+        }
+
+        $failure = New-AzDevOpsDailyViewerCreateError -Code 200 -Message $postError
+        return $failure
+    }
+
+    $result = [ordered]@{
+        ok       = $true
+        id       = $id
+        posted   = $true
+        resolved = $false
+    }
+
+    $resolveRequested = ($Payload.resolve -eq $true)
+    if ($resolveRequested -and $null -ne $integration.CloseItem) {
+        $closeResult = & $integration.CloseItem -Id $id
+        $closeExit   = Get-TimerResultExitCode -Result $closeResult
+
+        if ($closeExit -eq 0) {
+            $result.resolved = $true
+        } else {
+            $result.resolveError = if ($closeResult -and $closeResult.Error) {
+                $closeResult.Error
+            } else {
+                "Resolve failed (exit=$closeExit). Comment was posted; state unchanged."
+            }
+        }
+    }
+
+    $outcome = @{ StatusCode = 200; Body = $result }
+    return $outcome
+}
+
+
+function Invoke-AzDevOpsDailyViewerTimerRequest {
+    # Handle an /api/timer/<action> request (Epic #228 sub-issue D). `options` is a
+    # read-only GET; `post` composes + posts a debrief and requires POST +
+    # application/json (a JSON content-type forces a preflight this loopback server
+    # never answers, so a cross-origin simple-request forgery can't reach the post).
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
+        [Parameter(Mandatory)] [PSCustomObject] $Route
+    )
+
+    $request  = $Context.Request
+    $response = $Context.Response
+
+    $action        = $Route.Action
+    $optionsAction = 'options'
+    $postAction    = 'post'
+
+    if ($action -eq $optionsAction) {
+        if ($request.HttpMethod -ne 'GET') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'The options action is read-only (GET).'
+            return
+        }
+    }
+    else {
+        if ($request.HttpMethod -ne 'POST') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Timer actions require POST.'
+            return
+        }
+
+        if ([string]$request.ContentType -notlike '*application/json*') {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Timer actions require an application/json body.'
+            return
+        }
+    }
+
+    switch ($action) {
+        $optionsAction {
+            $options = Get-AzDevOpsDailyViewerTimerOptions
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $options
+            return
+        }
+
+        $postAction {
+            $payload = Read-AzDevOpsDailyViewerRequestJson -Request $request -MaxBytes $script:AzDevOpsDailyViewerMaxCreateBytes
+            $outcome = Invoke-AzDevOpsDailyViewerTimerPost -Payload $payload
+            Write-AzDevOpsDailyViewerJson -Response $response -StatusCode $outcome.StatusCode -Object $outcome.Body
+            return
+        }
+
+        default {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message "Unknown timer action '$action'."
+            return
+        }
+    }
+}
+
+
 function Invoke-AzDevOpsDailyViewerApiRequest {
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
@@ -2514,9 +2779,9 @@ function Invoke-AzDevOpsDailyViewerStaticRequest {
 
 function Invoke-AzDevOpsDailyViewerRequest {
     # Front door: /api/tiles/* goes to the tile handler (cheap GET / expensive
-    # POST), /api/create/* to the create handler (POST-only creation surface),
-    # everything else is treated as a static-asset GET. Any handler failure is
-    # turned into a 500 so one bad request can never kill the serving loop.
+    # POST), /api/create/* + /api/draft/* + /api/timer/* to the creation-mode
+    # handlers, everything else is treated as a static-asset GET. Any handler
+    # failure is turned into a 500 so one bad request can never kill the serving loop.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
         [Parameter(Mandatory)] [string] $StaticRoot
@@ -2542,6 +2807,12 @@ function Invoke-AzDevOpsDailyViewerRequest {
         $draftRoute = Get-AzDevOpsDailyViewerDraftRoute -Path $path
         if ($null -ne $draftRoute) {
             Invoke-AzDevOpsDailyViewerDraftRequest -Context $Context -Route $draftRoute
+            return
+        }
+
+        $timerRoute = Get-AzDevOpsDailyViewerTimerRoute -Path $path
+        if ($null -ne $timerRoute) {
+            Invoke-AzDevOpsDailyViewerTimerRequest -Context $Context -Route $timerRoute
             return
         }
 
