@@ -82,7 +82,7 @@ g-set-tracking-upstream-remote() {
 
 alias gl-graph="git log --graph --full-history --all --color --decorate=short"
 alias gl="git log --graph --name-status --pretty=format:\"%h - %an, %ar : %s\"" 
-alias gl-one-line="git log --pretty=oneline --graph --name-status"
+alias gl-one-line="git log --graph --name-status --pretty=format:\"%h %ad %s\" --date=iso"
 
 g-ignore-filereset() {
     git rm --cached -r $1

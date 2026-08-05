@@ -109,7 +109,7 @@ function Read-AzDevOpsAcceptanceCriteria {
     # work-item UI rather than plain dashes. A leading glyph is used instead of a
     # raw <input type="checkbox"> because the field's HTML sanitizer strips form
     # elements.
-    $uncheckedBox = "$([char]0x2610)"   # ballot box (empty checkbox)
+    $uncheckedBox = "- [ ] "   # ballot box (empty checkbox)
     $break = '<br/>'
 
     $criteria = [System.Collections.Generic.List[string]]::new()

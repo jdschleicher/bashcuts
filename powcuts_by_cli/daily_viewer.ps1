@@ -441,7 +441,7 @@ function New-AzDevOpsDailyViewerAttendees {
 
     $attendees = New-Object System.Collections.Generic.List[object]
 
-    foreach ($person in @($CalendarEvent.Attendees)) {
+    foreach ($person in $CalendarEvent.Attendees) {
         if ($null -eq $person) {
             continue
         }
@@ -512,7 +512,7 @@ function Get-AzDevOpsDailyViewerPrepItems {
     # so it survives a cache reload.
     $events = @(Get-AzDevOpsDailyViewerAgendaEvents -Days $script:AzDevOpsDailyViewerPrepWindowDays)
 
-    $prep = @($events | ForEach-Object {
+    $prep = $events | ForEach-Object {
         $node = [ordered]@{
             id        = [string]$_.Id
             title     = [string]$_.Subject
@@ -526,7 +526,7 @@ function Get-AzDevOpsDailyViewerPrepItems {
         }
 
         $node
-    })
+    }
 
     return $prep
 }
