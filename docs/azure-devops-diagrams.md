@@ -462,14 +462,14 @@ flowchart TD
     SP -- yes --> AC{AC param?}
     ReadSP --> AC
     AC -- no --> ReadAC[Read-AzDevOpsAcceptanceCriteria]
-    AC -- yes --> Feat{FeatureId >=0?}
-    ReadAC --> Feat
-    Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
-    Feat -- yes --> ReqF
-    PickFeat --> ReqF
+    AC -- yes --> ReqF
+    ReadAC --> ReqF
 
     ReqF["Read-AzDevOpsRequiredFields<br/>(field-templates.json + ProjectMap RequiredFields, merged)<br/>grid → Read-AzDevOpsFieldGridValue → Read-AzDevOpsGridPick;<br/>prompt → Read-Host; literal → passthrough"]
-    ReqF --> Create
+    ReqF --> Feat{FeatureId >=0?}
+    Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
+    Feat -- yes --> Create
+    PickFeat --> Create
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create<br/>→ (if ExtraFields didn't land) Set-AzDevOpsExtraFieldsPostCreate<br/>→ Get-AzDevOpsUnappliedFields → az boards work-item update"]
     Create --> CreateOk{Ok?}
