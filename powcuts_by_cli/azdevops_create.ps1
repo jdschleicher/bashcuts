@@ -803,6 +803,12 @@ function az-New-AzDevOpsUserStory {
         $AcceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
     }
 
+    # Collect the story's own prompts (tags + required fields) BEFORE the parent
+    # picker / inline-parent-create runs, so once a parent Feature is chosen or
+    # built the story is created immediately without another round of questions.
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
+    $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
+
     if ($FeatureId -lt 0) {
         $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy -ChildType 'USER_STORY'
 
@@ -812,9 +818,6 @@ function az-New-AzDevOpsUserStory {
             }
         }
     }
-
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
-    $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
 
     $createArgs = @{
         Title              = $Title
@@ -991,6 +994,12 @@ function az-New-AzDevOpsFeature {
         $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'FEATURE'
     }
 
+    # Collect the Feature's own prompts (tags + required fields) BEFORE the Epic
+    # picker / inline-Epic-create runs, so once a parent Epic is chosen or built
+    # the Feature is created immediately without another round of questions.
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
+    $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
+
     if ($ParentEpicId -lt 0) {
         $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy -ChildType 'FEATURE'
 
@@ -1000,9 +1009,6 @@ function az-New-AzDevOpsFeature {
             }
         }
     }
-
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
 
     $createArgs = @{
         Type        = 'Feature'
