@@ -240,6 +240,63 @@ dx-retrieve-one() {
 
 }
 
+dx-retrieve-by-metadata-and-two-aliases() {
+    # Prompt for the first org alias
+    echo "What is the alias of the FIRST org to compare?"
+    read -r ALIAS1
+    [ -z "$ALIAS1" ] && { echo "Error: First org alias cannot be empty."; return 1; }
+
+    # Prompt for the second org alias
+    echo "What is the alias of the SECOND org to compare?"
+    read -r ALIAS2
+    [ -z "$ALIAS2" ] && { echo "Error: Second org alias cannot be empty."; return 1; }
+
+    # Prompt for the metadata type
+    echo "What is the metadata type you are retrieving? (e.g., Flow, ApexClass)"
+    read -r METADATA_TYPE
+    [ -z "$METADATA_TYPE" ] && { echo "Error: Metadata type cannot be empty."; return 1; }
+
+    # Internal helper to handle the retrieval process
+    retrieve_to_custom_dir() {
+        local target_alias="$1"
+        local meta_type="$2"
+        local output_dir="./compare_metadata/${target_alias}"
+
+        echo "----------------------------------------"
+        echo "Retrieving from: $target_alias"
+        echo "Target directory: $output_dir"
+        echo "----------------------------------------"
+
+        # Create custom target directory if it does not exist
+        mkdir -p "$output_dir"
+
+        # Execute and time the CLI command cleanly 
+        time sf project retrieve start \
+            --metadata "$meta_type" \
+            --target-org "$target_alias" \
+            --output-dir "$output_dir" \
+            --ignore-conflicts
+
+        # Capture the actual Salesforce exit code directly
+        local exit_code=$?
+
+        # Validate the outcome (0 means success)
+        if [ $exit_code -ne 0 ]; then
+            echo "Error: Retrieval failed with exit code $exit_code. Check if files exist in $target_alias."
+            return 1
+        fi
+    }
+
+    # Run for the first environment
+    retrieve_to_custom_dir "$ALIAS1" "$METADATA_TYPE"
+    
+    echo "" # New line for visual separation
+    
+    # Run for the second environment
+    retrieve_to_custom_dir "$ALIAS2" "$METADATA_TYPE"
+}
+
+
 dx-retrieve-by-metadata-and-alias() {
 
     echo "What is the alias/username of the org retrieving from? (-o | --target-org)"
