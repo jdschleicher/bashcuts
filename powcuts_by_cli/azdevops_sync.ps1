@@ -401,7 +401,7 @@ function az-Get-AzDevOpsCacheStatus {
     }
 
     if ($cacheAge.Datasets) {
-        $errored = @($cacheAge.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq 'error' })
+        $errored = @(Get-AzDevOpsErroredDatasets -CacheAge $cacheAge)
         if ($errored.Count -gt 0) {
             Write-Host ""
             Write-Host "Partial sync - $($errored.Count) dataset(s) errored. See $($cacheAge.LogPath) for full az stderr." -ForegroundColor Yellow
@@ -410,29 +410,70 @@ function az-Get-AzDevOpsCacheStatus {
 }
 
 
+function Get-AzDevOpsErroredDatasets {
+    # Private. The dataset entries in last-sync.json whose sync failed. Shared by
+    # az-Get-AzDevOpsCacheStatus and the az-Sync-AzDevOpsAll summary so the
+    # "which datasets failed" decision lives in one place.
+    param([Parameter(Mandatory)] $CacheAge)
+
+    $statusError = 'error'
+
+    if ($null -eq $CacheAge.Datasets) {
+        return @()
+    }
+
+    $errored = @($CacheAge.Datasets.PSObject.Properties | Where-Object { $_.Value.Status -eq $statusError })
+    return $errored
+}
+
+
+function Get-AzDevOpsFileWriteTime {
+    # Private. Last-write time of a file, or $null when the path is unset or
+    # the file doesn't exist yet.
+    param([string] $Path)
+
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $writeTime = (Get-Item -LiteralPath $Path).LastWriteTimeUtc
+    return $writeTime
+}
+
+
 function Write-AzDevOpsSyncAllSummary {
     # Private. Neither az-Sync-* command returns a result, so the summary reads
     # what each one wrote to disk: last-sync.json and the team roster cache.
-    $cacheAge  = Get-AzDevOpsCacheAge
-    $teamCount = @(Read-AzDevOpsTeamCache).Count
+    # -TeamSynced is $false when the team step aborted before writing (e.g. the
+    # AZ_USER_EMAIL gate), so an older roster isn't reported as fresh.
+    param([Parameter(Mandatory)] [bool] $TeamSynced)
+
+    $cacheAge = Get-AzDevOpsCacheAge
 
     Write-Host ""
     Write-Host "az-Sync-AzDevOpsAll summary" -ForegroundColor Cyan
 
     if ($null -eq $cacheAge -or $null -eq $cacheAge.Datasets) {
-        Write-Host "  Cache: no dataset status recorded - run az-Get-AzDevOpsCacheStatus" -ForegroundColor Yellow
+        Write-Host "  Cache: no dataset status recorded - re-run az-Sync-AzDevOpsCache (az-Open-SyncLog for details)" -ForegroundColor Yellow
     }
     else {
-        $datasets = @($cacheAge.Datasets.PSObject.Properties)
-        $errored  = @($datasets | Where-Object { $_.Value.Status -eq 'error' })
+        $datasetCount = @($cacheAge.Datasets.PSObject.Properties).Count
+        $errored      = @(Get-AzDevOpsErroredDatasets -CacheAge $cacheAge)
 
         if ($errored.Count -gt 0) {
-            Write-Host "  Cache: $($errored.Count) of $($datasets.Count) dataset(s) failed - see $($cacheAge.LogPath)" -ForegroundColor Yellow
+            Write-Host "  Cache: $($errored.Count) of $datasetCount dataset(s) failed - see $($cacheAge.LogPath)" -ForegroundColor Yellow
         }
         else {
-            Write-Host "  Cache: all $($datasets.Count) dataset(s) synced" -ForegroundColor Green
+            Write-Host "  Cache: all $datasetCount dataset(s) synced" -ForegroundColor Green
         }
     }
+
+    if (-not $TeamSynced) {
+        Write-Host "  Team:  not refreshed - see the az-Sync-AzDevOpsTeam message above" -ForegroundColor Yellow
+        return
+    }
+
+    $teamCount = @(Read-AzDevOpsTeamCache).Count
 
     if ($teamCount -gt 0) {
         Write-Host "  Team:  $teamCount teammate(s) cached" -ForegroundColor Green
@@ -460,9 +501,16 @@ function az-Sync-AzDevOpsAll {
 
     Write-Host ""
     Write-Host "Syncing team roster..." -ForegroundColor Cyan
+
+    $teamCachePath   = Get-AzDevOpsTeamCachePath
+    $teamWriteBefore = Get-AzDevOpsFileWriteTime -Path $teamCachePath
+
     az-Sync-AzDevOpsTeam -Team $Team
 
-    Write-AzDevOpsSyncAllSummary
+    $teamWriteAfter = Get-AzDevOpsFileWriteTime -Path $teamCachePath
+    $teamSynced     = ($null -ne $teamWriteAfter) -and ($teamWriteAfter -ne $teamWriteBefore)
+
+    Write-AzDevOpsSyncAllSummary -TeamSynced $teamSynced
 }
 
 
