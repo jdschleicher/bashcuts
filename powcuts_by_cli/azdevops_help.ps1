@@ -118,6 +118,20 @@ $script:AzDevOpsHelpCatalog = @(
         Issues        = @(61, 65)
     },
 
+    [PSCustomObject]@{
+        Name          = 'az-Sync-AzDevOpsAll'
+        File          = 'powcuts_by_cli/azdevops_sync.ps1'
+        Phase         = 'Onboarding'
+        Order         = 5
+        Purpose       = 'Full manual refresh - az-Sync-AzDevOpsCache then az-Sync-AzDevOpsTeam, with a one-glance summary'
+        Args          = '[-Team <name>] - skips the team picker'
+        Example       = "az-Sync-AzDevOpsAll -Team 'My Team'"
+        RunsBefore    = 'az-Show-Tree (or any DailyRead function)'
+        RequiresSync  = 'No'
+        DiagramAnchor = '#4-az-sync-azdevopscache--dataset-fan-out'
+        Issues        = @(255)
+    },
+
     # --- DailyRead ---------------------------------------------------------
 
     [PSCustomObject]@{

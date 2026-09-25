@@ -1,7 +1,8 @@
 # ============================================================================
 # Azure DevOps — Cache sync engine + on-open background refresh
 # ============================================================================
-# Backs az-Sync-AzDevOpsCache (the orchestrator), az-Get-AzDevOpsCacheStatus
+# Backs az-Sync-AzDevOpsCache (the orchestrator), az-Sync-AzDevOpsAll (cache
+# + team roster in one manual refresh), az-Get-AzDevOpsCacheStatus
 # (table-of-staleness reader), and Start-AzDevOpsBackgroundSync (the silent
 # on-shell-open refresh that spawns a detached, hidden pwsh when the cache has
 # gone stale).
@@ -406,6 +407,62 @@ function az-Get-AzDevOpsCacheStatus {
             Write-Host "Partial sync - $($errored.Count) dataset(s) errored. See $($cacheAge.LogPath) for full az stderr." -ForegroundColor Yellow
         }
     }
+}
+
+
+function Write-AzDevOpsSyncAllSummary {
+    # Private. Neither az-Sync-* command returns a result, so the summary reads
+    # what each one wrote to disk: last-sync.json and the team roster cache.
+    $cacheAge  = Get-AzDevOpsCacheAge
+    $teamCount = @(Read-AzDevOpsTeamCache).Count
+
+    Write-Host ""
+    Write-Host "az-Sync-AzDevOpsAll summary" -ForegroundColor Cyan
+
+    if ($null -eq $cacheAge -or $null -eq $cacheAge.Datasets) {
+        Write-Host "  Cache: no dataset status recorded - run az-Get-AzDevOpsCacheStatus" -ForegroundColor Yellow
+    }
+    else {
+        $datasets = @($cacheAge.Datasets.PSObject.Properties)
+        $errored  = @($datasets | Where-Object { $_.Value.Status -eq 'error' })
+
+        if ($errored.Count -gt 0) {
+            Write-Host "  Cache: $($errored.Count) of $($datasets.Count) dataset(s) failed - see $($cacheAge.LogPath)" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "  Cache: all $($datasets.Count) dataset(s) synced" -ForegroundColor Green
+        }
+    }
+
+    if ($teamCount -gt 0) {
+        Write-Host "  Team:  $teamCount teammate(s) cached" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Team:  no teammates cached" -ForegroundColor Yellow
+    }
+}
+
+
+function az-Sync-AzDevOpsAll {
+    # Full manual refresh: the work-item cache, then the @-mention team roster.
+    # The on-open background sync stays cache-only because the team picker is
+    # interactive. Auth is gated once here; the memo it records lets both inner
+    # gates short-circuit, so an auth miss prints a single abort line and the
+    # team step never runs. A partial cache failure still continues to the team.
+    [CmdletBinding()]
+    param([string] $Team)
+
+    if (-not (Assert-AzDevOpsAuthOrAbort -CommandName 'az-Sync-AzDevOpsAll')) {
+        return
+    }
+
+    az-Sync-AzDevOpsCache
+
+    Write-Host ""
+    Write-Host "Syncing team roster..." -ForegroundColor Cyan
+    az-Sync-AzDevOpsTeam -Team $Team
+
+    Write-AzDevOpsSyncAllSummary
 }
 
 
