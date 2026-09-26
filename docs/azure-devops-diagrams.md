@@ -311,6 +311,8 @@ flowchart TD
     Datasets -.descriptors.-> Datasets5
 ```
 
+`az-Sync-AzDevOpsAll [-Team <name>]` wraps this orchestrator for a full manual refresh: it runs the auth gate once (the memo lets the inner gates short-circuit), calls `az-Sync-AzDevOpsCache`, then `az-Sync-AzDevOpsTeam` (the @-mention roster, see section 12), and prints a summary read back from `last-sync.json` and the team cache. It compares the roster cache's last-write time before and after the team step, so a team step that aborts (for example on the `$env:AZ_USER_EMAIL` gate) shows as "not refreshed" rather than reporting the older roster as fresh. The team step still runs after a partial cache failure. The on-open background sync (section 11) stays cache-only because the team picker is interactive.
+
 Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`, then `Move-Item -Force` over the real path — partial files never replace good cache.
 
 ---
@@ -774,6 +776,10 @@ graph LR
     Connect(["az-Connect-AzDevOps"]):::pub
     TestAuth(["az-Test-AzDevOpsAuth"]):::pub
     Sync(["az-Sync-AzDevOpsCache"]):::pub
+    SyncAll(["az-Sync-AzDevOpsAll"]):::pub
+    SyncAllSummary[Write-AzDevOpsSyncAllSummary]:::priv
+    ErroredDS[Get-AzDevOpsErroredDatasets]:::priv
+    FileWriteTime[Get-AzDevOpsFileWriteTime]:::priv
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
@@ -1178,6 +1184,13 @@ graph LR
 
     AuthAbort --> TestAuth
     Sync --> AuthAbort
+    SyncAll --> AuthAbort
+    SyncAll --> Sync
+    SyncAll --> SyncUWTeam
+    SyncAll --> FileWriteTime
+    SyncAll --> SyncAllSummary
+    SyncAllSummary --> ErroredDS
+    Status --> ErroredDS
     Sync --> InitDir --> Paths
     InitDir --> MkDir
     Sync --> LogFn --> Paths
