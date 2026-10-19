@@ -18,6 +18,37 @@ dx-open-by-alias() {
     time sf org open --target-org $TARGET_USERNAME
 }
 
+dx-open-by-alias-with-broken-open-browser() {
+    echo "What is the username or alias of the org to open? \( --targetusername \| -u z\)"
+    read TARGET_USERNAME
+    echo "Fetching the Salesforce org URL..."
+    ORG_URL=$(sf org open --target-org "$TARGET_USERNAME" --url-only | grep -o 'https://[^ ]*' | tr -d '\r\n')
+    echo $ORG_URL
+    if [ -n "$ORG_URL" ]; then
+        echo "Opening URL in your default Windows browser..."
+        start $ORG_URL
+     
+    else
+        echo "Failed to generate or retrieve the Salesforce URL."
+    fi
+}
+
+dx-open-by-alias-and-browser-with-broken-open-browser() {
+    echo "What is the username or alias of the org to open? \( --targetusername \| -u z\)"
+    read TARGET_USERNAME
+    echo "Fetching the Salesforce org URL..."
+    ORG_URL=$(sf org open --target-org "$TARGET_USERNAME" --url-only | grep -o 'https://[^ ]*' | tr -d '\r\n')
+    echo $ORG_URL
+    if [ -n "$ORG_URL" ]; then
+        echo "Opening URL in your default Windows browser..."
+        start $ORG_URL
+     
+    else
+        echo "Failed to generate or retrieve the Salesforce URL."
+    fi
+}
+
+
 dx-open-by-alias-and-browser() {
     echo "What is the username or alias of the org to open? \( --targetusername \| -u z\)"
     read TARGET_USERNAME
@@ -27,11 +58,109 @@ dx-open-by-alias-and-browser() {
     time sf org open --target-org $TARGET_USERNAME --browser $BROWSER
 }
 
+dx-generate-complete-translation-manifest() {
+    # 1. Prompt user for inputs
+    echo "What is the username or alias of the target org? (--target-org | -u)"
+    read TARGET_ORG
+
+    echo "What is the API Name of the specific object to translate? (e.g., Account or MyObject__c)"
+    read OBJECT_NAME
+    
+    echo "What should the output file name be? (default: package.xml)"
+    read OUTPUT_FILE
+    
+    # Apply default filename if user presses Enter
+    OUTPUT_FILE=${OUTPUT_FILE:-package.xml}
+
+    echo "--------------------------------------------------------"
+    echo "🔄 Step 1: Querying active Translation Workbench languages..."
+    
+    # Dynamic SOQL call via sf cli to find active languages
+    LANGUAGES=$(sf data query -q "SELECT LanguageCode FROM LanguageInfo WHERE IsActive = true" -t -o "$TARGET_ORG" --json 2>/dev/null | \
+                grep -o '"LanguageCode": "[^"]*' | grep -o '[^"]*$')
+
+    # Fallback to standard locales if the org query fails or returns empty
+    if [ -z "$LANGUAGES" ]; then
+        echo "⚠️  Could not fetch live languages. Falling back to default locales (es, fr)."
+        LANGUAGES="es fr"
+    fi
+
+    echo "📝 Step 2: Generating manifest file with CustomObjectTranslation blocks..."
+    
+    # Print the cat command just like your example pattern
+    echo "cat <<EOF > $OUTPUT_FILE"
+    
+    # Build the layout combining global Translations and CustomObjectTranslations
+    cat <<EOF > "$OUTPUT_FILE"
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://sforce.com">
+    <!-- 1. The Global Translation Block (For Standard Tabs, Labels, Apps, and Custom Labels) -->
+    <types>
+EOF
+
+    # Inject languages into the global Translations block
+    for LANG in $LANGUAGES; do
+        echo "        <members>${LANG}</members>" >> "$OUTPUT_FILE"
+    done
+
+    # Continue boilerplate types
+    cat <<EOF >> "$OUTPUT_FILE"
+        <name>Translations</name>
+    </types>
+
+    <!-- 2. Source Components to pull the global text translations -->
+    <types>
+        <members>*</members>
+        <name>CustomTab</name>
+    </types>
+    <types>
+        <members>*</members>
+        <name>CustomLabels</name>
+    </types>
+    <types>
+        <members>*</members>
+        <name>CustomApplication</name>
+    </types>
+
+    <!-- 3. Target Container Object (Required to pull down field schemas) -->
+    <types>
+        <members>${OBJECT_NAME}</members>
+        <name>CustomObject</name>
+    </types>
+
+    <!-- 4. Explicit Object-Level Translation Block -->
+    <types>
+EOF
+
+    # Loop again to build explicit [Object]-[Lang] members required for field translations
+    for LANG in $LANGUAGES; do
+        echo "        <members>${OBJECT_NAME}-${LANG}</members>" >> "$OUTPUT_FILE"
+    done
+
+    # Finalize the XML structure
+    cat <<EOF >> "$OUTPUT_FILE"
+        <name>CustomObjectTranslation</name>
+    </types>
+
+    <version>67.0</version>
+</Package>
+EOF
+
+    echo "--------------------------------------------------------"
+    echo "✅ Success! Complete Manifest generated at: $OUTPUT_FILE"
+    
+    # 3. Echo the final command layout and execute it using 'time'
+    echo "time sf project retrieve start --manifest $OUTPUT_FILE --target-org $TARGET_ORG"
+    time sf project retrieve start --manifest $OUTPUT_FILE --target-org $TARGET_ORG
+}
+
+
+
 dx-open-devconsole-by-alias() {
     echo "What is the username or alias of the org to open? \( --targetusername \| -u \)"
     read TARGET_USERNAME
-    echo "sf org open --path ""_ui/common/apex/debug/ApexCSIPage"
-    time sf org open --path "_ui/common/apex/debug/ApexCSIPage"
+    echo "sf org open --path ""_ui/common/apex/debug/ApexCSIPage"" --target-org $TARGET_USERNAME"
+    time sf org open --path "_ui/common/apex/debug/ApexCSIPage" --target-org $TARGET_USERNAME
 }
 
 dx-open-local-user-sfdx() {
@@ -890,8 +1019,11 @@ dx-quickdeploy-permsets-dx() {
 
 dx-deploy-manifest() {
     echo "What is the ORG username or alias to deploy to?"
-    read targetusername
-    time sfdx force:source:deploy -x path/to/package.xml
+    read TARGET_USERNAME
+    echo "What is the manifest path to deploy?"
+    read -e MANIFEST_PATH
+    echo "sf project deploy start --target-org $TARGET_USERNAME -x \""$MANIFEST_PATH\"
+    time sf project deploy start --target-org $TARGET_USERNAME -x"$MANIFEST_PATH"
 }
 
 dx-deploy-checkonly() {
