@@ -913,7 +913,7 @@ graph LR
     FTInit[Initialize-AzDevOpsFieldTemplates]:::priv
     FTGet[Get-AzDevOpsFieldTemplates]:::priv
     FTForType[Get-AzDevOpsFieldTemplateForType]:::priv
-    FTSpec[Get-AzDevOpsFieldSpecMode]:::priv
+    FTSpec[ConvertTo-AzDevOpsFieldSpec]:::priv
     ReqGrid[Read-AzDevOpsFieldGridValue]:::priv
     SeedFiles[Initialize-AzDevOpsSeededFiles]:::priv
     NormKey[Get-AzDevOpsNormalizedTypeKey]:::priv
