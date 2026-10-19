@@ -300,8 +300,10 @@ function Test-AzDevOpsCreateGate {
 # Recognized per-field spec modes for the RequiredFields / field-templates.json
 # mechanism. Named so the mode comparisons below read intent instead of bare
 # string literals.
-$script:AzDevOpsFieldModeGrid   = 'grid'
-$script:AzDevOpsFieldModePrompt = 'prompt'
+$script:AzDevOpsFieldModeGrid    = 'grid'
+$script:AzDevOpsFieldModePrompt  = 'prompt'
+$script:AzDevOpsFieldModeLiteral = 'literal'
+$script:AzDevOpsFieldModeInvalid = 'invalid'
 
 
 function Read-AzDevOpsFieldGridValue {
@@ -340,14 +342,59 @@ function Read-AzDevOpsFieldGridValue {
 }
 
 
+function ConvertTo-AzDevOpsFieldSpec {
+    # Normalizes one Resolve-AzDevOpsTypeRequiredFields entry into a
+    # { Mode; Options; Value } object so the create-time reader
+    # (Read-AzDevOpsRequiredFields) and the failure-menu editor
+    # (Read-AzDevOpsCustomFieldEdit) classify a spec identically:
+    #   'prompt' string, or @{ Mode = 'prompt' }   -> prompt
+    #   @{ Mode = 'grid'; Options = @('A','B') }    -> grid
+    #   hashtable with no recognized Mode           -> invalid (e.g. {} from an
+    #                                                  empty JSON object)
+    #   any other value                             -> literal passthrough
+    # Private helper.
+    param([object] $Spec)
+
+    $mode    = $script:AzDevOpsFieldModeLiteral
+    $options = @()
+
+    if ($Spec -is [hashtable]) {
+        $mode = $script:AzDevOpsFieldModeInvalid
+
+        if ($Spec.ContainsKey('Mode')) {
+            $declared = "$($Spec['Mode'])".Trim().ToLower()
+            if ($declared -eq $script:AzDevOpsFieldModeGrid -or $declared -eq $script:AzDevOpsFieldModePrompt) {
+                $mode = $declared
+            }
+        }
+
+        if ($Spec.ContainsKey('Options')) {
+            $options = @($Spec['Options'])
+        }
+    }
+    elseif ("$Spec".Trim().ToLower() -eq $script:AzDevOpsFieldModePrompt) {
+        $mode = $script:AzDevOpsFieldModePrompt
+    }
+
+    $parsed = [PSCustomObject]@{
+        Mode    = $mode
+        Options = $options
+        Value   = $Spec
+    }
+
+    return $parsed
+}
+
+
 function Read-AzDevOpsRequiredFields {
     # Walks Resolve-AzDevOpsTypeRequiredFields output for the given type and
     # returns a hashtable of <RefName> = <value> ready to feed
-    # Invoke-AzDevOpsWorkItemCreate -ExtraFields. Each entry's spec resolves as:
-    #   'prompt' string, or @{ Mode = 'prompt' }   -> Read-Host free text
-    #   @{ Mode = 'grid'; Options = @('A','B') }    -> Read-AzDevOpsFieldGridValue
-    #                                                  (grid pick + free-text fallback)
-    #   any other value                             -> literal passthrough
+    # Invoke-AzDevOpsWorkItemCreate -ExtraFields. Each entry's spec is classified
+    # by ConvertTo-AzDevOpsFieldSpec:
+    #   prompt  -> Read-Host free text
+    #   grid    -> Read-AzDevOpsFieldGridValue (grid pick + free-text fallback)
+    #   invalid -> skipped (never send a hashtable literal to --fields)
+    #   literal -> passthrough
     # Empty input on a prompt/grid entry skips that field rather than sending an
     # empty string to `az boards work-item create`.
     param([Parameter(Mandatory)] [string] $Type)
@@ -363,42 +410,26 @@ function Read-AzDevOpsRequiredFields {
     }
 
     foreach ($refName in $required.Keys) {
-        $value = $required[$refName]
+        $spec = ConvertTo-AzDevOpsFieldSpec -Spec $required[$refName]
 
-        $mode = $null
-        $options = @()
-        if ($value -is [hashtable]) {
-            if ($value.ContainsKey('Mode')) {
-                $mode = "$($value['Mode'])".Trim().ToLower()
+        switch ($spec.Mode) {
+            $script:AzDevOpsFieldModeGrid {
+                $picked = Read-AzDevOpsFieldGridValue -RefName $refName -Options $spec.Options
+                if ($picked) {
+                    $result[$refName] = $picked
+                }
             }
-            if ($value.ContainsKey('Options')) {
-                $options = @($value['Options'])
-            }
-        }
-        elseif ("$value".Trim().ToLower() -eq $script:AzDevOpsFieldModePrompt) {
-            $mode = $script:AzDevOpsFieldModePrompt
-        }
 
-        if ($mode -eq $script:AzDevOpsFieldModeGrid) {
-            $picked = Read-AzDevOpsFieldGridValue -RefName $refName -Options $options
-            if ($picked) {
-                $result[$refName] = $picked
+            $script:AzDevOpsFieldModePrompt {
+                $answer = Read-Host "Enter $refName"
+                if ($answer) {
+                    $result[$refName] = $answer
+                }
             }
-        }
-        elseif ($mode -eq $script:AzDevOpsFieldModePrompt) {
-            $answer = Read-Host "Enter $refName"
-            if ($answer) {
-                $result[$refName] = $answer
+
+            $script:AzDevOpsFieldModeLiteral {
+                $result[$refName] = $spec.Value
             }
-        }
-        elseif ($value -is [hashtable]) {
-            # A hashtable with no recognized Mode is a malformed spec (e.g. {}
-            # from an empty JSON object) - skip it rather than passing a
-            # hashtable literal to `az boards work-item create --fields`.
-            continue
-        }
-        else {
-            $result[$refName] = $value
         }
     }
 
@@ -622,10 +653,16 @@ function Invoke-AzDevOpsCreateAndLink {
     # instead of failing the hierarchy lookup. The recorded System.Parent
     # reflects the actual server link: the parent id only when the link
     # succeeded, null otherwise.
+    #
+    # -TypeKey is the config key (USER_STORY / FEATURE / EPIC / TASK) the
+    # creator resolved its per-type settings under - distinct from the display
+    # Type in CreateArgs - so the failure menu can list and re-prompt that
+    # type's configured custom fields.
     param(
         [Parameter(Mandatory)] [string]    $ChildLabel,
         [Parameter(Mandatory)] [string]    $ParentLabel,
         [Parameter(Mandatory)] [hashtable] $CreateArgs,
+        [string] $TypeKey,
         [int]    $ParentId = 0,
         [string] $OrphanLabel,
         [switch] $OpenInBrowser
@@ -649,7 +686,7 @@ function Invoke-AzDevOpsCreateAndLink {
         Write-Host "STEP FAILED: az boards work-item create" -ForegroundColor Red
         Write-Host "  $($createResult.Error)" -ForegroundColor Red
 
-        $decision = Read-AzDevOpsCreateFieldEdit -CreateArgs $CreateArgs -ErrorText $createResult.Error
+        $decision = Read-AzDevOpsCreateFieldEdit -CreateArgs $CreateArgs -ErrorText $createResult.Error -TypeKey $TypeKey
         if (-not $decision.Retry) {
             return [PSCustomObject]@{ Ok = $false; Id = 0; Url = $null }
         }
@@ -836,6 +873,7 @@ function az-New-AzDevOpsUserStory {
         -ParentLabel   'Feature' `
         -OrphanLabel   'story' `
         -CreateArgs    $createArgs `
+        -TypeKey       'USER_STORY' `
         -ParentId      $FeatureId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -924,6 +962,7 @@ function az-New-Task {
         -ParentLabel   'User Story' `
         -OrphanLabel   'task' `
         -CreateArgs    $createArgs `
+        -TypeKey       'TASK' `
         -ParentId      $ParentStoryId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1025,6 +1064,7 @@ function az-New-AzDevOpsFeature {
         -ChildLabel    'Feature' `
         -ParentLabel   'Epic' `
         -CreateArgs    $createArgs `
+        -TypeKey       'FEATURE' `
         -ParentId      $ParentEpicId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1115,6 +1155,7 @@ function az-New-AzDevOpsEpic {
         -ParentLabel   'Epic' `
         -OrphanLabel   'Epic (top-level - no parent)' `
         -CreateArgs    $createArgs `
+        -TypeKey       'EPIC' `
         -ParentId      0 `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1266,6 +1307,7 @@ function az-New-AzDevOpsFeatureStories {
             -ParentLabel 'Feature' `
             -OrphanLabel 'story' `
             -CreateArgs  $createArgs `
+            -TypeKey     'USER_STORY' `
             -ParentId    $ParentId
 
         if (-not $outcome.Ok) {
