@@ -153,6 +153,30 @@ function ConvertTo-AzDevOpsWorkItemPath {
 }
 
 
+function Get-AzDevOpsClassificationProjectName {
+    # Private. Project name from the classification tree root, whose API path
+    # is the bare '\<Project>\<Kind>' shell. That project name is the
+    # work-item path of the root node itself (the "no sprint" iteration).
+    # Returns $null when the root path doesn't have that shape.
+    param(
+        $Tree,
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind
+    )
+
+    if ($null -eq $Tree -or -not $Tree.path) {
+        return $null
+    }
+
+    $rootPattern = "^\\([^\\]+)\\$Kind$"
+    if ($Tree.path -match $rootPattern) {
+        $projectName = $Matches[1]
+        return $projectName
+    }
+
+    return $null
+}
+
+
 function ConvertTo-AzDevOpsClassificationPaths {
     # Flattens the tree returned by Read-AzDevOpsClassificationCache /
     # Invoke-AzDevOpsClassificationLive into a sorted, deduplicated array of
@@ -253,7 +277,8 @@ function Get-AzDevOpsIterationPickRows {
     }
 
     $rows = ConvertFrom-AzDevOpsClassificationTree -Tree $tree -Kind 'Iteration'
-    $pickRows = ConvertTo-AzDevOpsIterationPickRows -Rows $rows
+    $projectRoot = Get-AzDevOpsClassificationProjectName -Tree $tree -Kind 'Iteration'
+    $pickRows = ConvertTo-AzDevOpsIterationPickRows -Rows $rows -ProjectRoot $projectRoot
     return $pickRows
 }
 
@@ -425,8 +450,8 @@ function Get-AzDevOpsIterationState {
     # truth for the date-bracket test - Select-AzDevOpsCurrentIterationRow
     # (azdevops_views.ps1) delegates here.
     param(
-        $StartDate,
-        $FinishDate,
+        [Nullable[datetime]] $StartDate,
+        [Nullable[datetime]] $FinishDate,
         [datetime] $Today = (Get-Date).Date
     )
 
@@ -452,8 +477,8 @@ function Get-AzDevOpsIterationSortKey {
     # everything else keeps a neutral key so the Path tiebreaker decides.
     param(
         [Parameter(Mandatory)] [string] $State,
-        $StartDate,
-        $FinishDate
+        [Nullable[datetime]] $StartDate,
+        [Nullable[datetime]] $FinishDate
     )
 
     if ($State -eq $script:AzDevOpsIterationStateFuture) {
@@ -474,22 +499,33 @@ function ConvertTo-AzDevOpsIterationPickRows {
     # Projects the typed iteration rows from ConvertFrom-AzDevOpsClassificationTree
     # into sprint-picker rows (Path / State / StartDate / FinishDate, dates as
     # ISO strings) and prepends the project-root "no sprint" row. The root's
-    # work-item path is the bare project name - the first segment of any sprint
-    # path - which is what Azure DevOps stores for an item in no sprint. Sorted
+    # work-item path is the bare project name, which is what Azure DevOps
+    # stores for an item in no sprint. -ProjectRoot comes from the tree root
+    # (so a project with no sprints still gets the backlog choice); when
+    # omitted it falls back to the first segment of any sprint path. Sorted
     # open -> closed: root, Current, Future (earliest first), Unscheduled, Past
-    # (most recently finished first). Returns @() when there are no rows.
-    param($Rows)
+    # (most recently finished first). Returns @() when there is nothing to pick.
+    param(
+        $Rows,
+        [string] $ProjectRoot
+    )
 
-    if ($null -eq $Rows -or @($Rows).Count -eq 0) {
+    $hasRows = $null -ne $Rows -and @($Rows).Count -gt 0
+
+    if (-not $ProjectRoot -and $hasRows) {
+        $pathSeparator = '\'
+        $ProjectRoot = (@($Rows)[0].Path -split [regex]::Escape($pathSeparator))[0]
+    }
+
+    if (-not $ProjectRoot) {
         return @()
     }
 
-    $pathSeparator = '\'
-    $projectRoot = (@($Rows)[0].Path -split [regex]::Escape($pathSeparator))[0]
+    $today = (Get-Date).Date
 
     $keyed = New-Object System.Collections.Generic.List[object]
     $keyed.Add([PSCustomObject]@{
-        Path       = $projectRoot
+        Path       = $ProjectRoot
         State      = $script:AzDevOpsIterationStateNoSprint
         StartDate  = $null
         FinishDate = $null
@@ -497,7 +533,7 @@ function ConvertTo-AzDevOpsIterationPickRows {
     })
 
     foreach ($row in $Rows) {
-        $state = Get-AzDevOpsIterationState -StartDate $row.StartDate -FinishDate $row.FinishDate
+        $state = Get-AzDevOpsIterationState -StartDate $row.StartDate -FinishDate $row.FinishDate -Today $today
         $sortKey = Get-AzDevOpsIterationSortKey -State $state -StartDate $row.StartDate -FinishDate $row.FinishDate
 
         $keyed.Add([PSCustomObject]@{

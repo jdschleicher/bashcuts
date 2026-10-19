@@ -1854,8 +1854,10 @@ function Select-AzDevOpsCurrentIterationRow {
         return $null
     }
 
+    $today = (Get-Date).Date
+
     $match = $Rows | Where-Object {
-        $state = Get-AzDevOpsIterationState -StartDate $_.StartDate -FinishDate $_.FinishDate
+        $state = Get-AzDevOpsIterationState -StartDate $_.StartDate -FinishDate $_.FinishDate -Today $today
         $state -eq $script:AzDevOpsIterationStateCurrent
     } | Select-Object -First 1
 
