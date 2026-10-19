@@ -80,7 +80,7 @@ $script:AzDevOpsDailyViewerEpicType           = 'Epic'
 $script:AzDevOpsDailyViewerStoryType          = 'User Story'
 $script:AzDevOpsDailyViewerFeatureType        = 'Feature'
 $script:AzDevOpsDailyViewerFeatureStoriesType = 'FeatureStories'  # batch: a Feature + its child User Stories
-$script:AzDevOpsDailyViewerDefaultPriority    = 2                 # ADO 1-4 ramp midpoint, used when a form omits priority
+$script:AzDevOpsDailyViewerDefaultPriority    = 2                 # ADO stock default, High (2); used when a form omits priority
 $script:AzDevOpsDailyViewerMinPriority        = 1
 $script:AzDevOpsDailyViewerMaxPriority        = 4
 

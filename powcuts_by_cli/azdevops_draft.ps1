@@ -39,7 +39,7 @@ $script:AzDevOpsDraftFeatureType = 'Feature'
 $script:AzDevOpsDraftStoryType   = 'User Story'
 $script:AzDevOpsDraftTaskType    = 'Task'
 
-# Azure DevOps' stock default priority (Medium) - applied to a drafted item that
+# Azure DevOps' stock default priority (High, 2) - applied to a drafted item that
 # was published without a priority ever being set, so the create never sends an
 # out-of-range value. Min/Max bound the valid 1-4 range shared by the field-
 # fill check, the publish create-args builder, and the az-Set editor.
@@ -700,7 +700,7 @@ function ConvertTo-AzDevOpsDraftHashtable {
 function Build-AzDevOpsDraftCreateArgs {
     # Turn a draft item + the resolved iteration/area into the splat
     # Invoke-AzDevOpsWorkItemCreate expects. Unset priority falls back to the
-    # stock Medium default so the mandatory field is always valid; unset story
+    # stock High (2) default so the mandatory field is always valid; unset story
     # points stay -1 (the wrapper omits the field). Item-level iteration/area
     # win over the batch default when present.
     param(
