@@ -467,7 +467,7 @@ flowchart TD
     AC -- yes --> ReqF
     ReadAC --> ReqF
 
-    ReqF["Read-AzDevOpsRequiredFields<br/>(field-templates.json + ProjectMap RequiredFields, merged)<br/>grid → Read-AzDevOpsFieldGridValue → Read-AzDevOpsGridPick;<br/>prompt → Read-Host; literal → passthrough"]
+    ReqF["Read-AzDevOpsRequiredFields<br/>(field-templates.json + ProjectMap RequiredFields, merged;<br/>each spec classified by Get-AzDevOpsFieldSpecMode)<br/>grid → Read-AzDevOpsFieldGridValue → Read-AzDevOpsGridPick;<br/>prompt → Read-Host; literal → passthrough"]
     ReqF --> Feat{FeatureId >=0?}
     Feat -- no --> PickFeat["Read-AzDevOpsFeaturePick<br/>(active Features from hierarchy.json)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)<br/>or numbered menu fallback"]
     Feat -- yes --> Create
@@ -475,7 +475,7 @@ flowchart TD
 
     Create["Invoke-AzDevOpsWorkItemCreate<br/>→ New-AzDevOpsWorkItem<br/>→ az boards work-item create<br/>→ (if ExtraFields didn't land) Set-AzDevOpsExtraFieldsPostCreate<br/>→ Get-AzDevOpsUnappliedFields → az boards work-item update"]
     Create --> CreateOk{Ok?}
-    CreateOk -- no --> Recover["Read-AzDevOpsCreateFieldEdit<br/>title-length → Read-AzDevOpsTitle;<br/>else field-edit menu<br/>(untouched fields preserved)"]
+    CreateOk -- no --> Recover["Read-AzDevOpsCreateFieldEdit -TypeKey<br/>title-length → Read-AzDevOpsTitle;<br/>else field-edit menu: standard fields +<br/>type's custom fields (grid / free text),<br/>'a' adds a field by ref name<br/>(untouched fields preserved)"]
     Recover -- resubmit --> Create
     Recover -- cancel --> CreateFail([STEP FAILED])
     CreateOk -- yes --> Link{FeatureId > 0?}
@@ -1101,6 +1101,14 @@ graph LR
     FieldEd[Invoke-AzDevOpsFieldEditor]:::priv
     FieldPrev[Format-AzDevOpsFieldPreview]:::priv
     KeepOr[Get-AzDevOpsEnteredOrKept]:::priv
+    CustEd[Read-AzDevOpsCustomFieldEdit]:::priv
+    AdHoc[Read-AzDevOpsAdHocField]:::priv
+    SetExtra[Set-AzDevOpsExtraFieldValue]:::priv
+    FSpec[Get-AzDevOpsFieldSpecMode]:::priv
+    ReqOrEmpty[Get-AzDevOpsTypeRequiredFieldsOrEmpty]:::priv
+    EditVal[Get-AzDevOpsEditableFieldValue]:::priv
+    CopyArgs[Copy-AzDevOpsCreateArgs]:::priv
+    EditMenu[Write-AzDevOpsFieldEditMenu]:::priv
 
     %% Batch-creator helpers (az-New-AzDevOpsFeatureStories)
     ReuseHint[Get-AzDevOpsReuseHint]:::priv
@@ -1549,7 +1557,6 @@ graph LR
     CrLink --> CrEdit
     CrEdit --> TitleErr
     CrEdit --> EditFields
-    CrEdit --> FieldPrev
     CrEdit --> FieldEd
     CrEdit --> Title
     FieldEd --> Title
@@ -1557,6 +1564,18 @@ graph LR
     FieldEd --> Pts
     FieldEd --> AC
     FieldEd --> KeepOr
+    CrEdit --> ReqOrEmpty
+    CrEdit --> CopyArgs
+    CrEdit --> EditMenu
+    CrEdit --> EditVal
+    EditMenu --> EditVal
+    EditMenu --> FieldPrev
+    CrEdit --> CustEd
+    CrEdit --> AdHoc
+    CrEdit --> SetExtra
+    EditFields --> FSpec
+    CustEd --> ReqGrid
+    CustEd --> KeepOr
 
     %% Unplanned work sessions
     StartUW --> CGate
@@ -1726,7 +1745,9 @@ graph LR
     RPtsP --> RPts
     RPtsP --> Pts
     RTagsE --> RTags
-    ReadReq --> RReq
+    ReadReq --> ReqOrEmpty
+    ReqOrEmpty --> RReq
+    ReadReq --> FSpec
     ReadReq --> ReqGrid
     ReqGrid --> GridPick
 

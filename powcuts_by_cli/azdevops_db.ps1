@@ -270,6 +270,12 @@ function Get-AzDevOpsClassificationList {
 }
 
 
+# Azure DevOps field reference name (e.g. 'Custom.Team'). Shared by
+# Assert-AzDevOpsFieldTokens and the create-failure menu's ad-hoc field prompt
+# so a name the menu accepts is never one the --fields guard then rejects.
+$script:AzDevOpsFieldRefNamePattern = '[A-Za-z][A-Za-z0-9_.]*'
+
+
 function Assert-AzDevOpsFieldTokens {
     # Guards the variadic `--fields` slot shared by New-AzDevOpsWorkItem and
     # Set-AzDevOpsWorkItemField: every entry must be a 'Ref.Name=value'
@@ -279,8 +285,10 @@ function Assert-AzDevOpsFieldTokens {
     # Private helper (unapproved verb is fine - not user-facing).
     param([string[]] $Fields)
 
+    $assignmentPattern = "^$($script:AzDevOpsFieldRefNamePattern)="
+
     foreach ($f in $Fields) {
-        if ($f -notmatch '^[A-Za-z][A-Za-z0-9_.]*=') {
+        if ($f -notmatch $assignmentPattern) {
             throw "Invalid field assignment '$f' (expected 'Field.Name=value')."
         }
     }
