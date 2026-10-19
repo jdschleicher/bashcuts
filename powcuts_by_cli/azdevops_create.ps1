@@ -517,26 +517,28 @@ function Resolve-AzDevOpsTypeTagsOrEmpty {
 
 
 function Resolve-AzDevOpsIterationArea {
-    # Picker + env-var fallback shared by every az-New-AzDevOps* creator. For
-    # each kind: if the caller already passed a value, keep it; otherwise consult
-    # the per-type project-map override (Resolve-AzDevOpsType{Area,Iteration})
-    # when -Type is set; finally fall back to Read-AzDevOpsKindPick. Missing-
-    # after-pick prints the standard "Set `$env:AZ_* or run az-Sync-AzDevOpsCache"
-    # abort. Returns a result object with .Ok / .Iteration / .Area so callers
-    # can short-circuit with a single `if (-not $resolved.Ok) { return }`.
+    # Picker + env-var fallback shared by every az-New-AzDevOps* creator. An
+    # explicit -Iteration / -Area is kept as-is (no prompt). Otherwise the
+    # sprint picker ALWAYS shows: the per-type -> project -> $env:AZ_ITERATION
+    # resolution (Resolve-AzDevOpsTypeIteration) only pre-marks the default so
+    # Enter / Esc accepts it. Area still applies its per-type override silently
+    # and only prompts when nothing resolves. Missing-after-pick prints the
+    # standard "Set `$env:AZ_* or run az-Sync-AzDevOpsCache" abort. Returns a
+    # result object with .Ok / .Iteration / .Area so callers can short-circuit
+    # with a single `if (-not $resolved.Ok) { return }`.
     param(
         [string] $Iteration,
         [string] $Area,
         [string] $Type
     )
 
-    if (-not $Iteration -and $Type) {
-        if (Get-Command Resolve-AzDevOpsTypeIteration -ErrorAction SilentlyContinue) {
-            $Iteration = Resolve-AzDevOpsTypeIteration -Type $Type
-        }
-    }
     if (-not $Iteration) {
-        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration'
+        $defaultIteration = $null
+        if ($Type -and (Get-Command Resolve-AzDevOpsTypeIteration -ErrorAction SilentlyContinue)) {
+            $defaultIteration = Resolve-AzDevOpsTypeIteration -Type $Type
+        }
+
+        $Iteration = Read-AzDevOpsKindPick -Kind 'Iteration' -Default $defaultIteration
     }
     if (-not $Iteration) {
         Write-Host "Iteration is required - aborting. Set `$env:AZ_ITERATION or run az-Sync-AzDevOpsCache." -ForegroundColor Red
