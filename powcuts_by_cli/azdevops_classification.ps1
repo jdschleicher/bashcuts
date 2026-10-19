@@ -10,24 +10,44 @@
 #
 # Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
 
-# In-session memo for resolved Area/Iteration path arrays. Keyed by
+# In-session memo for resolved Area/Iteration classification trees. Keyed by
 # "<active-project>|<Kind>" so a multi-project shell keeps separate entries.
 # Populated on the first successful resolve (cache hit or live fetch) so the
 # two pickers in a single create - and the batch "change area/iteration"
 # rounds - never re-read the cache or re-call `az` after the first hit.
 # Cleared explicitly by az-Sync-AzDevOpsCache and az-Use-AzDevOpsProject.
-$script:AzDevOpsClassificationPathMemo = @{}
+$script:AzDevOpsClassificationTreeMemo = @{}
 
 # Memo-key project segment used when no $global:AzDevOpsProjectMap is set
 # (single-project flat-env mode). Keeps the key shape stable.
 $script:AzDevOpsSingleProjectMemoKey = '__single_project__'
 
+# Sprint State labels shown in the iteration picker. "Current" is always
+# derived from the sprint's Start/Finish dates (Azure DevOps stores no flag),
+# "Unscheduled" covers nodes missing either date, and the project-root row -
+# the iteration path Azure DevOps uses for "not in any sprint" - gets its own
+# label so it reads as the backlog choice rather than a sprint.
+$script:AzDevOpsIterationStateNoSprint    = 'No sprint (project root)'
+$script:AzDevOpsIterationStateCurrent     = 'Current'
+$script:AzDevOpsIterationStateFuture      = 'Future'
+$script:AzDevOpsIterationStateUnscheduled = 'Unscheduled'
+$script:AzDevOpsIterationStatePast        = 'Past'
+
+# Picker sort rank per State: open sprints first, closed sprints last.
+$script:AzDevOpsIterationStateRank = @{
+    $script:AzDevOpsIterationStateNoSprint    = 0
+    $script:AzDevOpsIterationStateCurrent     = 1
+    $script:AzDevOpsIterationStateFuture      = 2
+    $script:AzDevOpsIterationStateUnscheduled = 3
+    $script:AzDevOpsIterationStatePast        = 4
+}
+
 
 function Clear-AzDevOpsClassificationMemo {
-    # Private. Drops the in-session Area/Iteration path memo so the next picker
+    # Private. Drops the in-session Area/Iteration tree memo so the next picker
     # call re-reads the freshly-synced cache or re-targets the new active
     # project. Unapproved verb is fine - this is not a user-facing function.
-    $script:AzDevOpsClassificationPathMemo = @{}
+    $script:AzDevOpsClassificationTreeMemo = @{}
 }
 
 
@@ -174,18 +194,19 @@ function ConvertTo-AzDevOpsClassificationPaths {
 }
 
 
-function Get-AzDevOpsClassificationPaths {
-    # Single entry point for picker consumers. Returns from the in-session memo
-    # when present; otherwise reads the local cache, falling back to a live `az`
-    # call - with a loud "cache is empty/missing, going to Azure now (slow)"
-    # alert - only when the cache file is missing/unparseable. A successful
-    # resolve (cache hit or live fetch) is memoized so the second picker in a
-    # create, and the batch "change area/iteration" rounds, stay instant.
+function Resolve-AzDevOpsClassificationTree {
+    # Private. Single cache-or-live resolver for picker consumers. Returns from
+    # the in-session memo when present; otherwise reads the local cache, falling
+    # back to a live `az` call - with a loud "cache is empty/missing, going to
+    # Azure now (slow)" alert - only when the cache file is missing/unparseable.
+    # A successful resolve (cache hit or live fetch) is memoized so the second
+    # picker in a create, and the batch "change area/iteration" rounds, stay
+    # instant. Returns $null when neither the cache nor `az` yields a tree.
     param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
 
     $memoKey = Get-AzDevOpsClassificationMemoKey -Kind $Kind
-    if ($script:AzDevOpsClassificationPathMemo.ContainsKey($memoKey)) {
-        $memoized = $script:AzDevOpsClassificationPathMemo[$memoKey]
+    if ($script:AzDevOpsClassificationTreeMemo.ContainsKey($memoKey)) {
+        $memoized = $script:AzDevOpsClassificationTreeMemo[$memoKey]
         return $memoized
     }
 
@@ -201,13 +222,39 @@ function Get-AzDevOpsClassificationPaths {
         $tree = Invoke-AzDevOpsClassificationLive -Kind $Kind
     }
 
-    $paths = ConvertTo-AzDevOpsClassificationPaths -Root $tree -Kind $Kind
-
     if ($null -ne $tree) {
-        $script:AzDevOpsClassificationPathMemo[$memoKey] = $paths
+        $script:AzDevOpsClassificationTreeMemo[$memoKey] = $tree
     }
 
+    return $tree
+}
+
+
+function Get-AzDevOpsClassificationPaths {
+    # Sorted, deduplicated IterationPath / AreaPath strings for the picker,
+    # flattened from the memoized / cached / live tree.
+    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+
+    $tree = Resolve-AzDevOpsClassificationTree -Kind $Kind
+    $paths = ConvertTo-AzDevOpsClassificationPaths -Root $tree -Kind $Kind
     return $paths
+}
+
+
+function Get-AzDevOpsIterationPickRows {
+    # Iteration rows for the sprint picker: the project-root "no sprint" row
+    # first, then every sprint with its derived State, sorted open -> closed
+    # (see ConvertTo-AzDevOpsIterationPickRows). Reads through the same memoized
+    # resolver as Get-AzDevOpsClassificationPaths so the picker stays instant
+    # after the first hit.
+    $tree = Resolve-AzDevOpsClassificationTree -Kind 'Iteration'
+    if ($null -eq $tree) {
+        return @()
+    }
+
+    $rows = ConvertFrom-AzDevOpsClassificationTree -Tree $tree -Kind 'Iteration'
+    $pickRows = ConvertTo-AzDevOpsIterationPickRows -Rows $rows
+    return $pickRows
 }
 
 
@@ -322,7 +369,7 @@ function Format-AzDevOpsClassificationDate {
     # Renders a [datetime]? as ISO yyyy-MM-dd, or '' when $null. Single
     # source of truth for the date formatting used by the Show- display
     # projection and Format-AzDevOpsClassificationNode's text fallback.
-    param([datetime] $Date)
+    param([Nullable[datetime]] $Date)
 
     if ($null -eq $Date) {
         return ''
@@ -368,6 +415,119 @@ function ConvertTo-AzDevOpsClassificationDisplayRows {
 
     $result = , $displayRows
     return $result
+}
+
+
+function Get-AzDevOpsIterationState {
+    # Private. Classifies one sprint by its dates against today: Current when
+    # Start <= today <= Finish, Future when it starts later, Past when it has
+    # finished, Unscheduled when either date is missing. Single source of
+    # truth for the date-bracket test - Select-AzDevOpsCurrentIterationRow
+    # (azdevops_views.ps1) delegates here.
+    param(
+        $StartDate,
+        $FinishDate,
+        [datetime] $Today = (Get-Date).Date
+    )
+
+    if (-not $StartDate -or -not $FinishDate) {
+        return $script:AzDevOpsIterationStateUnscheduled
+    }
+
+    if ($Today -lt $StartDate.Date) {
+        return $script:AzDevOpsIterationStateFuture
+    }
+
+    if ($Today -gt $FinishDate.Date) {
+        return $script:AzDevOpsIterationStatePast
+    }
+
+    return $script:AzDevOpsIterationStateCurrent
+}
+
+
+function Get-AzDevOpsIterationSortKey {
+    # Private. Secondary sort key within a State group: Future sprints by
+    # earliest start, Past sprints by most recently finished (negated ticks),
+    # everything else keeps a neutral key so the Path tiebreaker decides.
+    param(
+        [Parameter(Mandatory)] [string] $State,
+        $StartDate,
+        $FinishDate
+    )
+
+    if ($State -eq $script:AzDevOpsIterationStateFuture) {
+        $futureKey = $StartDate.Ticks
+        return $futureKey
+    }
+
+    if ($State -eq $script:AzDevOpsIterationStatePast) {
+        $pastKey = -$FinishDate.Ticks
+        return $pastKey
+    }
+
+    return 0
+}
+
+
+function ConvertTo-AzDevOpsIterationPickRows {
+    # Projects the typed iteration rows from ConvertFrom-AzDevOpsClassificationTree
+    # into sprint-picker rows (Path / State / StartDate / FinishDate, dates as
+    # ISO strings) and prepends the project-root "no sprint" row. The root's
+    # work-item path is the bare project name - the first segment of any sprint
+    # path - which is what Azure DevOps stores for an item in no sprint. Sorted
+    # open -> closed: root, Current, Future (earliest first), Unscheduled, Past
+    # (most recently finished first). Returns @() when there are no rows.
+    param($Rows)
+
+    if ($null -eq $Rows -or @($Rows).Count -eq 0) {
+        return @()
+    }
+
+    $pathSeparator = '\'
+    $projectRoot = (@($Rows)[0].Path -split [regex]::Escape($pathSeparator))[0]
+
+    $keyed = New-Object System.Collections.Generic.List[object]
+    $keyed.Add([PSCustomObject]@{
+        Path       = $projectRoot
+        State      = $script:AzDevOpsIterationStateNoSprint
+        StartDate  = $null
+        FinishDate = $null
+        SortKey    = 0
+    })
+
+    foreach ($row in $Rows) {
+        $state = Get-AzDevOpsIterationState -StartDate $row.StartDate -FinishDate $row.FinishDate
+        $sortKey = Get-AzDevOpsIterationSortKey -State $state -StartDate $row.StartDate -FinishDate $row.FinishDate
+
+        $keyed.Add([PSCustomObject]@{
+            Path       = $row.Path
+            State      = $state
+            StartDate  = $row.StartDate
+            FinishDate = $row.FinishDate
+            SortKey    = $sortKey
+        })
+    }
+
+    $sorted = $keyed | Sort-Object -Property @(
+        @{ Expression = { $script:AzDevOpsIterationStateRank[$_.State] } },
+        'SortKey',
+        'Path'
+    )
+
+    $pickRows = @($sorted | ForEach-Object {
+        $startIso  = Format-AzDevOpsClassificationDate -Date $_.StartDate
+        $finishIso = Format-AzDevOpsClassificationDate -Date $_.FinishDate
+
+        [PSCustomObject]@{
+            Path       = $_.Path
+            State      = $_.State
+            StartDate  = $startIso
+            FinishDate = $finishIso
+        }
+    })
+
+    return $pickRows
 }
 
 
@@ -555,8 +715,10 @@ function az-Get-AzDevOpsIterations {
 #   az-Find-AzDevOpsArea       - Out-ConsoleGridView picker over the area tree;
 #                                emits the picked Path (work-item-path form)
 #                                or $null when the user cancels.
-#   az-Find-AzDevOpsIteration  - same shape, plus StartDate / FinishDate grid
-#                                columns so the user can pick by sprint dates.
+#   az-Find-AzDevOpsIteration  - same shape, plus State / StartDate /
+#                                FinishDate grid columns, a project-root
+#                                "no sprint" row, and open -> closed ordering
+#                                (ConvertTo-AzDevOpsIterationPickRows).
 #
 # Both require Microsoft.PowerShell.ConsoleGuiTools - they print the install
 # hint and return when the cmdlet is missing. Neither function has side
@@ -626,8 +788,7 @@ function az-Find-AzDevOpsIteration {
         return
     }
 
-    $displayRows = ConvertTo-AzDevOpsClassificationDisplayRows -Rows $rows -Kind 'Iteration'
-    $pickRows = @($displayRows | Select-Object Path, StartDate, FinishDate)
+    $pickRows = @(ConvertTo-AzDevOpsIterationPickRows -Rows $rows)
 
     $picked = Read-AzDevOpsGridPick -Rows $pickRows -Title 'Pick iteration'
     if ($null -eq $picked) {

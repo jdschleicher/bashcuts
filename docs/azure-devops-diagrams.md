@@ -447,7 +447,7 @@ flowchart TD
     TitleEmpty -- yes --> Abort4([abort])
     TitleEmpty -- no --> Iter
 
-    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration' -Default<br/>(per-type → project → $env:AZ_ITERATION pre-marked; Enter/Esc accepts)<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration' -Default<br/>(per-type → project → $env:AZ_ITERATION pre-marked; Enter/Esc accepts)<br/>Get-AzDevOpsIterationPickRows: project-root 'no sprint' row + State,<br/>open → closed (cache or Invoke-AzDevOpsClassificationLive)<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
     Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
