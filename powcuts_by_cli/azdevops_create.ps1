@@ -342,7 +342,28 @@ function Read-AzDevOpsFieldGridValue {
 }
 
 
-function ConvertTo-AzDevOpsFieldSpec {
+function Get-AzDevOpsTypeRequiredFieldsOrEmpty {
+    # Thin wrapper that hides the Get-Command guard around
+    # Resolve-AzDevOpsTypeRequiredFields, mirroring
+    # Resolve-AzDevOpsTypeTagsOrEmpty. Always returns a hashtable (possibly
+    # empty) so the create-time reader and the failure menu share one lookup.
+    param([Parameter(Mandatory)] [string] $Type)
+
+    $required = @{}
+    if (-not (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue)) {
+        return $required
+    }
+
+    $resolved = Resolve-AzDevOpsTypeRequiredFields -Type $Type
+    if ($resolved -is [hashtable]) {
+        $required = $resolved
+    }
+
+    return $required
+}
+
+
+function Get-AzDevOpsFieldSpecMode {
     # Normalizes one Resolve-AzDevOpsTypeRequiredFields entry into a
     # { Mode; Options; Value } object so the create-time reader
     # (Read-AzDevOpsRequiredFields) and the failure-menu editor
@@ -390,7 +411,7 @@ function Read-AzDevOpsRequiredFields {
     # Walks Resolve-AzDevOpsTypeRequiredFields output for the given type and
     # returns a hashtable of <RefName> = <value> ready to feed
     # Invoke-AzDevOpsWorkItemCreate -ExtraFields. Each entry's spec is classified
-    # by ConvertTo-AzDevOpsFieldSpec:
+    # by Get-AzDevOpsFieldSpecMode:
     #   prompt  -> Read-Host free text
     #   grid    -> Read-AzDevOpsFieldGridValue (grid pick + free-text fallback)
     #   invalid -> skipped (never send a hashtable literal to --fields)
@@ -400,17 +421,14 @@ function Read-AzDevOpsRequiredFields {
     param([Parameter(Mandatory)] [string] $Type)
 
     $result = @{}
-    if (-not (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue)) {
-        return $result
-    }
 
-    $required = Resolve-AzDevOpsTypeRequiredFields -Type $Type
-    if ($null -eq $required -or $required.Count -eq 0) {
+    $required = Get-AzDevOpsTypeRequiredFieldsOrEmpty -Type $Type
+    if ($required.Count -eq 0) {
         return $result
     }
 
     foreach ($refName in $required.Keys) {
-        $spec = ConvertTo-AzDevOpsFieldSpec -Spec $required[$refName]
+        $spec = Get-AzDevOpsFieldSpecMode -Spec $required[$refName]
 
         switch ($spec.Mode) {
             $script:AzDevOpsFieldModeGrid {
@@ -429,6 +447,11 @@ function Read-AzDevOpsRequiredFields {
 
             $script:AzDevOpsFieldModeLiteral {
                 $result[$refName] = $spec.Value
+            }
+
+            $script:AzDevOpsFieldModeInvalid {
+                # Malformed spec - skipped so a hashtable literal never
+                # reaches `az boards work-item create --fields`.
             }
         }
     }
@@ -800,6 +823,8 @@ function az-New-AzDevOpsUserStory {
         [switch] $NoOpen
     )
 
+    $typeKey = 'USER_STORY'
+
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsUserStory')) {
         return
     }
@@ -817,7 +842,7 @@ function az-New-AzDevOpsUserStory {
         return
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type $typeKey
     if (-not $resolved.Ok) {
         return
     }
@@ -829,11 +854,11 @@ function az-New-AzDevOpsUserStory {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'USER_STORY'
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type $typeKey
     }
 
     if ($StoryPoints -lt 0) {
-        $StoryPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY'
+        $StoryPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type $typeKey
     }
 
     if (-not $PSBoundParameters.ContainsKey('AcceptanceCriteria')) {
@@ -843,11 +868,11 @@ function az-New-AzDevOpsUserStory {
     # Collect the story's own prompts (tags + required fields) BEFORE the parent
     # picker / inline-parent-create runs, so once a parent Feature is chosen or
     # built the story is created immediately without another round of questions.
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type 'USER_STORY'
-    $extraFields = Read-AzDevOpsRequiredFields       -Type 'USER_STORY'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty   -Type $typeKey
+    $extraFields = Read-AzDevOpsRequiredFields       -Type $typeKey
 
     if ($FeatureId -lt 0) {
-        $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy -ChildType 'USER_STORY'
+        $FeatureId = Read-AzDevOpsFeaturePick -Hierarchy $hierarchy -ChildType $typeKey
 
         if ($FeatureId -eq 0) {
             $FeatureId = Resolve-AzDevOpsOrphanParent -ParentLabel 'Feature' -CreateParent {
@@ -873,7 +898,7 @@ function az-New-AzDevOpsUserStory {
         -ParentLabel   'Feature' `
         -OrphanLabel   'story' `
         -CreateArgs    $createArgs `
-        -TypeKey       'USER_STORY' `
+        -TypeKey       $typeKey `
         -ParentId      $FeatureId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -907,6 +932,8 @@ function az-New-Task {
         [switch] $NoOpen
     )
 
+    $typeKey = 'TASK'
+
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-Task')) {
         return
     }
@@ -924,7 +951,7 @@ function az-New-Task {
         return
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'TASK'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type $typeKey
     if (-not $resolved.Ok) {
         return
     }
@@ -936,15 +963,15 @@ function az-New-Task {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'TASK'
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type $typeKey
     }
 
     if ($ParentStoryId -lt 0) {
-        $ParentStoryId = Read-AzDevOpsStoryPick -Hierarchy $hierarchy -ChildType 'TASK'
+        $ParentStoryId = Read-AzDevOpsStoryPick -Hierarchy $hierarchy -ChildType $typeKey
     }
 
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'TASK'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'TASK'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type $typeKey
+    $extraFields = Read-AzDevOpsRequiredFields     -Type $typeKey
 
     $createArgs = @{
         Type        = 'Task'
@@ -962,7 +989,7 @@ function az-New-Task {
         -ParentLabel   'User Story' `
         -OrphanLabel   'task' `
         -CreateArgs    $createArgs `
-        -TypeKey       'TASK' `
+        -TypeKey       $typeKey `
         -ParentId      $ParentStoryId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1001,6 +1028,8 @@ function az-New-AzDevOpsFeature {
         [switch] $NoChildStoriesPrompt
     )
 
+    $typeKey = 'FEATURE'
+
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeature')) {
         return
     }
@@ -1018,7 +1047,7 @@ function az-New-AzDevOpsFeature {
         return
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'FEATURE'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type $typeKey
     if (-not $resolved.Ok) {
         return
     }
@@ -1030,17 +1059,17 @@ function az-New-AzDevOpsFeature {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'FEATURE'
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type $typeKey
     }
 
     # Collect the Feature's own prompts (tags + required fields) BEFORE the Epic
     # picker / inline-Epic-create runs, so once a parent Epic is chosen or built
     # the Feature is created immediately without another round of questions.
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'FEATURE'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'FEATURE'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type $typeKey
+    $extraFields = Read-AzDevOpsRequiredFields     -Type $typeKey
 
     if ($ParentEpicId -lt 0) {
-        $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy -ChildType 'FEATURE'
+        $ParentEpicId = Read-AzDevOpsEpicPick -Hierarchy $hierarchy -ChildType $typeKey
 
         if ($ParentEpicId -eq 0) {
             $ParentEpicId = Resolve-AzDevOpsOrphanParent -ParentLabel 'Epic' -CreateParent {
@@ -1064,7 +1093,7 @@ function az-New-AzDevOpsFeature {
         -ChildLabel    'Feature' `
         -ParentLabel   'Epic' `
         -CreateArgs    $createArgs `
-        -TypeKey       'FEATURE' `
+        -TypeKey       $typeKey `
         -ParentId      $ParentEpicId `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1109,6 +1138,8 @@ function az-New-AzDevOpsEpic {
         [switch] $NoOpen
     )
 
+    $typeKey = 'EPIC'
+
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsEpic')) {
         return
     }
@@ -1121,7 +1152,7 @@ function az-New-AzDevOpsEpic {
         return
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'EPIC'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type $typeKey
     if (-not $resolved.Ok) {
         return
     }
@@ -1133,11 +1164,11 @@ function az-New-AzDevOpsEpic {
     }
 
     if ($Priority -lt 1 -or $Priority -gt 4) {
-        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type 'EPIC'
+        $Priority = Resolve-AzDevOpsTypePriorityOrPrompt -Type $typeKey
     }
 
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'EPIC'
-    $extraFields = Read-AzDevOpsRequiredFields     -Type 'EPIC'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type $typeKey
+    $extraFields = Read-AzDevOpsRequiredFields     -Type $typeKey
 
     $createArgs = @{
         Type        = 'Epic'
@@ -1155,7 +1186,7 @@ function az-New-AzDevOpsEpic {
         -ParentLabel   'Epic' `
         -OrphanLabel   'Epic (top-level - no parent)' `
         -CreateArgs    $createArgs `
-        -TypeKey       'EPIC' `
+        -TypeKey       $typeKey `
         -ParentId      0 `
         -OpenInBrowser:(-not $NoOpen)
 
@@ -1239,6 +1270,8 @@ function az-New-AzDevOpsFeatureStories {
         [string] $Area
     )
 
+    $typeKey = 'USER_STORY'
+
     [int[]] $createdIds = @()
 
     if (-not (Test-AzDevOpsCreateGate -CommandName 'az-New-AzDevOpsFeatureStories')) {
@@ -1254,14 +1287,14 @@ function az-New-AzDevOpsFeatureStories {
         return $createdIds
     }
 
-    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type 'USER_STORY'
+    $resolved = Resolve-AzDevOpsIterationArea -Iteration $Iteration -Area $Area -Type $typeKey
     if (-not $resolved.Ok) {
         return $createdIds
     }
     $Iteration = $resolved.Iteration
     $Area = $resolved.Area
 
-    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type 'USER_STORY'
+    $tags = Resolve-AzDevOpsTypeTagsOrEmpty -Type $typeKey
 
     Write-Host ""
     Write-Host "Batch-creating child User Stories under Feature $ParentId" -ForegroundColor Cyan
@@ -1286,9 +1319,9 @@ function az-New-AzDevOpsFeatureStories {
 
         $description = Read-AzDevOpsUserStoryBody
         $acceptanceCriteria = Read-AzDevOpsAcceptanceCriteria
-        $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type 'USER_STORY' -Previous $previousPriority
-        $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type 'USER_STORY' -Previous $previousStoryPoints
-        $extraFields = Read-AzDevOpsRequiredFields             -Type 'USER_STORY'
+        $priority = Resolve-AzDevOpsTypePriorityOrPrompt    -Type $typeKey -Previous $previousPriority
+        $storyPoints = Resolve-AzDevOpsTypeStoryPointsOrPrompt -Type $typeKey -Previous $previousStoryPoints
+        $extraFields = Read-AzDevOpsRequiredFields             -Type $typeKey
 
         $createArgs = @{
             Title              = $title
@@ -1307,7 +1340,7 @@ function az-New-AzDevOpsFeatureStories {
             -ParentLabel 'Feature' `
             -OrphanLabel 'story' `
             -CreateArgs  $createArgs `
-            -TypeKey     'USER_STORY' `
+            -TypeKey     $typeKey `
             -ParentId    $ParentId
 
         if (-not $outcome.Ok) {

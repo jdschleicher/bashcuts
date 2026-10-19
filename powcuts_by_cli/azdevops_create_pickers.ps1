@@ -828,20 +828,14 @@ function Get-AzDevOpsEditableFields {
         $extraFields = $CreateArgs['ExtraFields']
     }
 
-    foreach ($refName in ($configured.Keys | Sort-Object)) {
-        $spec = ConvertTo-AzDevOpsFieldSpec -Spec $configured[$refName]
-        $present.Add([PSCustomObject]@{
-            Key      = 'ExtraFields'
-            Label    = $refName
-            IsCustom = $true
-            RefName  = $refName
-            Spec     = $spec
-        })
-    }
+    # Configured names first, then ad-hoc ones. An ad-hoc name has no entry in
+    # $configured, so its $null spec classifies as literal -> free text.
+    $configuredRefNames = $configured.Keys | Sort-Object
+    $adHocRefNames      = $extraFields.Keys | Where-Object { -not $configured.ContainsKey($_) } | Sort-Object
+    $customRefNames     = @($configuredRefNames) + @($adHocRefNames)
 
-    $adHocRefNames = $extraFields.Keys | Where-Object { -not $configured.ContainsKey($_) } | Sort-Object
-    foreach ($refName in $adHocRefNames) {
-        $spec = ConvertTo-AzDevOpsFieldSpec -Spec $null
+    foreach ($refName in $customRefNames) {
+        $spec = Get-AzDevOpsFieldSpecMode -Spec $configured[$refName]
         $present.Add([PSCustomObject]@{
             Key      = 'ExtraFields'
             Label    = $refName
@@ -957,6 +951,25 @@ function Invoke-AzDevOpsFieldEditor {
 }
 
 
+function Get-AzDevOpsEditableFieldValue {
+    # Current value of one Get-AzDevOpsEditableFields entry: a custom field
+    # reads from CreateArgs.ExtraFields by ref name, a standard field reads its
+    # own CreateArgs key. Private helper.
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Field,
+        [Parameter(Mandatory)] [hashtable]      $CreateArgs
+    )
+
+    $value = if ($Field.IsCustom) {
+        $CreateArgs['ExtraFields'][$Field.RefName]
+    } else {
+        $CreateArgs[$Field.Key]
+    }
+
+    return $value
+}
+
+
 function Set-AzDevOpsExtraFieldValue {
     # Writes one custom-field value into an ExtraFields hashtable, removing the
     # key instead when the value is empty so an empty string never reaches
@@ -984,7 +997,7 @@ function Read-AzDevOpsCustomFieldEdit {
     # value; the clear token returns '' so the caller drops the field.
     param(
         [Parameter(Mandatory)] [string] $RefName,
-        [Parameter(Mandatory)] $Spec,
+        [Parameter(Mandatory)] [PSCustomObject] $Spec,
         [object] $Current
     )
 
@@ -992,7 +1005,7 @@ function Read-AzDevOpsCustomFieldEdit {
     $keepOrClearHint = "Enter to keep current, '$clearToken' to clear"
 
     if ($Spec.Mode -eq $script:AzDevOpsFieldModeGrid) {
-        Write-Host "  (Escape the grid to type a value instead: $keepOrClearHint)" -ForegroundColor DarkGray
+        Write-Host "  (At the text prompt - no grid, or grid escaped: $keepOrClearHint)" -ForegroundColor DarkGray
         $entered = Read-AzDevOpsFieldGridValue -RefName $RefName -Options $Spec.Options
     } else {
         $entered = Read-Host "New $RefName ($keepOrClearHint)"
@@ -1010,13 +1023,25 @@ function Read-AzDevOpsCustomFieldEdit {
 function Read-AzDevOpsAdHocField {
     # The failure menu's "Add field by reference name" option: prompts for a ref
     # name (e.g. Custom.Team) and a value, returning { RefName; Value }, or $null
-    # when either answer is empty. Any ref name is accepted - `az` rejects an
-    # unknown field and the menu simply reopens. The field applies to this
-    # resubmit only; nothing is written back to field-templates.json or the
+    # when either answer is empty. The name is only checked for shape (the same
+    # pattern Assert-AzDevOpsFieldTokens enforces, so a typo re-prompts here
+    # instead of throwing out of the create); an unknown-but-well-formed name is
+    # left for `az` to reject, and the menu simply reopens. The field applies to
+    # this resubmit only; nothing is written back to field-templates.json or the
     # project map.
-    $refName = "$(Read-Host 'Field reference name (e.g. Custom.Team, Enter to go back)')".Trim()
-    if (-not $refName) {
-        return $null
+    $refNamePattern = "^$($script:AzDevOpsFieldRefNamePattern)$"
+
+    while ($true) {
+        $refName = "$(Read-Host 'Field reference name (e.g. Custom.Team, Enter to go back)')".Trim()
+        if (-not $refName) {
+            return $null
+        }
+
+        if ($refName -match $refNamePattern) {
+            break
+        }
+
+        Write-Host "  '$refName' is not a field reference name - use letters, digits, '.' and '_' (e.g. Custom.Team)." -ForegroundColor Yellow
     }
 
     $value = Read-Host "Value for $refName"
@@ -1026,6 +1051,51 @@ function Read-AzDevOpsAdHocField {
 
     $field = [PSCustomObject]@{ RefName = $refName; Value = $value }
     return $field
+}
+
+
+function Copy-AzDevOpsCreateArgs {
+    # Shallow copy of a creator's CreateArgs with ExtraFields cloned (or seeded
+    # empty) so failure-menu edits - standard or custom - never touch the
+    # caller's hashtables. Private helper.
+    param([Parameter(Mandatory)] [hashtable] $CreateArgs)
+
+    $copy = @{}
+    foreach ($key in $CreateArgs.Keys) {
+        $copy[$key] = $CreateArgs[$key]
+    }
+
+    $copy['ExtraFields'] = if ($CreateArgs['ExtraFields'] -is [hashtable]) {
+        $CreateArgs['ExtraFields'].Clone()
+    } else {
+        @{}
+    }
+
+    return $copy
+}
+
+
+function Write-AzDevOpsFieldEditMenu {
+    # Prints the failure menu: one numbered line per editable field with its
+    # current value, then the add / resubmit / cancel letters. Private helper.
+    param(
+        [Parameter(Mandatory)] [object[]]  $Fields,
+        [Parameter(Mandatory)] [hashtable] $CreateArgs
+    )
+
+    Write-Host ""
+    Write-Host "Edit a field and resubmit, or cancel:" -ForegroundColor Cyan
+
+    for ($i = 0; $i -lt $Fields.Count; $i++) {
+        $field   = $Fields[$i]
+        $current = Get-AzDevOpsEditableFieldValue -Field $field -CreateArgs $CreateArgs
+        $preview = Format-AzDevOpsFieldPreview -Value $current
+        Write-Host ("  {0}. {1,-20}: {2}" -f ($i + 1), $field.Label, $preview)
+    }
+
+    Write-Host "  $($script:AzDevOpsEditMenuAddField). Add field by reference name"
+    Write-Host "  $($script:AzDevOpsEditMenuResubmit). Resubmit with the values above"
+    Write-Host "  $($script:AzDevOpsEditMenuCancel). Cancel (abort create)"
 }
 
 
@@ -1052,23 +1122,11 @@ function Read-AzDevOpsCreateFieldEdit {
         [string] $TypeKey
     )
 
-    $edited = @{}
-    foreach ($key in $CreateArgs.Keys) {
-        $edited[$key] = $CreateArgs[$key]
-    }
-
-    $edited['ExtraFields'] = if ($CreateArgs['ExtraFields'] -is [hashtable]) {
-        $CreateArgs['ExtraFields'].Clone()
-    } else {
-        @{}
-    }
+    $edited = Copy-AzDevOpsCreateArgs -CreateArgs $CreateArgs
 
     $requiredFields = @{}
-    if ($TypeKey -and (Get-Command Resolve-AzDevOpsTypeRequiredFields -ErrorAction SilentlyContinue)) {
-        $resolvedFields = Resolve-AzDevOpsTypeRequiredFields -Type $TypeKey
-        if ($resolvedFields -is [hashtable]) {
-            $requiredFields = $resolvedFields
-        }
+    if ($TypeKey) {
+        $requiredFields = Get-AzDevOpsTypeRequiredFieldsOrEmpty -Type $TypeKey
     }
 
     if (Test-AzDevOpsTitleLengthError -ErrorText $ErrorText) {
@@ -1086,23 +1144,7 @@ function Read-AzDevOpsCreateFieldEdit {
 
     while ($true) {
         $fields = Get-AzDevOpsEditableFields -CreateArgs $edited -RequiredFields $requiredFields
-
-        Write-Host ""
-        Write-Host "Edit a field and resubmit, or cancel:" -ForegroundColor Cyan
-        for ($i = 0; $i -lt $fields.Count; $i++) {
-            $field = $fields[$i]
-            $current = if ($field.IsCustom) {
-                $edited['ExtraFields'][$field.RefName]
-            } else {
-                $edited[$field.Key]
-            }
-
-            $preview = Format-AzDevOpsFieldPreview -Value $current
-            Write-Host ("  {0}. {1,-20}: {2}" -f ($i + 1), $field.Label, $preview)
-        }
-        Write-Host "  $addField. Add field by reference name"
-        Write-Host "  $resubmit. Resubmit with the values above"
-        Write-Host "  $cancel. Cancel (abort create)"
+        Write-AzDevOpsFieldEditMenu -Fields $fields -CreateArgs $edited
 
         $resp    = Read-Host 'Choose'
         $trimmed = "$resp".Trim().ToLower()
@@ -1130,19 +1172,16 @@ function Read-AzDevOpsCreateFieldEdit {
             continue
         }
 
-        $chosen = $fields[$idx - 1]
+        $chosen  = $fields[$idx - 1]
+        $current = Get-AzDevOpsEditableFieldValue -Field $chosen -CreateArgs $edited
 
         if ($chosen.IsCustom) {
-            $customValue = Read-AzDevOpsCustomFieldEdit `
-                -RefName $chosen.RefName `
-                -Spec    $chosen.Spec `
-                -Current $edited['ExtraFields'][$chosen.RefName]
-
+            $customValue = Read-AzDevOpsCustomFieldEdit -RefName $chosen.RefName -Spec $chosen.Spec -Current $current
             Set-AzDevOpsExtraFieldValue -ExtraFields $edited['ExtraFields'] -RefName $chosen.RefName -Value $customValue
             continue
         }
 
-        $newValue = Invoke-AzDevOpsFieldEditor -Key $chosen.Key -Current $edited[$chosen.Key]
+        $newValue = Invoke-AzDevOpsFieldEditor -Key $chosen.Key -Current $current
         $edited[$chosen.Key] = $newValue
     }
 }
