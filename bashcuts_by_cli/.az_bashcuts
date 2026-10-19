@@ -282,3 +282,21 @@ azview() {
     echo "$FULL_REPO_URL"
     start $FULL_REPO_URL
 }
+
+az-open-api-detail() {
+
+    echo "https://dev.azure.com/$AZ_DEFAULT_ORG/_apis/wit/fields?api-version=7.1"
+    start "https://dev.azure.com/$AZ_DEFAULT_ORG/_apis/wit/fields?api-version=7.1"
+
+}
+
+
+az-open-api-detail-by-workitemid() {
+
+    echo What is the Azure WorkItem ID?
+    read WORK_ITEM_ID
+    echo "https://dev.azure.com/$AZ_DEFAULT_ORG/$AZ_PROJECT_URL_SAFE/_apis/wit/workitems/$WORK_ITEM_ID?api-version=7.1"
+    start "https://dev.azure.com/$AZ_DEFAULT_ORG/$AZ_PROJECT_URL_SAFE/_apis/wit/workitems/$WORK_ITEM_ID?api-version=7.1"
+
+}
+
