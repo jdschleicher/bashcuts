@@ -1081,6 +1081,7 @@ graph LR
     ToIterPick[ConvertTo-AzDevOpsIterationPickRows]:::priv
     IterState[Get-AzDevOpsIterationState]:::priv
     IterSortKey[Get-AzDevOpsIterationSortKey]:::priv
+    ClsProj[Get-AzDevOpsClassificationProjectName]:::priv
     Pri[Read-AzDevOpsPriority]:::priv
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
@@ -1520,6 +1521,7 @@ graph LR
     GetCPaths --> ToCPaths --> ToWIPath
     PKind -- Iteration --> IterPick --> ResCTree
     IterPick --> ClsRows
+    IterPick --> ClsProj
     IterPick --> ToIterPick
     ToIterPick --> IterState
     ToIterPick --> IterSortKey
