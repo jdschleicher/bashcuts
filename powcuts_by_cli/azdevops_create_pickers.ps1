@@ -670,10 +670,14 @@ function Read-AzDevOpsClassificationPick {
 function Read-AzDevOpsKindPick {
     # Single iteration / area picker shared by both kinds. Reads the
     # cache (or falls back to live `az`), then either renders the numbered
-    # menu or - if no paths are available - returns the matching $env:AZ_*
-    # default. Returns $null if both the cache and the env-var default are
-    # empty; callers must guard for that and abort cleanly.
-    param([Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind)
+    # menu or - if no paths are available - returns the default. -Default is
+    # the pre-marked choice (Enter / Esc accepts it); when omitted it falls back
+    # to the matching $env:AZ_*. Returns $null if both the cache and the
+    # default are empty; callers must guard for that and abort cleanly.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
+        [string] $Default
+    )
 
     $envName = if ($Kind -eq 'Iteration') {
         'AZ_ITERATION'
@@ -682,7 +686,10 @@ function Read-AzDevOpsKindPick {
         'AZ_AREA'
     }
 
-    $envFallback = if ($Kind -eq 'Iteration') {
+    $fallback = if ($Default) {
+        $Default
+    }
+    elseif ($Kind -eq 'Iteration') {
         $env:AZ_ITERATION
     }
     else {
@@ -691,15 +698,15 @@ function Read-AzDevOpsKindPick {
 
     $paths = Get-AzDevOpsClassificationPaths -Kind $Kind
     if ($paths.Count -eq 0) {
-        if (-not $envFallback) {
-            Write-Host "(no ${Kind}s available and `$env:$envName is unset)" -ForegroundColor Red
+        if (-not $fallback) {
+            Write-Host "(no ${Kind}s available and no default - `$env:$envName is unset)" -ForegroundColor Red
             return $null
         }
-        Write-Host "(no ${Kind}s available - falling back to `$env:$envName='$envFallback')" -ForegroundColor Yellow
-        return $envFallback
+        Write-Host "(no ${Kind}s available - falling back to default '$fallback')" -ForegroundColor Yellow
+        return $fallback
     }
 
-    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $envFallback
+    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $fallback
     return $picked
 }
 

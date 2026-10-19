@@ -426,6 +426,27 @@ function Set-AzDevOpsWorkItemField {
 }
 
 
+function Get-AzDevOpsWorkItem {
+    # `az boards work-item show --id <id> [--fields a,b]` wrapper. -Fields narrows
+    # the returned `fields` map to the listed ref names (e.g.
+    # 'System.IterationPath'); omit it for the full item. Returns the canonical
+    # { Json, Error, ExitCode } envelope.
+    param(
+        [Parameter(Mandatory)] [int] $Id,
+        [string[]] $Fields
+    )
+
+    $argList = @('boards', 'work-item', 'show', '--id', "$Id")
+
+    if ($Fields) {
+        $argList += @('--fields', ($Fields -join ','))
+    }
+
+    $result = Invoke-AzDevOpsAzJson -ArgList $argList
+    return $result
+}
+
+
 function Get-AzDevOpsWorkItemTypeDefinition {
     # `az devops invoke --area wit --resource workitemtypes` wrapper. Returns
     # the type's field-instance definitions inside the canonical envelope so
