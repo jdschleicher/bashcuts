@@ -1511,7 +1511,7 @@ function Get-AzDevOpsDailyViewerCreateOptions {
 
 function Get-AzDevOpsDailyViewerCreatePriority {
     # Clamp a form-supplied priority to the ADO 1-4 range, falling back to the
-    # midpoint default when it's absent or out of range — the create funcs'
+    # stock High (2) default when it's absent or out of range — the create funcs'
     # "default when unset" posture, without a prompt.
     param([AllowNull()] $Value)
 
@@ -1923,7 +1923,7 @@ function Get-AzDevOpsDailyViewerDraftPriority {
     # Parse a form-supplied priority to the ADO 1-4 range, or -1 when absent /
     # blank / out of range. Unlike the create form's coercer this keeps "unset" as
     # -1 (which lowers the drafted item's completeness) rather than defaulting to
-    # the midpoint — a drafted item is meant to be filled in later.
+    # the stock High (2) default — a drafted item is meant to be filled in later.
     param([AllowNull()] $Value)
 
     if ($null -eq $Value -or [string]$Value -eq '') {
