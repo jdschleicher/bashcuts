@@ -169,8 +169,10 @@ function New-UnplannedWorkStory {
     # caller that already knows the parent Feature and classification supplies them
     # so nothing prompts. -ParentFeatureId -1 (the default) runs the interactive
     # Read-UnplannedParentFeature pick; 0 means "parentless, don't prompt"; any
-    # positive id links to that Feature. Empty -Area / -Iteration fall back to the
-    # per-type / env resolution Resolve-AzDevOpsIterationArea already does.
+    # positive id links to that Feature. Empty -Area falls back to the per-type /
+    # env resolution Resolve-AzDevOpsIterationArea already does; empty -Iteration
+    # shows the sprint picker with that resolution pre-marked as the default
+    # (once per day - later firefights reuse the cached story).
     param(
         [Parameter(Mandatory)] [string] $Title,
         [object] $Progress,
@@ -338,24 +340,58 @@ function Get-UnplannedWorkDailyStory {
 }
 
 
+function Get-UnplannedStoryIteration {
+    # The daily story's sprint, read live so the firefight Task lands wherever the
+    # user picked (or later moved) the story. Falls back to $env:AZ_ITERATION
+    # when the lookup fails or the field is empty.
+    param([Parameter(Mandatory)] [int] $StoryId)
+
+    $iterationRefName = 'System.IterationPath'
+
+    $result = Get-AzDevOpsWorkItem -Id $StoryId -Fields @($iterationRefName)
+    if ($result.ExitCode -ne 0) {
+        Write-Host "Could not read story #$StoryId's sprint - using `$env:AZ_ITERATION." -ForegroundColor Yellow
+        return $env:AZ_ITERATION
+    }
+
+    try {
+        $story = $result.Json | ConvertFrom-Json
+    }
+    catch {
+        return $env:AZ_ITERATION
+    }
+
+    $iteration = Get-AzDevOpsWorkItemFieldValue -Fields $story.fields -RefName $iterationRefName
+    if (-not $iteration) {
+        return $env:AZ_ITERATION
+    }
+
+    $iterationPath = [string]$iteration
+    return $iterationPath
+}
+
+
 function New-UnplannedWorkTask {
     # Creates the firefight Task and links it to the daily story as a child.
     # Tasks carry no priority / story-points / acceptance-criteria in the stock
     # templates, so this goes straight through New-AzDevOpsWorkItem rather than
-    # Invoke-AzDevOpsWorkItemCreate (which always stamps those fields). Returns
-    # the new Task id, or 0 on create failure; a link failure is surfaced but
-    # still returns the id so the session can proceed.
+    # Invoke-AzDevOpsWorkItemCreate (which always stamps those fields). The Task
+    # inherits the story's sprint (Get-UnplannedStoryIteration). Returns the new
+    # Task id, or 0 on create failure; a link failure is surfaced but still
+    # returns the id so the session can proceed.
     param(
         [Parameter(Mandatory)] [string] $Title,
         [Parameter(Mandatory)] [int]    $StoryId
     )
+
+    $iteration = Get-UnplannedStoryIteration -StoryId $StoryId
 
     $created = New-AzDevOpsWorkItem `
         -Type       'Task' `
         -Title      $Title `
         -AssignedTo $env:AZ_USER_EMAIL `
         -Area       $env:AZ_AREA `
-        -Iteration  $env:AZ_ITERATION
+        -Iteration  $iteration
 
     if ($created.ExitCode -ne 0) {
         Write-Host "Failed to create the firefight Task: $($created.Error)" -ForegroundColor Red
