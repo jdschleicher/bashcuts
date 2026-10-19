@@ -1731,10 +1731,10 @@ var CREATE_TYPE_SPECS = {
 };
 
 var PRIORITY_OPTIONS = [
-  { value: "1", label: "P1 — highest" },
-  { value: "2", label: "P2" },
-  { value: "3", label: "P3" },
-  { value: "4", label: "P4 — lowest" }
+  { value: "1", label: "P1 — super-high" },
+  { value: "2", label: "P2 — high" },
+  { value: "3", label: "P3 — medium" },
+  { value: "4", label: "P4 — low" }
 ];
 var CREATE_DEFAULT_PRIORITY = "2";
 

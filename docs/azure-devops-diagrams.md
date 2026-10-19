@@ -96,7 +96,7 @@ flowchart LR
     end
 
     subgraph AzCLI["Azure CLI"]
-        AzBoards["az boards query / work-item create / work-item update / relation add"]
+        AzBoards["az boards query / work-item create / work-item show / work-item update / relation add"]
         AzExt["az extension (azure-devops)"]
         AzAcct["az account show / az login"]
     end
@@ -311,6 +311,8 @@ flowchart TD
     Datasets -.descriptors.-> Datasets5
 ```
 
+`az-Sync-AzDevOpsAll [-Team <name>]` wraps this orchestrator for a full manual refresh: it runs the auth gate once (the memo lets the inner gates short-circuit), calls `az-Sync-AzDevOpsCache`, then `az-Sync-AzDevOpsTeam` (the @-mention roster, see section 12), and prints a summary read back from `last-sync.json` and the team cache. It compares the roster cache's last-write time before and after the team step, so a team step that aborts (for example on the `$env:AZ_USER_EMAIL` gate) shows as "not refreshed" rather than reporting the older roster as fresh. The team step still runs after a partial cache failure. The on-open background sync (section 11) stays cache-only because the team picker is interactive.
+
 Atomic write pattern (`Write-AzDevOpsCacheFile`): `Set-Content` to `<path>.tmp`, then `Move-Item -Force` over the real path — partial files never replace good cache.
 
 ---
@@ -445,7 +447,7 @@ flowchart TD
     TitleEmpty -- yes --> Abort4([abort])
     TitleEmpty -- no --> Iter
 
-    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration' -Default<br/>(per-type → project → $env:AZ_ITERATION pre-marked; Enter/Esc accepts)<br/>cache or Invoke-AzDevOpsClassificationLive<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
     Area -- no --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>→ Read-AzDevOpsGridPick (Out-ConsoleGridView)"]
@@ -508,7 +510,7 @@ flowchart TD
     Title -- no --> ReadTitle["Read-AzDevOpsTitle<br/>(caps at 255, warns near limit, offers truncate)"]
     Title -- yes --> Iter{Iteration param?}
     ReadTitle --> Iter
-    Iter -- no --> PickIter[Read-AzDevOpsKindPick -Kind 'Iteration']
+    Iter -- no --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration' -Default<br/>(resolved default pre-marked)"]
     Iter -- yes --> Area{Area param?}
     PickIter --> Area
     Area -- no --> PickArea[Read-AzDevOpsKindPick -Kind 'Area']
@@ -563,7 +565,7 @@ flowchart TD
     Hier -- null --> Abort3([abort: cache missing])
     Hier -- ok --> Validate[Test-AzDevOpsParentIsFeature]
     Validate -- not-found / not-Feature --> Abort4([abort: clear message])
-    Validate -- ok --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration'<br/>(skipped if -Iteration param)"]
+    Validate -- ok --> PickIter["Read-AzDevOpsKindPick -Kind 'Iteration' -Default<br/>(resolved default pre-marked; skipped if -Iteration param)"]
     PickIter --> PickArea["Read-AzDevOpsKindPick -Kind 'Area'<br/>(skipped if -Area param)"]
     PickArea --> Loop
 
@@ -719,12 +721,12 @@ flowchart TD
     CacheCheck -- hit --> HaveStory[daily story id]
     CacheCheck -- miss --> Find["Find-UnplannedWorkStoryId<br/>WIQL by title (+ AZ_AREA)<br/>→ Invoke-AzDevOpsBoardsQuery"]
     Find -- found --> SaveStory["Save-UnplannedCachedStoryId"]
-    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>Read-UnplannedParentFeature (pick parent Feature,<br/>orphan-safe) → Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)<br/>→ Invoke-AzDevOpsParentLink"]
+    Find -- 0 --> NewStory["New-UnplannedWorkStory<br/>Read-UnplannedParentFeature (pick parent Feature,<br/>orphan-safe) → sprint picker (default pre-marked)<br/>→ Invoke-AzDevOpsWorkItemCreate<br/>→ az boards work-item create (User Story)<br/>→ Invoke-AzDevOpsParentLink"]
     NewStory --> SaveStory
     SaveStory --> HaveStory
 
     HaveStory -- story id 0 --> Fallback["Show-UnplannedCapturedItemsFallback<br/>(print items, don't lose them)"]
-    HaveStory -- ok --> Task["New-UnplannedWorkTask<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
+    HaveStory -- ok --> Task["New-UnplannedWorkTask<br/>→ Get-UnplannedStoryIteration (story's sprint via Get-AzDevOpsWorkItem<br/>→ az boards work-item show; falls back to $env:AZ_ITERATION)<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
     Task -- create failed --> Fallback
     Fallback --> Done
     Task -- ok --> Debrief[Invoke-UnplannedDebrief]
@@ -774,6 +776,10 @@ graph LR
     Connect(["az-Connect-AzDevOps"]):::pub
     TestAuth(["az-Test-AzDevOpsAuth"]):::pub
     Sync(["az-Sync-AzDevOpsCache"]):::pub
+    SyncAll(["az-Sync-AzDevOpsAll"]):::pub
+    SyncAllSummary[Write-AzDevOpsSyncAllSummary]:::priv
+    ErroredDS[Get-AzDevOpsErroredDatasets]:::priv
+    FileWriteTime[Get-AzDevOpsFileWriteTime]:::priv
     Status(["az-Get-AzDevOpsCacheStatus"]):::pub
     BgSync["Start-AzDevOpsBackgroundSync"]:::priv
     GetA(["az-Get-AzDevOpsAssigned"]):::pub
@@ -822,6 +828,7 @@ graph LR
     UWParentFeat[Read-UnplannedParentFeature]:::priv
     UWProgress[New-WpfProgressWindow]:::priv
     NewUWTask[New-UnplannedWorkTask]:::priv
+    UWStoryIter[Get-UnplannedStoryIteration]:::priv
     UWFallback[Show-UnplannedCapturedItemsFallback]:::priv
     InvUWDebrief[Invoke-UnplannedDebrief]:::priv
     InvUWDebriefWpf[Invoke-UnplannedDebriefWpf]:::priv
@@ -925,6 +932,8 @@ graph LR
     AddRel[Add-AzDevOpsWorkItemRelation]:::priv
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
     SetField[Set-AzDevOpsWorkItemField]:::priv
+    GetWorkItem[Get-AzDevOpsWorkItem]:::priv
+    WIFieldVal[Get-AzDevOpsWorkItemFieldValue]:::priv
     AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
     Identity[Get-AzDevOpsIdentity]:::priv
@@ -1178,6 +1187,13 @@ graph LR
 
     AuthAbort --> TestAuth
     Sync --> AuthAbort
+    SyncAll --> AuthAbort
+    SyncAll --> Sync
+    SyncAll --> SyncUWTeam
+    SyncAll --> FileWriteTime
+    SyncAll --> SyncAllSummary
+    SyncAllSummary --> ErroredDS
+    Status --> ErroredDS
     Sync --> InitDir --> Paths
     InitDir --> MkDir
     Sync --> LogFn --> Paths
@@ -1221,6 +1237,7 @@ graph LR
     ClassList --> AzJson
     AddDisc --> AzJson
     SetField --> AzJson
+    GetWorkItem --> AzJson
     NewWI --> AssertTok
     SetField --> AssertTok
     WITypeDef --> AzJson
@@ -1551,11 +1568,14 @@ graph LR
     GetDaily --> NewUWStory --> InvCreate
     NewUWStory --> UWParentFeat --> PFeat
     NewUWStory --> InvLink
+    NewUWStory --> ResIA
     GetDaily --> UWSaveCachedStory
     UWSaveCachedStory --> UWStoryCachePath
     UWSaveCachedStory --> UWJsonSave
     UWStoryCachePath --> UWCachePath
     StartUW --> NewUWTask
+    NewUWTask --> UWStoryIter --> GetWorkItem
+    UWStoryIter --> WIFieldVal
     NewUWTask --> NewWI
     NewUWTask --> InvLink
     StartUW --> UWFallback
