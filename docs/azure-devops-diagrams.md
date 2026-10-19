@@ -96,7 +96,7 @@ flowchart LR
     end
 
     subgraph AzCLI["Azure CLI"]
-        AzBoards["az boards query / work-item create / work-item update / relation add"]
+        AzBoards["az boards query / work-item create / work-item show / work-item update / relation add"]
         AzExt["az extension (azure-devops)"]
         AzAcct["az account show / az login"]
     end
@@ -726,7 +726,7 @@ flowchart TD
     SaveStory --> HaveStory
 
     HaveStory -- story id 0 --> Fallback["Show-UnplannedCapturedItemsFallback<br/>(print items, don't lose them)"]
-    HaveStory -- ok --> Task["New-UnplannedWorkTask<br/>→ Get-UnplannedStoryIteration (story's sprint via Get-AzDevOpsWorkItem)<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
+    HaveStory -- ok --> Task["New-UnplannedWorkTask<br/>→ Get-UnplannedStoryIteration (story's sprint via Get-AzDevOpsWorkItem<br/>→ az boards work-item show; falls back to $env:AZ_ITERATION)<br/>→ New-AzDevOpsWorkItem (Task)<br/>→ Invoke-AzDevOpsParentLink"]
     Task -- create failed --> Fallback
     Fallback --> Done
     Task -- ok --> Debrief[Invoke-UnplannedDebrief]
@@ -933,6 +933,7 @@ graph LR
     AddDisc[Add-AzDevOpsDiscussionComment]:::priv
     SetField[Set-AzDevOpsWorkItemField]:::priv
     GetWorkItem[Get-AzDevOpsWorkItem]:::priv
+    WIFieldVal[Get-AzDevOpsWorkItemFieldValue]:::priv
     AssertTok[Assert-AzDevOpsFieldTokens]:::priv
     WITypeDef[Get-AzDevOpsWorkItemTypeDefinition]:::priv
     Identity[Get-AzDevOpsIdentity]:::priv
@@ -1574,6 +1575,7 @@ graph LR
     UWStoryCachePath --> UWCachePath
     StartUW --> NewUWTask
     NewUWTask --> UWStoryIter --> GetWorkItem
+    UWStoryIter --> WIFieldVal
     NewUWTask --> NewWI
     NewUWTask --> InvLink
     StartUW --> UWFallback

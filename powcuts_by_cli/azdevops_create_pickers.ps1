@@ -686,28 +686,27 @@ function Read-AzDevOpsKindPick {
         'AZ_AREA'
     }
 
-    $envFallback = if ($Kind -eq 'Iteration') {
+    $fallback = if ($Default) {
+        $Default
+    }
+    elseif ($Kind -eq 'Iteration') {
         $env:AZ_ITERATION
     }
     else {
         $env:AZ_AREA
     }
 
-    if ($Default) {
-        $envFallback = $Default
-    }
-
     $paths = Get-AzDevOpsClassificationPaths -Kind $Kind
     if ($paths.Count -eq 0) {
-        if (-not $envFallback) {
-            Write-Host "(no ${Kind}s available and `$env:$envName is unset)" -ForegroundColor Red
+        if (-not $fallback) {
+            Write-Host "(no ${Kind}s available and no default - `$env:$envName is unset)" -ForegroundColor Red
             return $null
         }
-        Write-Host "(no ${Kind}s available - falling back to default '$envFallback')" -ForegroundColor Yellow
-        return $envFallback
+        Write-Host "(no ${Kind}s available - falling back to default '$fallback')" -ForegroundColor Yellow
+        return $fallback
     }
 
-    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $envFallback
+    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $fallback
     return $picked
 }
 

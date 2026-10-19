@@ -342,32 +342,34 @@ function Get-UnplannedWorkDailyStory {
 
 function Get-UnplannedStoryIteration {
     # The daily story's sprint, read live so the firefight Task lands wherever the
-    # user picked (or later moved) the story. Falls back to $env:AZ_ITERATION
-    # when the lookup fails or the field is empty.
+    # user picked (or later moved) the story. When the lookup fails or the field
+    # is empty, warns and falls back to the TASK default (per-type -> project ->
+    # $env:AZ_ITERATION via Resolve-AzDevOpsTypeIteration).
     param([Parameter(Mandatory)] [int] $StoryId)
 
     $iterationRefName = 'System.IterationPath'
 
+    $iteration = $null
     $result = Get-AzDevOpsWorkItem -Id $StoryId -Fields @($iterationRefName)
-    if ($result.ExitCode -ne 0) {
-        Write-Host "Could not read story #$StoryId's sprint - using `$env:AZ_ITERATION." -ForegroundColor Yellow
-        return $env:AZ_ITERATION
+    if ($result.ExitCode -eq 0) {
+        try {
+            $story     = $result.Json | ConvertFrom-Json
+            $iteration = Get-AzDevOpsWorkItemFieldValue -Fields $story.fields -RefName $iterationRefName
+        }
+        catch {
+            $iteration = $null
+        }
     }
 
-    try {
-        $story = $result.Json | ConvertFrom-Json
-    }
-    catch {
-        return $env:AZ_ITERATION
+    if ($iteration) {
+        $iterationPath = [string]$iteration
+        return $iterationPath
     }
 
-    $iteration = Get-AzDevOpsWorkItemFieldValue -Fields $story.fields -RefName $iterationRefName
-    if (-not $iteration) {
-        return $env:AZ_ITERATION
-    }
+    $fallbackIteration = Resolve-AzDevOpsTypeIteration -Type 'TASK'
+    Write-Host "Could not read story #$StoryId's sprint - using default '$fallbackIteration'." -ForegroundColor Yellow
 
-    $iterationPath = [string]$iteration
-    return $iterationPath
+    return $fallbackIteration
 }
 
 
