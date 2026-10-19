@@ -107,7 +107,7 @@ az-create-userstory() {
     echo What is the description? 
     read DESCRIPTION  
     echo What is the priority? 
-    read -p "1=LOW,2=MEDIUM,3=HIGH: " PRIORITY
+    read -p "1=SUPER-HIGH,2=HIGH,3=MEDIUM,4=LOW: " PRIORITY
     echo What is the story point amount? 
     read STORY_POINTS
     echo What is the Acceptance Criteria?

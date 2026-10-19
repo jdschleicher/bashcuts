@@ -57,7 +57,7 @@ function Read-AzDevOpsPriority {
     }
 
     while ($true) {
-        $resp = Read-Host "Priority? 1=LOW, 2=MEDIUM, 3=HIGH, 4=SUPER-HIGH$hint"
+        $resp = Read-Host "Priority? 1=SUPER-HIGH, 2=HIGH, 3=MEDIUM, 4=LOW$hint"
         if (-not $resp -and $hasPrevious) {
             return $Previous
         }

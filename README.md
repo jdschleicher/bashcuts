@@ -751,7 +751,7 @@ az-Show-AzDevOpsDraft                                                           
 
 A create that fails is reported and its descendants are skipped (their parent never got an id); everything else still publishes. On a clean run the draft is cleared; on a partial run the published items are removed and the leftovers stay in the draft — with any child of a now-published parent rewritten to point at the real Azure id — so a re-run only creates what's left. Pass `-KeepDraft` to leave the draft in place regardless. `az-Clear-AzDevOpsDraft` discards the whole thing.
 
-Items published without a priority set default to Azure's stock **Medium (2)**; a User Story's completeness score also expects story points and acceptance criteria, so the tree flags exactly what's still blank before you commit.
+Items published without a priority set default to Azure's stock **High (2)** (Azure DevOps priority runs 1 = super-high … 4 = low); a User Story's completeness score also expects story points and acceptance criteria, so the tree flags exactly what's still blank before you commit.
 
 > **PowerShell-only.** Like the rest of the `az-New-AzDevOps*` create surface, draft mode lives in `powcuts_by_cli/azdevops_draft.ps1`; `.az_bashcuts` has only `az boards query` aliases and no structured create flow to hook into.
 
