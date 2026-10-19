@@ -1076,6 +1076,11 @@ graph LR
     ToWIPath[ConvertTo-AzDevOpsWorkItemPath]:::priv
     ToCPaths[ConvertTo-AzDevOpsClassificationPaths]:::priv
     GetCPaths[Get-AzDevOpsClassificationPaths]:::priv
+    ResCTree[Resolve-AzDevOpsClassificationTree]:::priv
+    IterPick[Get-AzDevOpsIterationPickRows]:::priv
+    ToIterPick[ConvertTo-AzDevOpsIterationPickRows]:::priv
+    IterState[Get-AzDevOpsIterationState]:::priv
+    IterSortKey[Get-AzDevOpsIterationSortKey]:::priv
     Pri[Read-AzDevOpsPriority]:::priv
     Pts[Read-AzDevOpsStoryPoints]:::priv
     AC[Read-AzDevOpsAcceptanceCriteria]:::priv
@@ -1389,6 +1394,7 @@ graph LR
     %% Current-iteration bracket test extracted into SelIterRow (shared by
     %% the live-capable Resolve and the cache-only Resolve...FromCache)
     SprintCur --> SelIterRow
+    SelIterRow --> IterState
 
     %% Outlook day-view section — cache-only today-slice registered into
     %% ol-Show-OutlookDay (no live az fetch, no auth prompt)
@@ -1464,7 +1470,7 @@ graph LR
     FindIter --> GridAvail
     FindIter -.no grid.-> GridUnavail
     FindIter --> ReadRows
-    FindIter --> DispRows
+    FindIter --> ToIterPick
     FindIter --> GridPick
 
     %% Interactive picker for projects (azdevops_projects.ps1)
@@ -1504,11 +1510,21 @@ graph LR
     NewS --> ResIA
     NewS --> CrLink
 
-    %% Classification-pick fan-out (consumed by ResIA via Read-AzDevOpsKindPick)
-    PKind --> ReadCls
-    PKind --> InvCls --> ClassList
+    %% Classification-pick fan-out (consumed by ResIA via Read-AzDevOpsKindPick).
+    %% Areas -> sorted path list; Iterations -> project-root "no sprint" row +
+    %% State column, sorted open -> closed. Both share the memoized tree resolver.
+    ResCTree --> ReadCls
+    ResCTree -.cache miss.-> InvCls --> ClassList
     ReadCls --> Paths
-    PKind --> GetCPaths --> ToCPaths --> ToWIPath
+    PKind -- Area --> GetCPaths --> ResCTree
+    GetCPaths --> ToCPaths --> ToWIPath
+    PKind -- Iteration --> IterPick --> ResCTree
+    IterPick --> ClsRows
+    IterPick --> ToIterPick
+    ToIterPick --> IterState
+    ToIterPick --> IterSortKey
+    ToIterPick --> FmtDate
+    PKind --> PCls
     PFeat --> PCls
     PFeat --> GridPick
     PCls --> GridPick
