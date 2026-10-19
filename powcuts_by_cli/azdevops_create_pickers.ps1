@@ -602,20 +602,38 @@ function Read-AzDevOpsClassificationPick {
     # is available, renders a Path / IsDefault grid; Cancel returns the
     # supplied default (typically $env:AZ_ITERATION / $env:AZ_AREA).
     # Otherwise falls back to the Read-Host numbered menu where empty
-    # input selects the default.
+    # input selects the default. Pass -Paths (areas) OR -IterationRows (from
+    # Get-AzDevOpsIterationPickRows, already sorted open -> closed); iteration
+    # rows add State / StartDate / FinishDate grid columns and a [State]
+    # marker per numbered line.
     param(
         [Parameter(Mandatory)] [ValidateSet('Iteration', 'Area')] [string] $Kind,
-        [Parameter(Mandatory)] [string[]] $Paths,
-        [string] $Default
+        [string[]] $Paths,
+        [string] $Default,
+        [object[]] $IterationRows
     )
 
-    if (Test-AzDevOpsGridAvailable) {
-        $gridRows = $Paths | ForEach-Object {
-            [PSCustomObject]@{
-                Path      = $_
-                IsDefault = ($Default -and $_ -eq $Default)
-            }
+    $hasIterationRows = $null -ne $IterationRows -and $IterationRows.Count -gt 0
+
+    # One row source for both renderers, so the grid and the numbered menu
+    # can never disagree on order: iteration rows carry their own columns,
+    # plain paths become Path-only rows.
+    $choiceRows = @(
+        if ($hasIterationRows) {
+            $IterationRows
         }
+        else {
+            $Paths | ForEach-Object { [PSCustomObject]@{ Path = $_ } }
+        }
+    )
+    $choicePaths = @($choiceRows | ForEach-Object { [string]$_.Path })
+
+    if (Test-AzDevOpsGridAvailable) {
+        $isDefaultColumn = @{
+            Name       = 'IsDefault'
+            Expression = { [bool]($Default -and $_.Path -eq $Default) }
+        }
+        $gridRows = $choiceRows | Select-Object -Property *, $isDefaultColumn
 
         $title = if ($Default) {
             "Pick $Kind (Esc = use default '$Default')"
@@ -636,14 +654,22 @@ function Read-AzDevOpsClassificationPick {
 
     Write-Host ""
     Write-Host "Available ${Kind}s:" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $Paths.Count; $i++) {
-        $marker = if ($Default -and $Paths[$i] -eq $Default) {
+    for ($i = 0; $i -lt $choicePaths.Count; $i++) {
+        $stateMarker = if ($hasIterationRows) {
+            "  [$($choiceRows[$i].State)]"
+        }
+        else {
+            ''
+        }
+
+        $marker = if ($Default -and $choicePaths[$i] -eq $Default) {
             ' (default)'
         }
         else {
             ''
         }
-        Write-Host ("  {0}. {1}{2}" -f ($i + 1), $Paths[$i], $marker)
+
+        Write-Host ("  {0}. {1}{2}{3}" -f ($i + 1), $choicePaths[$i], $stateMarker, $marker)
     }
 
     $defaultPrompt = if ($Default) {
@@ -665,12 +691,12 @@ function Read-AzDevOpsClassificationPick {
             continue
         }
 
-        if ($idx -ge 1 -and $idx -le $Paths.Count) {
-            $pickedPath = $Paths[$idx - 1]
+        if ($idx -ge 1 -and $idx -le $choicePaths.Count) {
+            $pickedPath = $choicePaths[$idx - 1]
             return $pickedPath
         }
 
-        Write-Host "  Please enter 1..$($Paths.Count)." -ForegroundColor Yellow
+        Write-Host "  Please enter 1..$($choicePaths.Count)." -ForegroundColor Yellow
     }
 }
 
@@ -678,8 +704,10 @@ function Read-AzDevOpsClassificationPick {
 function Read-AzDevOpsKindPick {
     # Single iteration / area picker shared by both kinds. Reads the
     # cache (or falls back to live `az`), then either renders the numbered
-    # menu or - if no paths are available - returns the default. -Default is
-    # the pre-marked choice (Enter / Esc accepts it); when omitted it falls back
+    # menu or - if no paths are available - returns the default. Iterations
+    # come from Get-AzDevOpsIterationPickRows (project-root "no sprint" row +
+    # State column, open -> closed); areas keep the plain sorted path list.
+    # -Default is the pre-marked choice (Enter / Esc accepts it); when omitted it falls back
     # to the matching $env:AZ_*. Returns $null if both the cache and the
     # default are empty; callers must guard for that and abort cleanly.
     param(
@@ -704,8 +732,18 @@ function Read-AzDevOpsKindPick {
         $env:AZ_AREA
     }
 
-    $paths = Get-AzDevOpsClassificationPaths -Kind $Kind
-    if ($paths.Count -eq 0) {
+    $iterationRows = @()
+    $paths = @()
+    if ($Kind -eq 'Iteration') {
+        $iterationRows = @(Get-AzDevOpsIterationPickRows)
+        $choiceCount = $iterationRows.Count
+    }
+    else {
+        $paths = @(Get-AzDevOpsClassificationPaths -Kind $Kind)
+        $choiceCount = $paths.Count
+    }
+
+    if ($choiceCount -eq 0) {
         if (-not $fallback) {
             Write-Host "(no ${Kind}s available and no default - `$env:$envName is unset)" -ForegroundColor Red
             return $null
@@ -714,7 +752,7 @@ function Read-AzDevOpsKindPick {
         return $fallback
     }
 
-    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $fallback
+    $picked = Read-AzDevOpsClassificationPick -Kind $Kind -Paths $paths -Default $fallback -IterationRows $iterationRows
     return $picked
 }
 

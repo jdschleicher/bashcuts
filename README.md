@@ -452,7 +452,7 @@ az-Find-AzDevOpsItem login                    # flat fuzzy search across ALL cac
 az-Find-AzDevOpsItem                          # no query arg -> prompts for one (blank lists everything); use the grid's own filter box to narrow
 az-Find-AzDevOpsItem api -Type Feature -IncludeClosed  # scope the fuzzy match to a work-item type and include Closed/Removed
 az-Find-AzDevOpsArea                          # pick an area path from the tree; emits the picked Path on the pipeline
-az-Find-AzDevOpsIteration                     # pick an iteration; grid shows StartDate / FinishDate columns; emits Path
+az-Find-AzDevOpsIteration                     # pick an iteration; grid shows State / StartDate / FinishDate, open sprints first; emits Path
 az-Find-AzDevOpsProject                       # pick from $global:AzDevOpsProjectMap (Active / Name / Project / Org)
 az-Find-AzDevOpsProject -Use                  # ... and switch to it (calls az-Use-AzDevOpsProject on the pick)
 ```
@@ -508,7 +508,7 @@ Tab-tab on `az-Get-`, `az-Show-`, or `az-Find-` to discover commands. The matrix
 
 ### Creating a new User Story
 
-`az-New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers an interactive picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. The sprint picker always shows, with your default (per-type override → project map → `$env:AZ_ITERATION`) pre-selected — Enter / Esc accepts it; pass `-Iteration '<path>'` to skip the prompt. The picker uses `Out-ConsoleGridView` when available, otherwise a Read-Host numbered menu (see "Day-to-day work-item shortcuts" above for the fallback rules). After it creates the story it links the chosen parent and opens the new work item in your browser.
+`az-New-AzDevOpsUserStory` walks you through title / description / priority / story points / acceptance criteria, then offers an interactive picker for the parent Feature (active Features pulled from `hierarchy.json`), the iteration, and the area path. The sprint picker always shows, with your default (per-type override → project map → `$env:AZ_ITERATION`) pre-selected — Enter / Esc accepts it; pass `-Iteration '<path>'` to skip the prompt. Each sprint shows its **State** (`Current` / `Future` / `Unscheduled` / `Past`, derived from the cached start/finish dates) and the list is ordered open → closed; the top row, **No sprint (project root)**, files the item at the bare project iteration (the backlog, no sprint). The picker uses `Out-ConsoleGridView` when available, otherwise a Read-Host numbered menu (see "Day-to-day work-item shortcuts" above for the fallback rules). After it creates the story it links the chosen parent and opens the new work item in your browser.
 
 ```powershell
 az-New-AzDevOpsUserStory                       # full interactive walk-through

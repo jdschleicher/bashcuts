@@ -1842,6 +1842,8 @@ function Select-AzDevOpsCurrentIterationRow {
     # today <= FinishDate - the same date-range test `az boards iteration team
     # list --timeframe current` applies (Azure DevOps stores no "is current"
     # flag; "current" is always derived from the sprint's start/finish dates).
+    # The bracket test itself lives in Get-AzDevOpsIterationState
+    # (azdevops_classification.ps1) so the sprint picker's State column agrees.
     # Returns $null when the rows are empty or no dated iteration brackets today
     # (e.g. a gap between sprints). Shared by the live-capable
     # Resolve-AzDevOpsCurrentIteration and the cache-only
@@ -1855,8 +1857,8 @@ function Select-AzDevOpsCurrentIterationRow {
     $today = (Get-Date).Date
 
     $match = $Rows | Where-Object {
-        $_.StartDate -and $_.FinishDate -and
-        $_.StartDate.Date -le $today -and $today -le $_.FinishDate.Date
+        $state = Get-AzDevOpsIterationState -StartDate $_.StartDate -FinishDate $_.FinishDate -Today $today
+        $state -eq $script:AzDevOpsIterationStateCurrent
     } | Select-Object -First 1
 
     return $match
