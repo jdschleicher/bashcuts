@@ -594,5 +594,14 @@ function New-WpfProgressWindow {
         }.GetNewClosure()
     }
 
+
+
+
     return $controller
+}
+
+function pow-show-all-profiles {
+
+    $PROFILE | Format-List -Force
+
 }
