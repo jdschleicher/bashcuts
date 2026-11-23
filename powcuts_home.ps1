@@ -184,6 +184,29 @@ if ($daily_viewer -ne $NULL) {
     Write-Host "no daily_viewer.ps1"
 }
 
+# Azure Resource Viewer data layer. Loaded after the azdevops_*.ps1 files: it
+# reuses their generic az wrapper (Invoke-AzDevOpsAzJson) and cache writer.
+$azresources_paths = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_paths.ps1"
+if ($azresources_paths -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_paths.ps1"
+} else {
+    Write-Host "no azresources_paths.ps1"
+}
+
+$azresources_fetchers = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_fetchers.ps1"
+if ($azresources_fetchers -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_fetchers.ps1"
+} else {
+    Write-Host "no azresources_fetchers.ps1"
+}
+
+$azresources_sync = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_sync.ps1"
+if ($azresources_sync -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_sync.ps1"
+} else {
+    Write-Host "no azresources_sync.ps1"
+}
+
 # On shell open: silently refresh the Azure DevOps cache in the background when
 # it's stale. Invoked here (after every azdevops_*.ps1 file is dot-sourced) so
 # Get-AzDevOpsActiveProjectSlug is defined and the staleness check targets the
