@@ -19,7 +19,9 @@ var HTTP_NOT_FOUND = 404;
 
 // The refresh POST must carry a JSON content type: the server rejects anything
 // else, which is what keeps a cross-site simple-request from triggering it.
-var JSON_HEADERS = { "Accept": "application/json", "Content-Type": "application/json" };
+var JSON_TYPE = "application/json";
+var ACCEPT_JSON = { "Accept": JSON_TYPE };
+var JSON_HEADERS = { "Accept": JSON_TYPE, "Content-Type": JSON_TYPE };
 var EMPTY_JSON_BODY = "{}";
 
 // Portal links are built server-side from fixed constants, but the cache is a
@@ -29,6 +31,8 @@ var PORTAL_ORIGIN = "https://portal.azure.com";
 
 var STATE_NOT_PERMITTED = "notPermitted";
 var SELF_PRINCIPAL = "me";
+var RELATIONSHIP_OWNER = "owner";
+var TILE_DETAILS = ".tile > details";
 var SCOPE_ROOT = "/";
 var META_SEP = " · ";
 var ROLE_SCOPE_SEP = " @ ";
@@ -54,7 +58,22 @@ var RELATIONSHIP_LABELS = { member: "Member", owner: "Owner" };
 var APP_KIND_LABELS = { appRegistration: "App registration", servicePrincipal: "Service principal" };
 var IDENTITY_TYPE_LABELS = { userAssigned: "User-assigned", systemAssigned: "System-assigned" };
 
+var LABEL_DIRECT = "Direct";
+var LABEL_VIA_GROUP = "Via group";
+var LABEL_REFRESHING = "refreshing…";
+var LABEL_REFRESH_FAILED = "refresh failed";
+var LABEL_OFFLINE = "server offline";
+var LABEL_NO_CACHE = "no cache yet";
+var LABEL_UNREADABLE = "unreadable cache";
+var SYNCED_ONLINE = "Local cache";
+var SYNCED_OFFLINE = "Server offline";
+
+// setStaleLabel modes — each maps to one .stale modifier class (ok = none).
+var STALE_MODES = ["warn", "none", "busy"];
+
 var NOMATCH_TEXT = "No matching rows in this tile.";
+var UNREADABLE_NOTE = "This tile's cache file couldn't be read — refresh it, or run az-Sync-AzResources.";
+var EMPTY_RESPONSE = "the server returned an empty response";
 var MISSING_NOTE = "No cache yet — refresh this tile, or run az-Sync-AzResources in PowerShell.";
 var OFFLINE_NOTE = "The viewer server isn't reachable — start it with az-Start-AzResourceViewer.";
 var NOT_PERMITTED_FALLBACK = "Your account isn't permitted to read this in the current tenant.";
@@ -200,7 +219,7 @@ function roleRow(r) {
 
   var head = el("div", { "class": "row-head" }, [
     el("span", { "class": "row-title" }, [portalLink(r.roleName, r.portalUrl)]),
-    chip(isMine ? "Direct" : "Via group", isMine),
+    chip(isMine ? LABEL_DIRECT : LABEL_VIA_GROUP, isMine),
     chip(labelFor(SCOPE_TYPE_LABELS, r.scopeType))
   ]);
 
@@ -214,7 +233,7 @@ function roleRow(r) {
 }
 
 function groupRow(g) {
-  var isOwner = g.relationship === "owner";
+  var isOwner = g.relationship === RELATIONSHIP_OWNER;
 
   var head = el("div", { "class": "row-head" }, [
     el("span", { "class": "row-title" }, [portalLink(g.displayName, g.portalUrl)]),
@@ -258,11 +277,14 @@ function identityRow(i) {
 
   var meta = el("div", { "class": "row-meta", text: joinMeta([i.resourceGroup, i.subscriptionName]) });
 
-  var roleItems = roles.length
-    ? roles.map(function (role) {
-        return el("li", { text: role.roleName + ROLE_SCOPE_SEP + scopeName(role.scope) });
-      })
-    : [el("li", { text: "No role assignments" })];
+  var roleItems;
+  if (roles.length) {
+    roleItems = roles.map(function (role) {
+      return el("li", { text: role.roleName + ROLE_SCOPE_SEP + scopeName(role.scope) });
+    });
+  } else {
+    roleItems = [el("li", { text: "No role assignments" })];
+  }
 
   var roleList = el("ul", { "class": "role-list", "aria-label": "Roles held" }, roleItems);
 
@@ -283,7 +305,8 @@ var TILE_KEYS = Object.keys(TILES);
 // Render — the view is a function of tileState[key]
 // ---------------------------------------------------------------------------
 
-// tileState[key] = { model: <payload> } | { missing: true } | { offline: true }
+// tileState[key] = { model: <payload> } | { missing: true } | { offline: true },
+// plus refreshError: <server reason> while the last refresh of that tile failed.
 var tileState = {};
 
 function tile(key) {
@@ -297,11 +320,13 @@ function setStat(key, text) {
   }
 }
 
-function setStaleLabel(key, text, isWarn, isNone) {
+function setStaleLabel(key, text, mode) {
   var stale = tile(key).querySelector(".stale");
-  stale.classList.remove("busy");
-  stale.classList.toggle("warn", !!isWarn);
-  stale.classList.toggle("none", !!isNone);
+
+  STALE_MODES.forEach(function (m) {
+    stale.classList.toggle(m, m === mode);
+  });
+
   stale.querySelector(".stale-label").textContent = text;
 }
 
@@ -319,23 +344,38 @@ function renderTile(key) {
   body.replaceChildren();
   count.textContent = "";
 
+  if (state.refreshError) {
+    renderNote(body, "Refresh failed: " + state.refreshError, "notice");
+  }
+
   if (state.offline) {
     renderNote(body, OFFLINE_NOTE);
     setStat(key, MISSING_STAT);
-    setStaleLabel(key, "server offline", true, false);
+    setStaleLabel(key, LABEL_OFFLINE, "warn");
     return;
   }
 
-  if (state.missing || !state.model || !state.model.items) {
+  if (state.missing || !state.model) {
     renderNote(body, MISSING_NOTE);
     setStat(key, MISSING_STAT);
-    setStaleLabel(key, "no cache yet", false, true);
+    setStaleLabel(key, LABEL_NO_CACHE, "none");
+    return;
+  }
+
+  if (!state.model.items) {
+    renderNote(body, UNREADABLE_NOTE);
+    setStat(key, MISSING_STAT);
+    setStaleLabel(key, LABEL_UNREADABLE, "warn");
     return;
   }
 
   var model = state.model;
   var items = model.items;
-  setStaleLabel(key, "cached " + formatAge(model.ageSeconds), model.stale, false);
+  setStaleLabel(key, "cached " + formatAge(model.ageSeconds), model.stale ? "warn" : "ok");
+
+  if (state.refreshError) {
+    setStaleLabel(key, LABEL_REFRESH_FAILED, "warn");
+  }
 
   if (items.state === STATE_NOT_PERMITTED) {
     renderNote(body, items.message || NOT_PERMITTED_FALLBACK, "notice");
@@ -361,6 +401,14 @@ function renderTile(key) {
 }
 
 
+// Re-render one tile and re-apply the active filter, so a refresh (successful
+// or not) never silently drops the user's search.
+function repaintTile(key) {
+  renderTile(key);
+  applyFilter(searchBox.value);
+}
+
+
 // ---------------------------------------------------------------------------
 // Data layer — cheap GET on load, expensive POST /refresh on demand
 // ---------------------------------------------------------------------------
@@ -374,7 +422,7 @@ function request(url, options) {
 }
 
 function loadTile(key) {
-  return request(API + key, { headers: { "Accept": "application/json" } })
+  return request(API + key, { headers: ACCEPT_JSON })
     .then(function (res) {
       if (res.ok) {
         tileState[key] = { model: res.data };
@@ -393,7 +441,7 @@ function loadTile(key) {
 }
 
 function loadContext() {
-  return request(CONTEXT_API, { headers: { "Accept": "application/json" } })
+  return request(CONTEXT_API, { headers: ACCEPT_JSON })
     .then(function (res) {
       if (res.ok && res.data && res.data.tenantId) {
         document.getElementById("tenant-id").textContent = "tenant " + res.data.tenantId;
@@ -419,48 +467,66 @@ function announce(message) {
   }
 }
 
-function refreshTile(btn) {
+// Refresh one tile. Resolves to { name, ok, reason } so "Refresh all" can
+// announce one summary; a single refresh announces its own outcome. A failure
+// keeps the previous rows and shows the server's reason in the tile itself, not
+// only to screen readers.
+function refreshTile(btn, quiet) {
   var key = btn.getAttribute("data-tile");
   if (btn.disabled || !TILES[key]) {
-    return Promise.resolve();
+    return Promise.resolve(null);
   }
 
   var name = TILES[key].name;
-  var stale = tile(key).querySelector(".stale");
 
   btn.disabled = true;
   btn.classList.add("spinning");
-  stale.classList.remove("warn");
-  stale.classList.add("busy");
-  stale.querySelector(".stale-label").textContent = "refreshing…";
-  announce("Refreshing " + name + "…");
+  setStaleLabel(key, LABEL_REFRESHING, "busy");
+
+  if (!quiet) {
+    announce("Refreshing " + name + "…");
+  }
+
+  // Repaint BEFORE announcing: the repaint re-applies the filter, which
+  // announces its own match count and would otherwise overwrite the outcome.
+  function settle(ok, reason) {
+    if (!ok) {
+      tileState[key] = Object.assign({}, tileState[key], { refreshError: reason });
+    }
+
+    repaintTile(key);
+    btn.classList.remove("spinning");
+    btn.disabled = false;
+
+    if (ok) {
+      announceIf(quiet, "Refreshed " + name + " — cached just now.");
+    } else {
+      announceIf(quiet, "Couldn't refresh " + name + ": " + reason);
+    }
+
+    return { name: name, ok: ok, reason: reason };
+  }
 
   return request(API + key + REFRESH_SUFFIX, { method: "POST", headers: JSON_HEADERS, body: EMPTY_JSON_BODY })
     .then(function (res) {
-      if (res.ok) {
+      if (res.ok && res.data) {
         tileState[key] = { model: res.data };
-        renderTile(key);
-        applyFilter(searchBox.value);
-        announce("Refreshed " + name + " — cached just now.");
-        return;
+        return settle(true, "");
       }
 
-      renderTile(key);
-      applyFilter(searchBox.value);
-
-      var reason = res.data && res.data.error ? res.data.error : "HTTP " + res.status;
-      announce("Couldn't refresh " + name + ": " + reason);
-      setStaleLabel(key, "refresh failed", true, false);
+      var reason = res.ok ? EMPTY_RESPONSE : (res.data && res.data.error ? res.data.error : "HTTP " + res.status);
+      return settle(false, reason);
     })
     .catch(function () {
-      renderTile(key);
-      announce("Couldn't refresh " + name + ": the viewer server isn't reachable.");
-      setStaleLabel(key, "refresh failed", true, false);
-    })
-    .then(function () {
-      btn.classList.remove("spinning");
-      btn.disabled = false;
+      setSyncedOffline(true);
+      return settle(false, OFFLINE_NOTE);
     });
+}
+
+function announceIf(quiet, message) {
+  if (!quiet) {
+    announce(message);
+  }
 }
 
 document.querySelectorAll(".refresh-btn").forEach(function (btn) {
@@ -472,17 +538,46 @@ document.querySelectorAll(".refresh-btn").forEach(function (btn) {
   });
 });
 
+// Refresh every tile, then announce ONE summary — four overlapping
+// announcements would overwrite each other in the single live region.
 document.getElementById("refreshAll").addEventListener("click", function () {
-  document.querySelectorAll(".refresh-btn").forEach(refreshTile);
+  var buttons = Array.prototype.slice.call(document.querySelectorAll(".refresh-btn"));
+
+  announce("Refreshing all tiles…");
+
+  Promise.all(buttons.map(function (btn) { return refreshTile(btn, true); })).then(function (results) {
+    var ran = results.filter(function (r) { return r !== null; });
+    var failed = ran.filter(function (r) { return !r.ok; });
+
+    if (!failed.length) {
+      announce("Refreshed all " + ran.length + " tiles.");
+      return;
+    }
+
+    var names = failed.map(function (r) { return r.name; }).join(", ");
+    announce("Refreshed " + (ran.length - failed.length) + " of " + ran.length + " tiles. Failed: " + names + ".");
+  });
 });
 
+function setAllTilesOpen(open) {
+  document.querySelectorAll(TILE_DETAILS).forEach(function (d) { d.open = open; });
+}
+
 document.getElementById("expandAll").addEventListener("click", function () {
-  document.querySelectorAll(".tile > details").forEach(function (d) { d.open = true; });
+  setAllTilesOpen(true);
 });
 
 document.getElementById("collapseAll").addEventListener("click", function () {
-  document.querySelectorAll(".tile > details").forEach(function (d) { d.open = false; });
+  setAllTilesOpen(false);
 });
+
+// The "Local cache" chip doubles as the connection indicator.
+var syncedChip = document.querySelector(".synced");
+
+function setSyncedOffline(offline) {
+  syncedChip.classList.toggle("offline", offline);
+  syncedChip.lastChild.textContent = offline ? SYNCED_OFFLINE : SYNCED_ONLINE;
+}
 
 var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -536,7 +631,7 @@ function applyFilter(raw) {
   var matchTotal = 0;
 
   if (q) {
-    document.querySelectorAll(".tile > details").forEach(function (d) { d.open = true; });
+    setAllTilesOpen(true);
   }
 
   document.querySelectorAll(".tile").forEach(function (t) {
@@ -581,6 +676,7 @@ loadContext();
 Promise.all(TILE_KEYS.map(loadTile)).then(function () {
   var offline = TILE_KEYS.some(function (key) { return tileState[key] && tileState[key].offline; });
   if (offline) {
+    setSyncedOffline(true);
     announce("The viewer server isn't reachable.");
   }
 });

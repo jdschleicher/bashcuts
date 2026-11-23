@@ -51,26 +51,56 @@ $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCou
 # Cache read + status line (shared by every view)
 # ---------------------------------------------------------------------------
 
+function Get-AzResourcesLocalAccount {
+    # { TenantId, UserName } az is logged into, read from the local az profile
+    # (no network), or $null when az is missing or signed out.
+    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
+    # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw.
+    $raw = $null
+    try {
+        $raw = az account show --output json 2>$null
+    }
+    catch {
+        $raw = $null
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $raw) {
+        return $null
+    }
+
+    $account = $null
+    try {
+        $account = ($raw -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    if (-not $account.tenantId) {
+        return $null
+    }
+
+    $localAccount = [PSCustomObject]@{
+        TenantId = ([string]$account.tenantId).Trim()
+        UserName = [string]$account.user.name
+    }
+
+    return $localAccount
+}
+
+
 function Get-AzResourcesViewTenantId {
-    # The tenant az is logged into, read from the local az profile (no network);
-    # else the most recently synced tenant folder; else ''.
+    # The tenant az is logged into; else the most recently synced tenant
+    # folder; else ''.
     $tenantId = ''
 
-    if (Get-Command az -ErrorAction SilentlyContinue) {
-        # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
-        # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw
-        # instead of falling through to the cache-folder fallback.
-        $azTenant = $null
-        try {
-            $azTenant = az account show --query tenantId --output tsv 2>$null
-        }
-        catch {
-            $azTenant = $null
-        }
-
-        if ($LASTEXITCODE -eq 0 -and $azTenant) {
-            $tenantId = ([string]$azTenant).Trim()
-        }
+    $localAccount = Get-AzResourcesLocalAccount
+    if ($null -ne $localAccount) {
+        $tenantId = $localAccount.TenantId
     }
 
     if (-not $tenantId) {
@@ -88,6 +118,21 @@ function Get-AzResourcesViewTenantId {
     }
 
     return $tenantId
+}
+
+
+function Read-AzResourcesTileModel {
+    # One tile's cache model ({ tile, writtenAt, ageSeconds, stale, items }) for
+    # -TenantId, or $null when the file doesn't exist. Shared by the terminal
+    # views and the Resource Viewer server.
+    param(
+        [Parameter(Mandatory)] [string] $TenantId,
+        [Parameter(Mandatory)] [string] $Tile
+    )
+
+    $path = Get-AzResourcesTilePath -TenantId $TenantId -Tile $Tile
+    $model = Read-LocalViewerTileCache -Path $path -Tile $Tile -StaleSeconds $script:AzResourcesViewStaleSeconds
+    return $model
 }
 
 
@@ -117,13 +162,10 @@ function Write-AzResourcesViewMissing {
 }
 
 
-function Get-AzResourcesViewTilePath {
-    # Path of -Tile's cache file for the current tenant, or '' (after printing
-    # the missing-cache hint) when there's no tenant or its id isn't a GUID.
-    param(
-        [Parameter(Mandatory)] [string] $Tile,
-        [Parameter(Mandatory)] [string] $Title
-    )
+function Get-AzResourcesViewTenant {
+    # The tenant id to read, GUID-validated, or '' (after printing the
+    # missing-cache hint) when there's no tenant or its id isn't a GUID.
+    param([Parameter(Mandatory)] [string] $Title)
 
     $tenantId = Get-AzResourcesViewTenantId
     if (-not $tenantId) {
@@ -131,15 +173,15 @@ function Get-AzResourcesViewTilePath {
         return ''
     }
 
-    $path = ''
     try {
-        $path = Get-AzResourcesTilePath -TenantId $tenantId -Tile $Tile
+        $null = Get-AzResourcesCacheDir -TenantId $tenantId
     }
     catch {
         Write-AzResourcesViewMissing -Title $Title -TenantId $tenantId
+        return ''
     }
 
-    return $path
+    return $tenantId
 }
 
 
@@ -182,12 +224,12 @@ function Read-AzResourcesViewTile {
         [Parameter(Mandatory)] [string] $Title
     )
 
-    $path = Get-AzResourcesViewTilePath -Tile $Tile -Title $Title
-    if (-not $path) {
+    $tenantId = Get-AzResourcesViewTenant -Title $Title
+    if (-not $tenantId) {
         return
     }
 
-    $model = Read-LocalViewerTileCache -Path $path -Tile $Tile -StaleSeconds $script:AzResourcesViewStaleSeconds
+    $model = Read-AzResourcesTileModel -TenantId $tenantId -Tile $Tile
     if ($null -eq $model) {
         Write-AzResourcesViewMissing -Title $Title
         return

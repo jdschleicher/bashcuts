@@ -12,8 +12,8 @@
   --text: #1B2430;
   --text-dim: #5A6675;
   --text-faint: #626C79;
-  --accent: #0E6FCE;
-  --accent-weak: rgba(14,111,206,.10);
+  --accent: #0B63B8;           /* darker than daily-viewer's #0E6FCE: keeps accent text >= 4.5:1 on the light surfaces */
+  --accent-weak: rgba(11,99,184,.10);
 
   --epic:    #C77700;
   --feature: #7B49D6;
@@ -130,8 +130,8 @@
   --text: #1B2430;
   --text-dim: #5A6675;
   --text-faint: #626C79;
-  --accent: #0E6FCE;
-  --accent-weak: rgba(14,111,206,.10);
+  --accent: #0B63B8;
+  --accent-weak: rgba(11,99,184,.10);
 
   --epic:    #C77700;
   --feature: #7B49D6;
@@ -249,6 +249,10 @@ input:focus-visible {
   width: 0.5rem; height: 0.5rem; border-radius: 50%;
   background: var(--good);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+}
+.synced.offline .dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
 }
 .btn {
   font-family: inherit;
@@ -470,7 +474,6 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
-.row-meta .k { color: var(--text-faint); }
 .mono { font-family: var(--mono); font-size: var(--fs-sm); }
 
 .chip {
@@ -521,8 +524,10 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   padding: var(--space-4) var(--space-5);
   font-size: var(--fs-md);
   color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--warn);
   background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
   border-radius: var(--radius-sm);
 }
 .nomatch { display: none; }

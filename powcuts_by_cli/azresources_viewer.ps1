@@ -31,10 +31,13 @@ $script:AzResourcesViewerDisplayName  = 'Azure Resource Viewer'
 $script:AzResourcesViewerTilesPrefix  = '/api/tiles/'
 $script:AzResourcesViewerContextPath  = '/api/context'
 $script:AzResourcesViewerRefreshVerb  = 'refresh'
+$script:AzResourcesViewerRefreshSegments = 2     # /api/tiles/<name>/refresh
 
 # The az account context the refresh path needs (tenant + my object id). Resolved
 # on the first refresh — not at startup — so opening the dashboard never waits
-# on a directory lookup, and cleared when it no longer matches the served tenant.
+# on a directory lookup. Only the object-id lookup is memoized: every refresh
+# re-reads the live az account (local, no network) and drops this when the
+# tenant or signed-in user changed underneath the running server.
 $script:AzResourcesViewerAccountContext = $null
 
 
@@ -85,11 +88,11 @@ function Get-AzResourcesViewerTileRoute {
     param([Parameter(Mandatory)] [string] $Path)
 
     $segments = Split-LocalViewerApiPath -Path $Path -Prefix $script:AzResourcesViewerTilesPrefix
-    if ($null -eq $segments -or $segments.Count -gt 2) {
+    if ($null -eq $segments -or $segments.Count -gt $script:AzResourcesViewerRefreshSegments) {
         return $null
     }
 
-    $isRefresh = ($segments.Count -eq 2)
+    $isRefresh = ($segments.Count -eq $script:AzResourcesViewerRefreshSegments)
     if ($isRefresh -and $segments[1] -ne $script:AzResourcesViewerRefreshVerb) {
         return $null
     }
@@ -104,14 +107,24 @@ function Get-AzResourcesViewerTileRoute {
 
 
 function Get-AzResourcesViewerRefreshContext {
-    # The az account context for a refresh, memoized for the server's lifetime.
-    # Returns $null when az isn't logged in, or is now logged into a different
-    # tenant than the one this server is showing (refreshing would write the
-    # other tenant's cache, not the page's).
+    # The az account context for a refresh, or $null when az isn't logged in or
+    # is now logged into a different tenant than the one this server shows
+    # (refreshing would write the other tenant's data into this tenant's cache).
+    # The live account is re-read on EVERY call — only the slow object-id
+    # lookup is reused, and only while the tenant and user are unchanged.
     param([Parameter(Mandatory)] [string] $TenantId)
 
+    $live = Get-AzResourcesLocalAccount
+
+    if ($null -eq $live -or $live.TenantId -ne $TenantId) {
+        $script:AzResourcesViewerAccountContext = $null
+        return $null
+    }
+
     $cached = $script:AzResourcesViewerAccountContext
-    if ($null -ne $cached -and $cached.TenantId -eq $TenantId) {
+    $isCacheValid = ($null -ne $cached) -and ($cached.TenantId -eq $live.TenantId) -and ($cached.UserName -eq $live.UserName)
+
+    if ($isCacheValid) {
         return $cached
     }
 
@@ -160,8 +173,12 @@ function Invoke-AzResourcesViewerRefresh {
         return
     }
 
-    $path = Get-AzResourcesTilePath -TenantId $TenantId -Tile $Tile
-    $model = Read-LocalViewerTileCache -Path $path -Tile $Tile -StaleSeconds $script:AzResourcesViewStaleSeconds
+    $model = Read-AzResourcesTileModel -TenantId $TenantId -Tile $Tile
+    if ($null -eq $model) {
+        Write-AzResourcesViewerError -Response $Response -StatusCode 500 -Message 'Refresh ran, but the tile cache could not be read back.'
+        return
+    }
+
     Write-AzResourcesViewerJson -Response $Response -StatusCode 200 -Object $model
 }
 
@@ -188,8 +205,8 @@ function Invoke-AzResourcesViewerTileRequest {
             return
         }
 
-        if (-not (Test-LocalViewerJsonContentType -Request $request)) {
-            Write-AzResourcesViewerError -Response $response -StatusCode 415 -Message 'Refresh requires Content-Type: application/json.'
+        if (-not (Test-LocalViewerStateChangeAllowed -Request $request)) {
+            Write-AzResourcesViewerError -Response $response -StatusCode 415 -Message 'Refresh requires a same-origin application/json request.'
             return
         }
 
@@ -202,8 +219,7 @@ function Invoke-AzResourcesViewerTileRequest {
         return
     }
 
-    $path = Get-AzResourcesTilePath -TenantId $TenantId -Tile $Route.Tile
-    $model = Read-LocalViewerTileCache -Path $path -Tile $Route.Tile -StaleSeconds $script:AzResourcesViewStaleSeconds
+    $model = Read-AzResourcesTileModel -TenantId $TenantId -Tile $Route.Tile
 
     if ($null -eq $model) {
         Write-AzResourcesViewerError -Response $response -StatusCode 404 -Message "Tile '$($Route.Tile)' has no cache yet. Run az-Sync-AzResources or refresh this tile."
@@ -229,6 +245,11 @@ function Invoke-AzResourcesViewerRequest {
         $path = $Context.Request.Url.AbsolutePath
 
         if ($path -eq $script:AzResourcesViewerContextPath) {
+            if ($Context.Request.HttpMethod -ne 'GET') {
+                Write-AzResourcesViewerError -Response $response -StatusCode 405 -Message 'Context is GET only.'
+                return
+            }
+
             $payload = [ordered]@{ tenantId = $State.TenantId }
             Write-AzResourcesViewerJson -Response $response -StatusCode 200 -Object $payload
             return
@@ -245,14 +266,9 @@ function Invoke-AzResourcesViewerRequest {
             -JsonDepth $script:AzResourcesJsonDepth
     }
     catch {
-        Write-Host "$($script:AzResourcesViewerDisplayName) request error: $($_.Exception.Message)" -ForegroundColor Red
-
-        try {
-            Write-AzResourcesViewerError -Response $response -StatusCode 500 -Message 'Internal server error.'
-        }
-        catch {
-            # response already closed / client gone — nothing more we can do
-        }
+        Write-LocalViewerUnhandledError -Response $response -DisplayName $script:AzResourcesViewerDisplayName `
+            -ErrorRecord $_ -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
+            -JsonDepth $script:AzResourcesJsonDepth
     }
 }
 
@@ -315,20 +331,6 @@ function az-Start-AzResourceViewer {
         Write-Host "No cache yet for tenant $tenantId - tiles will be empty until you run az-Sync-AzResources or refresh them." -ForegroundColor Yellow
     }
 
-    $listener = Start-LocalViewerListener -Port $Port
-    if ($null -eq $listener) {
-        return
-    }
-
-    $prefix = Get-LocalViewerPrefix -Port $Port
-    Write-Host "$($script:AzResourcesViewerDisplayName) serving at $prefix (Ctrl+C to stop)" -ForegroundColor Green
-    Write-Host "  tenant: $tenantId" -ForegroundColor DarkGray
-    Write-Host "  cache:  $cacheDir" -ForegroundColor DarkGray
-
-    if (-not $NoBrowser) {
-        Open-LocalViewerBrowser -Url $prefix
-    }
-
     $state = [PSCustomObject]@{
         TenantId   = $tenantId
         StaticRoot = $staticRoot
@@ -343,6 +345,7 @@ function az-Start-AzResourceViewer {
         Invoke-AzResourcesViewerRequest -Context $Context -State $HandlerState
     }
 
-    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler `
-        -DisplayName $script:AzResourcesViewerDisplayName -HandlerState $state
+    Start-LocalViewerServer -Port $Port -DisplayName $script:AzResourcesViewerDisplayName `
+        -RequestHandler $requestHandler -HandlerState $state `
+        -InfoLines @("tenant: $tenantId", "cache:  $cacheDir") -NoBrowser:$NoBrowser
 }

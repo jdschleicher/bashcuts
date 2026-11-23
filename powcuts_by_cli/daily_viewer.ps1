@@ -31,6 +31,7 @@
 # for the master docstring.
 
 $script:AzDevOpsDailyViewerDefaultPort     = 8770
+$script:AzDevOpsDailyViewerDisplayName     = 'Daily viewer'
 $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past which a tile reads "stale"
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
@@ -45,9 +46,6 @@ $script:AzDevOpsDailyViewerTimerMaxSeconds = 86400     # sanity cap on a client-
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
-# Strict Content-Security-Policy for the served app — the shared policy from
-# localhost_viewer.ps1 (see the rationale there).
-$script:AzDevOpsDailyViewerContentSecurityPolicy = $script:LocalViewerStrictContentSecurityPolicy
 
 $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
@@ -1067,7 +1065,7 @@ function Write-AzDevOpsDailyViewerJson {
     )
 
     Write-LocalViewerJson -Response $Response -StatusCode $StatusCode -Object $Object `
-        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
         -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
@@ -1080,7 +1078,7 @@ function Write-AzDevOpsDailyViewerError {
     )
 
     Write-LocalViewerError -Response $Response -StatusCode $StatusCode -Message $Message `
-        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
         -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
@@ -1161,8 +1159,8 @@ function Test-AzDevOpsDailyViewerActionMethod {
         return $false
     }
 
-    if ([string]$Request.ContentType -notlike '*application/json*') {
-        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require an application/json body."
+    if (-not (Test-LocalViewerStateChangeAllowed -Request $Request)) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require a same-origin application/json request."
         return $false
     }
 
@@ -2958,20 +2956,13 @@ function Invoke-AzDevOpsDailyViewerRequest {
         }
 
         Invoke-LocalViewerStaticRequest -Context $Context -StaticRoot $StaticRoot `
-            -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+            -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
             -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
     }
     catch {
-        # Keep the exception detail (which can name filesystem paths) server-side;
-        # hand the browser a generic message only.
-        Write-Host "Daily viewer request error: $($_.Exception.Message)" -ForegroundColor Red
-
-        try {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 500 -Message 'Internal server error.'
-        }
-        catch {
-            # response already closed / client gone — nothing more we can do
-        }
+        Write-LocalViewerUnhandledError -Response $response -DisplayName $script:AzDevOpsDailyViewerDisplayName `
+            -ErrorRecord $_ -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
+            -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
     }
 }
 
@@ -3034,19 +3025,6 @@ function az-Start-AzDevOpsDailyViewer {
         Initialize-AzDevOpsDailyViewerCache
     }
 
-    $listener = Start-LocalViewerListener -Port $Port
-    if ($null -eq $listener) {
-        return
-    }
-
-    $prefix = Get-LocalViewerPrefix -Port $Port
-    Write-Host "Daily viewer serving at $prefix (Ctrl+C to stop)" -ForegroundColor Green
-    Write-Host "  cache: $cacheDir" -ForegroundColor DarkGray
-
-    if (-not $NoBrowser) {
-        Open-LocalViewerBrowser -Url $prefix
-    }
-
     $requestHandler = {
         param(
             [System.Net.HttpListenerContext] $Context,
@@ -3056,6 +3034,7 @@ function az-Start-AzDevOpsDailyViewer {
         Invoke-AzDevOpsDailyViewerRequest -Context $Context -StaticRoot $HandlerStaticRoot
     }
 
-    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler `
-        -DisplayName 'Daily viewer' -HandlerState $staticRoot
+    Start-LocalViewerServer -Port $Port -DisplayName $script:AzDevOpsDailyViewerDisplayName `
+        -RequestHandler $requestHandler -HandlerState $staticRoot `
+        -InfoLines @("cache: $cacheDir") -NoBrowser:$NoBrowser
 }
