@@ -852,30 +852,6 @@ Any tile whose source is unavailable (not logged in to `az`, Outlook not reachab
 
 > On Windows, `HttpListener` may need a one-time URL reservation the first time you bind a port — if `az-Start-AzDevOpsDailyViewer` reports it could not bind, run the `netsh http add urlacl` line it prints (or just pick another `-Port`).
 
-### Azure resources cache (`az-Sync-AzResources`)
-
-`az-Sync-AzResources` (in `powcuts_by_cli/azresources_sync.ps1`) takes a snapshot of your Azure and Entra footprint from your existing `az login`. No new credentials are needed. It's the data layer for the upcoming Azure Resource Viewer (epic #265). Each tile goes into its own JSON file:
-
-| Tile | What it holds |
-|---|---|
-| `roles` | RBAC role assignments you hold, directly or through a group, in every enabled subscription in the tenant |
-| `groups` | Entra groups you're a member of (nested groups included) and groups you own |
-| `apps` | App registrations and service principals you own, with each secret's and certificate's start and end dates (never the secret value) |
-| `identities` | User- and system-assigned managed identities in subscriptions you can read, with the roles each holds |
-
-```powershell
-az login
-az-Sync-AzResources              # all four tiles
-az-Sync-AzResources -Tile groups # one tile (tab-completes roles / groups / apps / identities)
-```
-
-The cache is in `~/.bashcuts-az-resources-app/cache/<tenantId>/`, one `<tile>.json` per tile, with access limited to your user account on Linux and macOS. Tiles sync independently:
-- **Blocked by the tenant (403):** the tile is saved with a `notPermitted` state.
-- **Any other failure:** the previous file is kept.
-- **Not logged in:** you get a single `az login` message and nothing is written.
-
-The `groups` and `apps` tiles need a user sign-in. Under a service principal or managed identity they report `notPermitted`. Subscriptions come from az's local profile, so after you're given a new subscription, run `az login` again.
-
 <br>
 
 ***

@@ -177,34 +177,32 @@ if ($azdevops_help -ne $NULL) {
     Write-Host "no azdevops_help.ps1"
 }
 
+$localhost_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\localhost_viewer.ps1"
+if ($localhost_viewer -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\localhost_viewer.ps1"
+} else {
+    Write-Host "no localhost_viewer.ps1"
+}
+
+$azresources_data = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_data.ps1"
+if ($azresources_data -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_data.ps1"
+} else {
+    Write-Host "no azresources_data.ps1"
+}
+
+$azresources_views = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_views.ps1"
+if ($azresources_views -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_views.ps1"
+} else {
+    Write-Host "no azresources_views.ps1"
+}
+
 $daily_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
 if ($daily_viewer -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
 } else {
     Write-Host "no daily_viewer.ps1"
-}
-
-# Azure Resource Viewer data layer. Loaded after the azdevops_*.ps1 files: it
-# reuses their generic az wrapper (Invoke-AzDevOpsAzJson) and cache writer.
-$azresources_paths = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_paths.ps1"
-if ($azresources_paths -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\azresources_paths.ps1"
-} else {
-    Write-Host "no azresources_paths.ps1"
-}
-
-$azresources_fetchers = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_fetchers.ps1"
-if ($azresources_fetchers -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\azresources_fetchers.ps1"
-} else {
-    Write-Host "no azresources_fetchers.ps1"
-}
-
-$azresources_sync = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_sync.ps1"
-if ($azresources_sync -ne $NULL) {
- . "$path_to_bashcuts\powcuts_by_cli\azresources_sync.ps1"
-} else {
-    Write-Host "no azresources_sync.ps1"
 }
 
 # On shell open: silently refresh the Azure DevOps cache in the background when

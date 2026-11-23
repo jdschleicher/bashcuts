@@ -64,7 +64,7 @@ flowchart LR
         NewTask["az-New-Task"]
         ShowFeats["az-Show-Features"]
         Help["az-help"]
-        DailyViewer["daily-viewer backend<br/>(daily_viewer.ps1)<br/>per-tile live query"]
+        DailyViewer["daily-viewer backend<br/>(daily_viewer.ps1)<br/>per-tile live query<br/>served via localhost_viewer.ps1"]
     end
 
     subgraph PathOpeners["Path inspectors (az-Open-*)"]

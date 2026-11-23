@@ -23,7 +23,7 @@ In scope: `powcuts_by_cli/azresources_*.ps1`, `azure-viewer/`, `bashcuts_by_cli/
 
 If nothing is in scope, return `APPROVE — no Azure resource code in this diff`.
 
-Read each in-scope file in full, plus any helpers it calls (`Invoke-AzDevOpsAzJson` in `azdevops_db.ps1`, cache writers in `azdevops_paths.ps1`).
+Read each in-scope file in full, plus any helpers it calls (`Invoke-AzDevOpsAzJson` in `azdevops_db.ps1`, the tile-cache writer `Write-LocalViewerTileCache` in `localhost_viewer.ps1`).
 
 ---
 
@@ -100,7 +100,7 @@ ARM ids are case-insensitive and nest: `/`, `/providers/Microsoft.Management/man
 
 ## Check 8 — Cache Contract [LOW]
 
-The cache is keyed by tenant id (validated as a GUID before it becomes a path segment), one JSON file per tile, `{ tile, tenantId, writtenAt, state, message, warnings, items }`, written atomically (temp file + move). Records hold a **whitelist** of fields — never the raw `az` payload.
+The cache is keyed by tenant id (validated as a GUID before it becomes a path segment), one JSON file per tile under `~/.bashcuts-az-resources-app/cache/<tenantId>/`, in the shared localhost-viewer tile record `{ tile, writtenAt, items: { state, message, records[] } }` written via `Write-LocalViewerTileCache` (atomic temp file + move). The `az-Show-Az*` views (`azresources_views.ps1`) and the Resource Viewer read this exact shape — a change to it must update them too. Records hold a **whitelist** of fields — never the raw `az` payload.
 
 **Flag** as **[LOW]**: a raw payload persisted, a non-atomic write, or a field the front-end/terminal views will need (scope, subscription name, role name, portal URL) that's missing.
 

@@ -197,9 +197,10 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_openers.ps1            # az-Open-* file/folder openers
 │   ├── azdevops_projects.ps1           # Multi-project map + active-project switcher
 │   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
-│   ├── azresources_paths.ps1           # Azure Resource Viewer: tenant-keyed tile cache + portal deep links
-│   ├── azresources_fetchers.ps1        # Per-tile fetchers (roles / groups / apps / identities)
-│   ├── azresources_sync.ps1            # az-Sync-AzResources [-Tile <name>]
+│   ├── localhost_viewer.ps1            # Shared 127.0.0.1 viewer plumbing (listener, CSP headers, static assets, tile cache)
+│   ├── daily_viewer.ps1                # Daily viewer backend — tiles + routes on top of localhost_viewer.ps1
+│   ├── azresources_data.ps1            # Azure / Entra footprint fetchers + tenant-keyed tile cache, az-Sync-AzResources
+│   ├── azresources_views.ps1           # az-Show-Az{RoleAssignments,GroupMemberships,AppRegistrations,ManagedIdentities} cache views
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 ├── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
