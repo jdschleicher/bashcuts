@@ -122,7 +122,9 @@ function Get-AzResourcesViewerRefreshContext {
     }
 
     $cached = $script:AzResourcesViewerAccountContext
-    $isCacheValid = ($null -ne $cached) -and ($cached.TenantId -eq $live.TenantId) -and ($cached.UserName -eq $live.UserName)
+    # IdentityInfo too: every managed identity shares one placeholder UserName.
+    $isSameAccount = ($cached.UserName -eq $live.UserName) -and ($cached.IdentityInfo -eq $live.IdentityInfo)
+    $isCacheValid = ($null -ne $cached) -and ($cached.TenantId -eq $live.TenantId) -and $isSameAccount
 
     if ($isCacheValid) {
         return $cached
