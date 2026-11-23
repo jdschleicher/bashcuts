@@ -263,28 +263,11 @@ function Get-AzDevOpsDailyViewerActiveRows {
 
 function Get-AzDevOpsDailyViewerRelativeTime {
     # Compact "how long ago" label for the activity tile's note column
-    # (e.g. "2h ago"). Mirrors the front-end formatAge buckets so cached notes
-    # and freshly-refreshed ones read the same.
+    # (e.g. "2h ago"); the buckets live in the shared Get-LocalViewerRelativeTime.
     param([Parameter(Mandatory)] [datetime] $When)
 
-    $span = (Get-Date) - $When
-
-    if ($span.TotalMinutes -lt 1) {
-        return 'just now'
-    }
-
-    if ($span.TotalMinutes -lt 60) {
-        $mins = [int]$span.TotalMinutes
-        return "${mins}m ago"
-    }
-
-    if ($span.TotalHours -lt 24) {
-        $hours = [int]$span.TotalHours
-        return "${hours}h ago"
-    }
-
-    $days = [int]$span.TotalDays
-    return "${days}d ago"
+    $label = Get-LocalViewerRelativeTime -When $When
+    return $label
 }
 
 

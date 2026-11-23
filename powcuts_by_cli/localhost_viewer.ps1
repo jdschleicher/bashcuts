@@ -119,6 +119,33 @@ function Invoke-LocalViewerListenLoop {
 }
 
 
+function Get-LocalViewerRelativeTime {
+    # Compact "how long ago" label ("just now", "12m ago", "3h ago", "2d ago").
+    # Mirrors the front-end formatAge buckets so cached and freshly-refreshed
+    # values read the same in the browser and the terminal.
+    param([Parameter(Mandatory)] [datetime] $When)
+
+    $span = (Get-Date) - $When
+
+    if ($span.TotalMinutes -lt 1) {
+        return 'just now'
+    }
+
+    if ($span.TotalMinutes -lt 60) {
+        $mins = [int]$span.TotalMinutes
+        return "${mins}m ago"
+    }
+
+    if ($span.TotalHours -lt 24) {
+        $hours = [int]$span.TotalHours
+        return "${hours}h ago"
+    }
+
+    $days = [int]$span.TotalDays
+    return "${days}d ago"
+}
+
+
 function Open-LocalViewerBrowser {
     param([Parameter(Mandatory)] [string] $Url)
 

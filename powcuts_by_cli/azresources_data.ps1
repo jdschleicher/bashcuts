@@ -110,6 +110,14 @@ $script:AzResourcesPortalAppIdSegment    = '/appId/'
 # Cache layout
 # ---------------------------------------------------------------------------
 
+function Get-AzResourcesCacheRoot {
+    # Parent of every per-tenant cache folder.
+    $appRoot = Join-Path $HOME $script:AzResourcesAppDirName
+    $cacheRoot = Join-Path $appRoot $script:AzResourcesCacheSubdir
+    return $cacheRoot
+}
+
+
 function Get-AzResourcesCacheDir {
     # The tenant id becomes a path segment, so it must be a GUID — never a
     # value that could climb out of the cache root.
@@ -120,8 +128,7 @@ function Get-AzResourcesCacheDir {
         throw "Tenant id '$TenantId' is not a GUID."
     }
 
-    $appRoot = Join-Path $HOME $script:AzResourcesAppDirName
-    $cacheRoot = Join-Path $appRoot $script:AzResourcesCacheSubdir
+    $cacheRoot = Get-AzResourcesCacheRoot
     $dir = Join-Path $cacheRoot $parsedTenant.ToString()
     return $dir
 }
