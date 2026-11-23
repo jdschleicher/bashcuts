@@ -338,11 +338,13 @@ This repo defines its own Claude Code slash commands:
 | `/criteria-check` | Verifies issue acceptance criteria against the code |
 | `/docs-check` | Audits README + sourcing wire-up |
 | `/azdevops-diagrams-check` | When AzDO source files change, verifies `docs/azure-devops-diagrams.md` is in sync and proposes targeted mermaid edits |
-| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` + `senior-clean-code-engineer` + `senior-frontend-engineer` in parallel |
+| `/code-review` | Runs `senior-bash-engineer` + `senior-powershell-engineer` + `/security-review` + `senior-clean-code-engineer` + `senior-frontend-engineer` + `senior-azure-resources-engineer` + `senior-entra-identity-engineer` in parallel |
 | `/senior-bash-engineer` | Solo bash review (called by `/code-review`) |
 | `/senior-powershell-engineer` | Solo PowerShell review (called by `/code-review`) |
 | `/senior-clean-code-engineer` | Solo clean-code review — duplication, function shape, abstraction debt; enforces CLAUDE.md's extract-repeated-branches + breathing-room rules (called by `/code-review`) |
 | `/senior-frontend-engineer` | Solo front-end review — semantic HTML + a11y, CSS token/specificity/unit hygiene, data-driven rendering, untrusted-data escaping (XSS); owns the `daily-viewer/` web surface (called by `/code-review`) |
+| `/senior-azure-resources-engineer` | Solo Azure resources review — ARM / RBAC correctness, `az` flag + output-shape audit, subscription fan-out cost, Windows `az.cmd` argument safety, read-only guarantee; owns `azresources_*` / `azure-viewer/` (called by `/code-review`) |
+| `/senior-entra-identity-engineer` | Solo Entra ID (identity provider / authentication services) review — token + secret exposure, sign-in type coverage, Microsoft Graph correctness, app registration vs service principal semantics, credential metadata (called by `/code-review`) |
 | `/pr-body` | Builds / refreshes the PR body table of contents |
 | `/pr-flow` | Full pipeline: parse-checks → commit → push → PR → code-review → docs-check → criteria-check → azdevops-diagrams-check → pr-body |
 

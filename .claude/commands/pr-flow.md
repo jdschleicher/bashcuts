@@ -1,6 +1,6 @@
 ---
 name: pr-flow
-description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, quad code review (bash + PowerShell + security + clean-code), criteria check, docs check, pr-body ToC, per-PR mermaid diagram. One command to ship.
+description: Full PR pipeline for bashcuts — syntax checks, commit, push, create PR, septet code review (bash + PowerShell + security + clean-code + front-end + Azure resources + Entra ID), criteria check, docs check, pr-body ToC, per-PR mermaid diagram. One command to ship.
 ---
 
 You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortcuts repo). Run every check in the correct order, gate on failures, and produce a fully reviewed, documented PR.
@@ -11,7 +11,7 @@ You are the full PR pipeline orchestrator for bashcuts (bash + PowerShell shortc
 
 1. **Phase 1** — Pre-commit checks (bash syntax, PowerShell parse, shell parity, sourcing wire-up)
 2. **Phase 2** — Commit, push, create PR
-3. **Phase 3** — Quad code review (`/code-review` — bash + PowerShell + security + clean-code in parallel)
+3. **Phase 3** — Septet code review (`/code-review` — bash + PowerShell + security + clean-code + front-end + Azure resources + Entra ID in parallel)
 4. **Phase 4** — Docs check (`/docs-check`)
 5. **Phase 5** — Criteria check (`/criteria-check`)
 6. **Phase 5b** — AzDO diagrams check (`/azdevops-diagrams-check`) — runs only when Azure DevOps source files changed
@@ -147,17 +147,20 @@ If a PR already exists, note its number and URL and continue.
 
 ---
 
-## Phase 3 — Quad Code Review
+## Phase 3 — Septet Code Review
 
-Invoke `/code-review`. This launches four reviewers in parallel:
+Invoke `/code-review`. This launches seven reviewers in parallel:
 - 🐚 Senior Bash Engineer
 - 💠 Senior PowerShell Engineer
 - 🛡️ Senior Security Engineer (`/security-review`)
 - 🧼 Senior Clean-Code Engineer (`/senior-clean-code-engineer`) — duplication, function shape, abstraction debt; enforces CLAUDE.md's extract-repeated-branches + breathing-room rules
+- 🎨 Senior Front-End Engineer (`/senior-frontend-engineer`) — the `daily-viewer/` / `azure-viewer/` web surface
+- ☁️ Senior Azure Resources Engineer (`/senior-azure-resources-engineer`) — ARM / RBAC correctness, `az` invocation shape, fan-out cost, read-only guarantee
+- 🔐 Senior Entra ID Engineer (`/senior-entra-identity-engineer`) — token + secret exposure, sign-in coverage, Graph correctness, app reg vs SP semantics
 
-Each posts its own comment to the PR. Wait for all four to complete.
+Each posts its own comment to the PR. Wait for all seven to complete.
 
-**Gate:** If any reviewer returns `REQUEST CHANGES` on a CRITICAL finding, surface it to the user and ask whether to proceed or fix first. HIGH/MEDIUM findings are non-blocking but should be summarized. Clean-code HIGH findings (named CLAUDE.md violations like duplicated branches across 2+ functions) are blocking — fix before merging.
+**Gate:** If any reviewer returns `REQUEST CHANGES` on a CRITICAL finding, surface it to the user and ask whether to proceed or fix first. HIGH/MEDIUM findings are non-blocking but should be summarized. Clean-code HIGH findings (named CLAUDE.md violations like duplicated branches across 2+ functions) are blocking — fix before merging. Azure Resources / Entra ID CRITICAL findings (a mutating `az` verb in read-only code, a token or secret reaching a cache / log / response) are always blocking.
 
 ---
 
