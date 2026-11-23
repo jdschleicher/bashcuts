@@ -19,7 +19,9 @@
 # SECURITY: Get-LocalViewerPrefix always builds a 127.0.0.1 prefix and takes
 # only a port, so no caller can bind 0.0.0.0 / a public interface through it.
 #
-# Loaded by powcuts_home.ps1 BEFORE any viewer file that calls these helpers.
+# Depends on Test-WpfIsWindows from pow_common.ps1 (Open-LocalViewerBrowser).
+# Loaded by powcuts_home.ps1 after pow_common.ps1 and BEFORE any viewer file
+# that calls these helpers.
 
 $script:LocalViewerLoopbackAddress  = '127.0.0.1'
 $script:LocalViewerFallbackMimeType = 'application/octet-stream'
@@ -88,19 +90,22 @@ function Stop-LocalViewerListener {
 
 function Invoke-LocalViewerListenLoop {
     # Serve requests one at a time until the listener stops (Ctrl+C / disposal),
-    # handing each HttpListenerContext to -RequestHandler. The handler owns its
-    # own try/catch so one bad request never kills the loop; the finally here
-    # guarantees the listener is released however the loop exits.
+    # handing each HttpListenerContext plus -HandlerState to -RequestHandler.
+    # State travels explicitly as the handler's second argument rather than via
+    # dynamic scoping, so a local in this function can never shadow it. The
+    # handler owns its own try/catch so one bad request never kills the loop;
+    # the finally here guarantees the listener is released however it exits.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListener] $Listener,
         [Parameter(Mandatory)] [scriptblock] $RequestHandler,
-        [Parameter(Mandatory)] [string] $DisplayName
+        [Parameter(Mandatory)] [string] $DisplayName,
+        [AllowNull()] $HandlerState = $null
     )
 
     try {
         while ($Listener.IsListening) {
             $context = $Listener.GetContext()
-            & $RequestHandler $context
+            & $RequestHandler $context $HandlerState
         }
     }
     catch {

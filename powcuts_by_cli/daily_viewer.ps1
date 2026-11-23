@@ -3085,13 +3085,15 @@ function az-Start-AzDevOpsDailyViewer {
         Open-LocalViewerBrowser -Url $prefix
     }
 
-    # Invoked from inside Invoke-LocalViewerListenLoop, a child scope of this
-    # function, so $staticRoot resolves through PowerShell's dynamic scoping.
     $requestHandler = {
-        param([System.Net.HttpListenerContext] $Context)
+        param(
+            [System.Net.HttpListenerContext] $Context,
+            [string] $HandlerStaticRoot
+        )
 
-        Invoke-AzDevOpsDailyViewerRequest -Context $Context -StaticRoot $staticRoot
+        Invoke-AzDevOpsDailyViewerRequest -Context $Context -StaticRoot $HandlerStaticRoot
     }
 
-    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler -DisplayName 'Daily viewer'
+    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler `
+        -DisplayName 'Daily viewer' -HandlerState $staticRoot
 }
