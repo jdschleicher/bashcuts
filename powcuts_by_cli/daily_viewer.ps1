@@ -45,20 +45,9 @@ $script:AzDevOpsDailyViewerTimerMaxSeconds = 86400     # sanity cap on a client-
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
-# Strict Content-Security-Policy for the served app. The page loads styles.css +
-# app.js as external same-origin assets and fetches /api/tiles/* same-origin;
-# there are no inline handlers/styles, CDN scripts, or webfonts, so 'self' with
-# no 'unsafe-inline' loads clean. Inline <svg> in the markup uses presentation
-# attributes (fill/stroke), which CSP does not gate. base-uri/object/frame/form
-# are locked down so an injected <base>/<object>/framing can't reroute the page.
-$script:AzDevOpsDailyViewerContentSecurityPolicy = @(
-    "default-src 'self'"
-    "base-uri 'none'"
-    "object-src 'none'"
-    "frame-ancestors 'none'"
-    "form-action 'self'"
-    "img-src 'self' data:"
-) -join '; '
+# Strict Content-Security-Policy for the served app — the shared policy from
+# localhost_viewer.ps1 (see the rationale there).
+$script:AzDevOpsDailyViewerContentSecurityPolicy = $script:LocalViewerStrictContentSecurityPolicy
 
 $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"

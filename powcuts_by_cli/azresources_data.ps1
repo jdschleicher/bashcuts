@@ -1123,6 +1123,25 @@ function Invoke-AzResourcesTileFetch {
 }
 
 
+function Update-AzResourcesTile {
+    # EXPENSIVE: fetch one tile and rewrite its cache file. Throws on a hard
+    # failure (the previous cache file is left untouched). Shared by
+    # az-Sync-AzResources and the Resource Viewer's per-tile refresh.
+    param(
+        [Parameter(Mandatory)] [string] $Tile,
+        [Parameter(Mandatory)] [PSCustomObject] $Context,
+        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions
+    )
+
+    $tileResult = Invoke-AzResourcesTileFetch -Tile $Tile -Context $Context -Subscriptions $Subscriptions
+    $path = Get-AzResourcesTilePath -TenantId $Context.TenantId -Tile $Tile
+
+    Write-LocalViewerTileCache -Path $path -Tile $Tile -Items $tileResult -JsonDepth $script:AzResourcesJsonDepth
+
+    return $tileResult
+}
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -1195,10 +1214,7 @@ function az-Sync-AzResources {
 
     foreach ($name in $tiles) {
         try {
-            $tileResult = Invoke-AzResourcesTileFetch -Tile $name -Context $context -Subscriptions $subscriptions
-            $path = Get-AzResourcesTilePath -TenantId $context.TenantId -Tile $name
-
-            Write-LocalViewerTileCache -Path $path -Tile $name -Items $tileResult -JsonDepth $script:AzResourcesJsonDepth
+            $tileResult = Update-AzResourcesTile -Tile $name -Context $context -Subscriptions $subscriptions
 
             $color = if ($tileResult.state -eq $script:AzResourcesStateOk) {
                 'Green'

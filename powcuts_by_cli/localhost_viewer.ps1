@@ -27,6 +27,22 @@ $script:LocalViewerLoopbackAddress  = '127.0.0.1'
 $script:LocalViewerFallbackMimeType = 'application/octet-stream'
 $script:LocalViewerJsonContentType  = 'application/json; charset=utf-8'
 $script:LocalViewerIndexFile        = 'index.html'
+$script:LocalViewerJsonMediaPattern = '*application/json*'
+
+# Strict Content-Security-Policy shared by every viewer. Pages load styles.css +
+# app.js as same-origin assets and fetch /api/* same-origin; there are no inline
+# handlers/styles, CDN scripts, or webfonts, so 'self' with no 'unsafe-inline'
+# loads clean. Inline <svg> uses presentation attributes (fill/stroke), which CSP
+# does not gate. base-uri/object/frame/form are locked down so an injected
+# <base>/<object>/framing can't reroute the page.
+$script:LocalViewerStrictContentSecurityPolicy = @(
+    "default-src 'self'"
+    "base-uri 'none'"
+    "object-src 'none'"
+    "frame-ancestors 'none'"
+    "form-action 'self'"
+    "img-src 'self' data:"
+) -join '; '
 
 # Relative-age buckets — mirror formatAge in daily-viewer/app.js.
 $script:LocalViewerJustNowSeconds    = 45
@@ -348,6 +364,20 @@ function Write-LocalViewerError {
 # Request parsing
 # ---------------------------------------------------------------------------
 
+function Test-LocalViewerJsonContentType {
+    # Require a JSON content type on every state-changing request. Beyond
+    # correctness this blunts cross-site POSTs: a browser can't set
+    # application/json cross-origin without a preflight this loopback server
+    # never satisfies, so a simple-request forgery is rejected before it can
+    # reach a store or trigger an expensive refresh.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $contentType = [string]$Request.ContentType
+    $isJson = $contentType -like $script:LocalViewerJsonMediaPattern
+    return $isJson
+}
+
+
 function Read-LocalViewerRequestJson {
     # Parse a small JSON request body, bounded so a runaway/oversized POST can't
     # exhaust memory. Returns the parsed object, or $null when the body is too
@@ -365,12 +395,7 @@ function Read-LocalViewerRequestJson {
         return $null
     }
 
-    # Require a JSON content type. Beyond correctness this blunts cross-site POSTs:
-    # a browser can't set application/json cross-origin without a preflight this
-    # loopback server never satisfies, so a simple-request forgery can't reach the
-    # store — it lands here as a rejected body instead.
-    $contentType = [string]$Request.ContentType
-    if ($contentType -notlike '*application/json*') {
+    if (-not (Test-LocalViewerJsonContentType -Request $Request)) {
         return $null
     }
 
