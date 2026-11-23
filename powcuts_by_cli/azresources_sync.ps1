@@ -73,7 +73,13 @@ function Sync-AzResourcesTile {
         return $result.State
     }
 
-    $null = Write-AzResourcesTile -TenantId $Context.TenantId -Tile $Tile -Result $result
+    try {
+        Write-AzResourcesTile -TenantId $Context.TenantId -Tile $Tile -Result $result
+    }
+    catch {
+        Write-Host "  X  $Tile - cache write failed: $($_.Exception.Message)" -ForegroundColor Red
+        return $script:AzResourcesStateError
+    }
 
     if ($result.State -eq $script:AzResourcesStateNotPermitted) {
         Write-Host "  --  $Tile - not permitted: $($result.Message) (in $elapsed)" -ForegroundColor Yellow
@@ -106,6 +112,12 @@ function az-Sync-AzResources {
         return
     }
 
+    # -contains matched case-insensitively; use the canonical spelling so
+    # '-Tile Roles' still writes roles.json (a distinct file on Linux).
+    if ($Tile) {
+        $Tile = Get-AzResourcesTileNames | Where-Object { $_ -eq $Tile } | Select-Object -First 1
+    }
+
     $context = Get-AzResourcesContext -CommandName $commandName
 
     if (-not $context) {
@@ -118,7 +130,7 @@ function az-Sync-AzResources {
         Get-AzResourcesTileNames
     }
 
-    Write-Host "Tenant $($context.TenantId) - $($context.UserName) - $($context.Subscriptions.Count) subscription(s)" -ForegroundColor Cyan
+    Write-Host "Tenant $($context.TenantId) - $($context.UserName) ($($context.UserType)) - $($context.Subscriptions.Count) subscription(s)" -ForegroundColor Cyan
 
     $errored = 0
 

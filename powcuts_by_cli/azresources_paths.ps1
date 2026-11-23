@@ -21,7 +21,7 @@
 #
 # Loaded by powcuts_home.ps1 (after the azdevops_*.ps1 files, whose generic
 # Invoke-AzDevOpsAzJson / Write-AzDevOpsCacheFile / New-AzDevOpsDirectoryIfMissing
-# helpers this family reuses).
+# / Get-AzDevOpsPlatform helpers this family reuses).
 
 $script:AzResourcesTileRoles      = 'roles'
 $script:AzResourcesTileGroups     = 'groups'
@@ -35,7 +35,16 @@ $script:AzResourcesStateError        = 'error'
 $script:AzResourcesJsonDepth   = 10
 $script:AzResourcesGuidPattern = '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'
 
+$script:AzResourcesPosixPrivateDirMode = '700'   # owner-only: the cache maps who can do what in the tenant
+
+$script:AzResourcesScopeRoot            = 'root'
+$script:AzResourcesScopeManagementGroup = 'managementGroup'
+$script:AzResourcesScopeSubscription    = 'subscription'
+$script:AzResourcesScopeResourceGroup   = 'resourceGroup'
+$script:AzResourcesScopeResource        = 'resource'
+
 $script:AzResourcesPortalBase            = 'https://portal.azure.com'
+$script:AzResourcesManagementGroupBlade  = 'Microsoft_Azure_ManagementGroups/HierarchyBlade'
 $script:AzResourcesGroupBlade            = 'Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId'
 $script:AzResourcesAppRegistrationBlade  = 'Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId'
 $script:AzResourcesServicePrincipalBlade = 'Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Overview/objectId'
@@ -94,11 +103,44 @@ function Get-AzResourcesTilePath {
 }
 
 
+function Get-AzResourcesScopeType {
+    # Classify an ARM scope / resource id. -Regex matching is case-insensitive,
+    # matching ARM's own case-insensitive ids.
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Scope)
+
+    $scopeType = switch -Regex ($Scope) {
+        '^/$' {
+            $script:AzResourcesScopeRoot
+        }
+
+        '^/providers/Microsoft\.Management/managementGroups/[^/]+$' {
+            $script:AzResourcesScopeManagementGroup
+        }
+
+        '^/subscriptions/[^/]+$' {
+            $script:AzResourcesScopeSubscription
+        }
+
+        '^/subscriptions/[^/]+/resourceGroups/[^/]+$' {
+            $script:AzResourcesScopeResourceGroup
+        }
+
+        default {
+            $script:AzResourcesScopeResource
+        }
+    }
+
+    return $scopeType
+}
+
+
 function Get-AzResourcesPortalUrl {
     # The one deep-link builder every tile's records go through. -Id is the ARM
-    # resource id for 'Resource', the group object id for 'Group', the appId for
-    # 'AppRegistration', and the service principal object id for
-    # 'ServicePrincipal' (which also takes -AppId).
+    # scope / resource id for 'Resource', the group object id for 'Group', the
+    # appId for 'AppRegistration', and the service principal object id for
+    # 'ServicePrincipal' (which also takes -AppId). Root and management-group
+    # scopes have no /resource blade, so they open the management-group
+    # hierarchy instead.
     param(
         [Parameter(Mandatory)]
         [ValidateSet('Resource', 'Group', 'AppRegistration', 'ServicePrincipal')]
@@ -111,9 +153,21 @@ function Get-AzResourcesPortalUrl {
 
     $base = $script:AzResourcesPortalBase
 
+    $scopeType = if ($Kind -eq 'Resource') {
+        Get-AzResourcesScopeType -Scope $Id
+    } else {
+        ''
+    }
+
+    $isHierarchyScope = $scopeType -in @($script:AzResourcesScopeRoot, $script:AzResourcesScopeManagementGroup)
+
     $url = switch ($Kind) {
         'Resource' {
-            "$base/#@$TenantId/resource$Id"
+            if ($isHierarchyScope) {
+                "$base/#@$TenantId/view/$($script:AzResourcesManagementGroupBlade)"
+            } else {
+                "$base/#@$TenantId/resource$Id"
+            }
         }
 
         'Group' {
@@ -135,6 +189,7 @@ function Get-AzResourcesPortalUrl {
 
 function New-AzResourcesTileResult {
     # The shape every fetcher returns and Write-AzResourcesTile persists.
+    # ValidateSet needs literals: keep it in step with $script:AzResourcesState*.
     param(
         [Parameter(Mandatory)]
         [ValidateSet('ok', 'notPermitted', 'error')]
@@ -156,6 +211,22 @@ function New-AzResourcesTileResult {
 }
 
 
+function Initialize-AzResourcesCacheDir {
+    # Create the tenant cache dir. On Linux / macOS the app root is locked to
+    # the owner (like ~/.azure): the tiles map who can do what in the tenant.
+    param([Parameter(Mandatory)] [string] $TenantId)
+
+    $dir = Get-AzResourcesTenantCacheDir -TenantId $TenantId
+    New-AzDevOpsDirectoryIfMissing -Path $dir
+
+    if ((Get-AzDevOpsPlatform) -eq 'Posix') {
+        & chmod $script:AzResourcesPosixPrivateDirMode (Get-AzResourcesAppRoot) 2>$null
+    }
+
+    return $dir
+}
+
+
 function Write-AzResourcesTile {
     # Persist one tile's fetch result atomically. Only the normalized records the
     # fetchers built are written — never the raw az payload — so no access token
@@ -166,8 +237,8 @@ function Write-AzResourcesTile {
         [Parameter(Mandatory)] [PSCustomObject] $Result
     )
 
+    $null = Initialize-AzResourcesCacheDir -TenantId $TenantId
     $path = Get-AzResourcesTilePath -TenantId $TenantId -Tile $Tile
-    New-AzDevOpsDirectoryIfMissing -Path (Split-Path -Parent $path)
 
     $record = [ordered]@{
         tile      = $Tile
@@ -181,6 +252,4 @@ function Write-AzResourcesTile {
 
     $json = $record | ConvertTo-Json -Depth $script:AzResourcesJsonDepth
     Write-AzDevOpsCacheFile -Path $path -Content $json
-
-    return $path
 }
