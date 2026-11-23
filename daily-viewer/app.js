@@ -1288,7 +1288,13 @@ function refreshComposite(btn, composite) {
   beginRefreshSpinner(btn, stale, label, composite.name);
 
   var refreshes = composite.panels.map(function (panel) {
-    return fetchJson(API + panel.key + "/refresh", { method: "POST", headers: { "Accept": "application/json" } })
+    // JSON content type + body: the server only accepts a same-origin
+    // application/json refresh, which a cross-site page can't send preflight-free.
+    return fetchJson(API + panel.key + "/refresh", {
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: "{}"
+    })
       .then(function (data) {
         storePanelPayload(panel.key, data);
         return true;
