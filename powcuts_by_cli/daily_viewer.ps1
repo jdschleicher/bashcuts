@@ -2865,6 +2865,13 @@ function Invoke-AzDevOpsDailyViewerApiRequest {
             return
         }
 
+        # The re-query is expensive (az boards / Outlook) and rewrites the cache,
+        # so a cross-site simple-request must not be able to trigger it.
+        if (-not (Test-LocalViewerStateChangeAllowed -Request $request)) {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Refresh requires a same-origin application/json request.'
+            return
+        }
+
         $model = Write-AzDevOpsDailyViewerTile -Tile $Route.Tile
         Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $model
         return
