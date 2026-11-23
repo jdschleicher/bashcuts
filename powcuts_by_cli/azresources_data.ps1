@@ -163,18 +163,25 @@ function Test-AzResourcesGuid {
 }
 
 
-function Get-AzResourcesCacheDir {
+function Test-AzResourcesTenantId {
     # The tenant id becomes a path segment, so it must be a GUID — never a
     # value that could climb out of the cache root.
+    param([AllowNull()] [AllowEmptyString()] [string] $TenantId)
+
+    $isGuid = Test-AzResourcesGuid -Value $TenantId
+    return $isGuid
+}
+
+
+function Get-AzResourcesCacheDir {
     param([Parameter(Mandatory)] [string] $TenantId)
 
-    $parsedTenant = [guid]::Empty
-    if (-not [guid]::TryParse($TenantId, [ref]$parsedTenant)) {
+    if (-not (Test-AzResourcesTenantId -TenantId $TenantId)) {
         throw "Tenant id '$TenantId' is not a GUID."
     }
 
     $cacheRoot = Get-AzResourcesCacheRoot
-    $dir = Join-Path $cacheRoot $parsedTenant.ToString()
+    $dir = Join-Path $cacheRoot ([guid]$TenantId).ToString()
     return $dir
 }
 
@@ -469,26 +476,74 @@ function Get-AzResourcesSignedInObjectId {
 }
 
 
+function Get-AzResourcesLocalAccount {
+    # { TenantId, UserName, UserType, IdentityInfo } az is logged into, read
+    # from the local az profile (no network), or $null when az is missing or
+    # signed out. IdentityInfo is user.assignedIdentityInfo — '' except for a
+    # managed-identity login, whose user.name is a shared placeholder. The
+    # single `az account show` reader — the sync, the terminal views, and the
+    # viewer's per-refresh tenant check all go through it.
+    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
+    # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw.
+    $raw = $null
+    try {
+        $raw = az account show --output json 2>$null
+    }
+    catch {
+        $raw = $null
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $raw) {
+        return $null
+    }
+
+    $account = $null
+    try {
+        $account = ($raw -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    if (-not $account.tenantId) {
+        return $null
+    }
+
+    $localAccount = [PSCustomObject]@{
+        TenantId     = ([string]$account.tenantId).Trim()
+        UserName     = [string]$account.user.name
+        UserType     = [string]$account.user.type
+        IdentityInfo = [string]$account.user.assignedIdentityInfo
+    }
+
+    return $localAccount
+}
+
+
 function Get-AzResourcesAccountContext {
     # Who am I, in which tenant? Returns $null when az isn't logged in so the
     # caller can print one clear message before touching the cache. ObjectId is
     # '' when it can't be resolved (ObjectIdError says why, ObjectIdRetryable
     # whether a later sync might succeed); ExpiredLogin means the sign-in itself
     # has lapsed and the sync should stop up front.
-    $account = Invoke-AzResourcesAz -ArgList @('account', 'show')
-    if (-not $account.Ok -or -not $account.Data.tenantId) {
+    $account = Get-AzResourcesLocalAccount
+    if ($null -eq $account) {
         return $null
     }
 
-    $userName = [string]$account.Data.user.name
-    $userType = [string]$account.Data.user.type
-    $identityInfo = [string]$account.Data.user.assignedIdentityInfo
+    $userName = $account.UserName
+    $userType = $account.UserType
+    $identityInfo = $account.IdentityInfo
     $isUser = ($userType -eq $script:AzResourcesUserAccountType)
 
     $signedIn = Get-AzResourcesSignedInObjectId -UserName $userName -IsUser $isUser -IdentityInfo $identityInfo
 
     $context = [PSCustomObject]@{
-        TenantId          = [string]$account.Data.tenantId
+        TenantId          = $account.TenantId
         UserName          = $userName
         UserType          = $userType
         IdentityInfo      = $identityInfo
@@ -1414,6 +1469,27 @@ function Invoke-AzResourcesTileFetch {
 }
 
 
+function Update-AzResourcesTile {
+    # EXPENSIVE: fetch one tile and rewrite its cache file, stamped with the
+    # account that fetched it (syncedAs). Throws on a hard failure (the
+    # previous cache file is left untouched). Shared by az-Sync-AzResources and
+    # the Resource Viewer's per-tile refresh.
+    param(
+        [Parameter(Mandatory)] [string] $Tile,
+        [Parameter(Mandatory)] [PSCustomObject] $Context,
+        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions
+    )
+
+    $tileResult = Invoke-AzResourcesTileFetch -Tile $Tile -Context $Context -Subscriptions $Subscriptions
+    $tileResult.syncedAs = New-AzResourcesSyncedAs -Context $Context
+    $path = Get-AzResourcesTilePath -TenantId $Context.TenantId -Tile $Tile
+
+    Write-LocalViewerTileCache -Path $path -Tile $Tile -Items $tileResult -JsonDepth $script:AzResourcesJsonDepth
+
+    return $tileResult
+}
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -1494,8 +1570,6 @@ function az-Sync-AzResources {
         return
     }
 
-    $syncedAs = New-AzResourcesSyncedAs -Context $context
-
     # Resolve (and GUID-validate) the cache dir once, before any expensive
     # fetch, so a bad tenant id stops the sync with one clear message.
     try {
@@ -1528,11 +1602,7 @@ function az-Sync-AzResources {
 
     foreach ($name in $tiles) {
         try {
-            $tileResult = Invoke-AzResourcesTileFetch -Tile $name -Context $context -Subscriptions $subscriptions
-            $tileResult.syncedAs = $syncedAs
-            $path = Get-AzResourcesTilePath -TenantId $context.TenantId -Tile $name
-
-            Write-LocalViewerTileCache -Path $path -Tile $name -Items $tileResult -JsonDepth $script:AzResourcesJsonDepth
+            $tileResult = Update-AzResourcesTile -Tile $name -Context $context -Subscriptions $subscriptions
 
             $color = if ($tileResult.state -eq $script:AzResourcesStateOk) {
                 'Green'

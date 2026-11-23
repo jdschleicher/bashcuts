@@ -31,6 +31,7 @@
 # for the master docstring.
 
 $script:AzDevOpsDailyViewerDefaultPort     = 8770
+$script:AzDevOpsDailyViewerDisplayName     = 'Daily viewer'
 $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past which a tile reads "stale"
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
@@ -44,21 +45,6 @@ $script:AzDevOpsDailyViewerMaxCreateBytes  = 65536     # cap on a create POST bo
 $script:AzDevOpsDailyViewerTimerMaxSeconds = 86400     # sanity cap on a client-reported timer duration (one day)
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
-
-# Strict Content-Security-Policy for the served app. The page loads styles.css +
-# app.js as external same-origin assets and fetches /api/tiles/* same-origin;
-# there are no inline handlers/styles, CDN scripts, or webfonts, so 'self' with
-# no 'unsafe-inline' loads clean. Inline <svg> in the markup uses presentation
-# attributes (fill/stroke), which CSP does not gate. base-uri/object/frame/form
-# are locked down so an injected <base>/<object>/framing can't reroute the page.
-$script:AzDevOpsDailyViewerContentSecurityPolicy = @(
-    "default-src 'self'"
-    "base-uri 'none'"
-    "object-src 'none'"
-    "frame-ancestors 'none'"
-    "form-action 'self'"
-    "img-src 'self' data:"
-) -join '; '
 
 $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
@@ -1078,7 +1064,7 @@ function Write-AzDevOpsDailyViewerJson {
     )
 
     Write-LocalViewerJson -Response $Response -StatusCode $StatusCode -Object $Object `
-        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
         -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
@@ -1091,7 +1077,7 @@ function Write-AzDevOpsDailyViewerError {
     )
 
     Write-LocalViewerError -Response $Response -StatusCode $StatusCode -Message $Message `
-        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
         -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
@@ -1143,11 +1129,12 @@ function Get-AzDevOpsDailyViewerActionRoute {
 
 
 function Test-AzDevOpsDailyViewerActionMethod {
-    # Shared method / content-type gate for the single-action write surfaces (create /
+    # Shared method / request gate for the single-action write surfaces (create /
     # draft / timer / unplanned): the read-only action answers a GET, every other
-    # action requires POST + application/json — a JSON content-type forces a preflight
-    # this loopback server never answers, so a cross-origin simple-request forgery
-    # can't reach a write. Writes the 405 / 415 error itself and returns $false when
+    # action requires POST plus a same-origin application/json request (the shared
+    # Get-LocalViewerStateChangeRejection) — a JSON content-type forces a preflight
+    # this loopback server never answers, and Sec-Fetch-Site / Origin refuse a
+    # request the browser marks as cross-site, so a forgery can't reach a write. Writes the 405 / 415 error itself and returns $false when
     # the method or content-type is wrong; $true when the handler may proceed to its
     # action switch. Private helper, so an unapproved verb is fine.
     param(
@@ -1172,8 +1159,9 @@ function Test-AzDevOpsDailyViewerActionMethod {
         return $false
     }
 
-    if ([string]$Request.ContentType -notlike '*application/json*') {
-        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require an application/json body."
+    $rejection = Get-LocalViewerStateChangeRejection -Request $Request
+    if ($null -ne $rejection) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode $rejection.StatusCode -Message "$WriteLabel $($rejection.Message)"
         return $false
     }
 
@@ -2878,6 +2866,14 @@ function Invoke-AzDevOpsDailyViewerApiRequest {
             return
         }
 
+        # The re-query is expensive (az boards / Outlook) and rewrites the cache,
+        # so a cross-site simple-request must not be able to trigger it.
+        $rejection = Get-LocalViewerStateChangeRejection -Request $request
+        if ($null -ne $rejection) {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode $rejection.StatusCode -Message "Refresh $($rejection.Message)"
+            return
+        }
+
         $model = Write-AzDevOpsDailyViewerTile -Tile $Route.Tile
         Write-AzDevOpsDailyViewerJson -Response $response -StatusCode 200 -Object $model
         return
@@ -2969,20 +2965,13 @@ function Invoke-AzDevOpsDailyViewerRequest {
         }
 
         Invoke-LocalViewerStaticRequest -Context $Context -StaticRoot $StaticRoot `
-            -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+            -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
             -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
     }
     catch {
-        # Keep the exception detail (which can name filesystem paths) server-side;
-        # hand the browser a generic message only.
-        Write-Host "Daily viewer request error: $($_.Exception.Message)" -ForegroundColor Red
-
-        try {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 500 -Message 'Internal server error.'
-        }
-        catch {
-            # response already closed / client gone — nothing more we can do
-        }
+        Write-LocalViewerUnhandledError -Response $response -DisplayName $script:AzDevOpsDailyViewerDisplayName `
+            -ErrorRecord $_ -ContentSecurityPolicy $script:LocalViewerStrictContentSecurityPolicy `
+            -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
     }
 }
 
@@ -3045,19 +3034,6 @@ function az-Start-AzDevOpsDailyViewer {
         Initialize-AzDevOpsDailyViewerCache
     }
 
-    $listener = Start-LocalViewerListener -Port $Port
-    if ($null -eq $listener) {
-        return
-    }
-
-    $prefix = Get-LocalViewerPrefix -Port $Port
-    Write-Host "Daily viewer serving at $prefix (Ctrl+C to stop)" -ForegroundColor Green
-    Write-Host "  cache: $cacheDir" -ForegroundColor DarkGray
-
-    if (-not $NoBrowser) {
-        Open-LocalViewerBrowser -Url $prefix
-    }
-
     $requestHandler = {
         param(
             [System.Net.HttpListenerContext] $Context,
@@ -3067,6 +3043,7 @@ function az-Start-AzDevOpsDailyViewer {
         Invoke-AzDevOpsDailyViewerRequest -Context $Context -StaticRoot $HandlerStaticRoot
     }
 
-    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler `
-        -DisplayName 'Daily viewer' -HandlerState $staticRoot
+    Start-LocalViewerServer -Port $Port -DisplayName $script:AzDevOpsDailyViewerDisplayName `
+        -RequestHandler $requestHandler -HandlerState $staticRoot `
+        -InfoLines @("cache: $cacheDir") -NoBrowser:$NoBrowser
 }

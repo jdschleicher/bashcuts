@@ -201,6 +201,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── daily_viewer.ps1                # Daily viewer backend — tiles + routes on top of localhost_viewer.ps1
 │   ├── azresources_data.ps1            # Azure / Entra footprint fetchers + tenant-keyed tile cache, az-Sync-AzResources
 │   ├── azresources_views.ps1           # az-Show-Az{RoleAssignments,GroupMemberships,AppRegistrations,ManagedIdentities} cache views
+│   ├── azresources_viewer.ps1          # az-Start-AzResourceViewer — localhost server for azure-viewer/ (port 8771)
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 ├── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
@@ -208,6 +209,11 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azure-cli.code-snippets
 │   ├── lwc.code-snippets
 │   └── powershell.code-snippets
+├── azure-viewer/                       # Azure Resource Viewer — localhost HTML app over the az-Sync-AzResources cache
+│   ├── index.html                      # Four-tile dashboard: roles, groups, apps, managed identities
+│   ├── styles.css                      # Same token set as daily-viewer/styles.css
+│   ├── app.js                          # Render-from-API, per-tile refresh, filter, theme
+│   └── favicon.svg
 └── daily-viewer/                       # Azure DevOps daily viewer — localhost HTML app (front-end surface)
     ├── index.html                      # Cache-backed 2x2 tile dashboard (mock → live)
     └── wpf/                            # WPF prototype of the same viewer (reference; the HTML path is primary)

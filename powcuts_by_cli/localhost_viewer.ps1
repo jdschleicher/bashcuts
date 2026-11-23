@@ -27,6 +27,30 @@ $script:LocalViewerLoopbackAddress  = '127.0.0.1'
 $script:LocalViewerFallbackMimeType = 'application/octet-stream'
 $script:LocalViewerJsonContentType  = 'application/json; charset=utf-8'
 $script:LocalViewerIndexFile        = 'index.html'
+$script:LocalViewerJsonMediaType    = 'application/json'
+$script:LocalViewerMediaTypeSep     = ';'
+$script:LocalViewerFetchSiteHeader  = 'Sec-Fetch-Site'
+$script:LocalViewerOriginHeader     = 'Origin'
+$script:LocalViewerSameOriginSites  = @('same-origin', 'none')   # Sec-Fetch-Site values a same-page fetch / typed URL send
+$script:LocalViewerInternalError    = 'Internal server error.'
+$script:LocalViewerDefaultHttpPort        = 80    # a browser's Origin omits the port when it's the default
+$script:LocalViewerStatusForbidden        = 403
+$script:LocalViewerStatusUnsupportedMedia = 415
+
+# Strict Content-Security-Policy shared by every viewer. Pages load styles.css +
+# app.js as same-origin assets and fetch /api/* same-origin; there are no inline
+# handlers/styles, CDN scripts, or webfonts, so 'self' with no 'unsafe-inline'
+# loads clean. Inline <svg> uses presentation attributes (fill/stroke), which CSP
+# does not gate. base-uri/object/frame/form are locked down so an injected
+# <base>/<object>/framing can't reroute the page.
+$script:LocalViewerStrictContentSecurityPolicy = @(
+    "default-src 'self'"
+    "base-uri 'none'"
+    "object-src 'none'"
+    "frame-ancestors 'none'"
+    "form-action 'self'"
+    "img-src 'self' data:"
+) -join '; '
 
 # Relative-age buckets — mirror formatAge in daily-viewer/app.js.
 $script:LocalViewerJustNowSeconds    = 45
@@ -121,6 +145,66 @@ function Invoke-LocalViewerListenLoop {
     finally {
         Stop-LocalViewerListener -Listener $Listener
         Write-Host "$DisplayName stopped." -ForegroundColor DarkGray
+    }
+}
+
+
+function Start-LocalViewerServer {
+    # The whole serving lifecycle every viewer shares: bind loopback, print the
+    # serving banner (+ any -InfoLines), open the browser, then run the request
+    # loop until Ctrl+C. Returns without serving when the bind fails (the
+    # listener helper has already printed the fix-it hint).
+    param(
+        [Parameter(Mandatory)] [int] $Port,
+        [Parameter(Mandatory)] [string] $DisplayName,
+        [Parameter(Mandatory)] [scriptblock] $RequestHandler,
+        [AllowNull()] $HandlerState = $null,
+        [string[]] $InfoLines = @(),
+        [switch] $NoBrowser
+    )
+
+    $listener = Start-LocalViewerListener -Port $Port
+    if ($null -eq $listener) {
+        return
+    }
+
+    $prefix = Get-LocalViewerPrefix -Port $Port
+    Write-Host "$DisplayName serving at $prefix (Ctrl+C to stop)" -ForegroundColor Green
+
+    foreach ($line in $InfoLines) {
+        Write-Host "  $line" -ForegroundColor DarkGray
+    }
+
+    if (-not $NoBrowser) {
+        Open-LocalViewerBrowser -Url $prefix
+    }
+
+    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $RequestHandler `
+        -DisplayName $DisplayName -HandlerState $HandlerState
+}
+
+
+function Write-LocalViewerUnhandledError {
+    # A viewer front door's catch-all: keep the exception detail (which can name
+    # filesystem paths or az output) in the server console and hand the browser
+    # a generic 500. Swallows a second failure — the response may already be
+    # closed or the client gone — so one bad request never stops the loop.
+    param(
+        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
+        [Parameter(Mandatory)] [string] $DisplayName,
+        [Parameter(Mandatory)] [System.Management.Automation.ErrorRecord] $ErrorRecord,
+        [Parameter(Mandatory)] [string] $ContentSecurityPolicy,
+        [Parameter(Mandatory)] [int] $JsonDepth
+    )
+
+    Write-Host "$DisplayName request error: $($ErrorRecord.Exception.Message)" -ForegroundColor Red
+
+    try {
+        Write-LocalViewerError -Response $Response -StatusCode 500 -Message $script:LocalViewerInternalError `
+            -ContentSecurityPolicy $ContentSecurityPolicy -JsonDepth $JsonDepth
+    }
+    catch {
+        # response already closed / client gone — nothing more we can do
     }
 }
 
@@ -348,6 +432,91 @@ function Write-LocalViewerError {
 # Request parsing
 # ---------------------------------------------------------------------------
 
+function Test-LocalViewerJsonContentType {
+    # True only when the media type itself (the part before any ';' parameters)
+    # is application/json. Browsers decide whether a request needs a CORS
+    # preflight from that media type alone, so a substring test would wave
+    # through `text/plain; x=application/json` — a preflight-free cross-site POST.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $mediaType = ([string]$Request.ContentType -split $script:LocalViewerMediaTypeSep, 2)[0].Trim()
+    $isJson = $mediaType -ieq $script:LocalViewerJsonMediaType
+    return $isJson
+}
+
+
+function Test-LocalViewerSameOriginRequest {
+    # Reject anything the browser itself marks as coming from another site —
+    # Sec-Fetch-Site other than same-origin / none, or an Origin header that
+    # isn't this server. Another localhost port counts as another origin, so the
+    # daily viewer's page can't drive the resource viewer (or vice versa).
+    # Non-browser clients (curl, scripts) send neither header and pass.
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $fetchSite = [string]$Request.Headers[$script:LocalViewerFetchSiteHeader]
+    if ($fetchSite -and $script:LocalViewerSameOriginSites -notcontains $fetchSite) {
+        return $false
+    }
+
+    # Own origin from the fixed loopback address + the socket's local port —
+    # never from the client-supplied Host header — so this check holds on its
+    # own even if HttpListener's Host matching ever let a rebinding name in.
+    $origin = [string]$Request.Headers[$script:LocalViewerOriginHeader]
+    $port = $Request.LocalEndPoint.Port
+
+    $ownOrigin = if ($port -eq $script:LocalViewerDefaultHttpPort) {
+        "http://$($script:LocalViewerLoopbackAddress)"
+    } else {
+        "http://$($script:LocalViewerLoopbackAddress):$port"
+    }
+
+    if ($origin -and $origin -ne $ownOrigin) {
+        return $false
+    }
+
+    return $true
+}
+
+
+function Get-LocalViewerStateChangeRejection {
+    # Why a state-changing request (a write, an expensive refresh) must be
+    # refused, or $null when it may proceed: { StatusCode, Message } with 415
+    # for a non-JSON media type (JSON forces a preflight this server never
+    # answers) and 403 for a request the browser marks as cross-site. Message
+    # completes a sentence the caller starts ("Refresh requires …").
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    if (-not (Test-LocalViewerJsonContentType -Request $Request)) {
+        $unsupported = [PSCustomObject]@{
+            StatusCode = $script:LocalViewerStatusUnsupportedMedia
+            Message    = 'requires Content-Type: application/json.'
+        }
+
+        return $unsupported
+    }
+
+    if (-not (Test-LocalViewerSameOriginRequest -Request $Request)) {
+        $forbidden = [PSCustomObject]@{
+            StatusCode = $script:LocalViewerStatusForbidden
+            Message    = 'refused: cross-site requests are not allowed.'
+        }
+
+        return $forbidden
+    }
+
+    return $null
+}
+
+
+function Test-LocalViewerStateChangeAllowed {
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $rejection = Get-LocalViewerStateChangeRejection -Request $Request
+    $isAllowed = ($null -eq $rejection)
+    return $isAllowed
+}
+
+
 function Read-LocalViewerRequestJson {
     # Parse a small JSON request body, bounded so a runaway/oversized POST can't
     # exhaust memory. Returns the parsed object, or $null when the body is too
@@ -365,12 +534,7 @@ function Read-LocalViewerRequestJson {
         return $null
     }
 
-    # Require a JSON content type. Beyond correctness this blunts cross-site POSTs:
-    # a browser can't set application/json cross-origin without a preflight this
-    # loopback server never satisfies, so a simple-request forgery can't reach the
-    # store — it lands here as a rejected body instead.
-    $contentType = [string]$Request.ContentType
-    if ($contentType -notlike '*application/json*') {
+    if (-not (Test-LocalViewerStateChangeAllowed -Request $Request)) {
         return $null
     }
 
