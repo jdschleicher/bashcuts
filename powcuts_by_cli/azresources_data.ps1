@@ -19,8 +19,8 @@
 #   { tile, writtenAt, items: { state, message, records[] } }
 # state is 'ok' or 'notPermitted' (the tenant blocked the call for this user).
 # A tile that fails for any other reason keeps its previous cache file.
-# Dates are normalized to round-trip ISO 8601 UTC strings, whichever
-# PowerShell edition ran the sync.
+# Dates are normalized to one round-trip ISO 8601 UTC format
+# (yyyy-MM-ddTHH:mm:ss.fffffffZ), whichever PowerShell edition ran the sync.
 #
 # SECURITY: records are built from explicit field allow-lists — never by
 # copying raw az output — so no secret text, token, or key material can reach
@@ -73,6 +73,8 @@ $script:AzResourcesGroupLabelSecurity     = 'Security'
 $script:AzResourcesGroupLabelDistribution = 'Distribution'
 $script:AzResourcesGroupLabelOther        = 'Other'
 
+$script:AzResourcesKindResource          = 'resource'
+$script:AzResourcesKindGroup             = 'group'
 $script:AzResourcesKindAppRegistration   = 'appRegistration'
 $script:AzResourcesKindServicePrincipal  = 'servicePrincipal'
 $script:AzResourcesCredentialSecret      = 'secret'
@@ -475,16 +477,25 @@ function Get-AzResourcesTallyTileResult {
 }
 
 
+function New-AzResourcesNotPermittedResult {
+    param([Parameter(Mandatory)] [string] $Message)
+
+    $empty = New-Object System.Collections.Generic.List[object]
+
+    $tileResult = New-AzResourcesTileResult -State $script:AzResourcesStateNotPermitted -Records $empty -Message $Message
+    return $tileResult
+}
+
+
 function Get-AzResourcesUserOnlyTileResult {
     # Graph `me/...` and `--show-mine` only make sense for a user sign-in; for a
     # service-principal / managed-identity login the tile is notPermitted
     # rather than a hard failure.
     param([Parameter(Mandatory)] [string] $Label)
 
-    $empty = New-Object System.Collections.Generic.List[object]
     $message = "$Label need a user sign-in; az is signed in as a service principal or managed identity."
 
-    $tileResult = New-AzResourcesTileResult -State $script:AzResourcesStateNotPermitted -Records $empty -Message $message
+    $tileResult = New-AzResourcesNotPermittedResult -Message $message
     return $tileResult
 }
 
@@ -508,6 +519,8 @@ function Get-AzResourcesPortalUrl {
     # one place. Scheme + host are fixed constants; data only ever lands in the
     # encoded fragment.
     param(
+        # Keep in sync with the $script:AzResourcesKind* constants (attribute
+        # arguments must be literals).
         [Parameter(Mandatory)]
         [ValidateSet('resource', 'group', 'appRegistration', 'servicePrincipal')]
         [string] $Kind,
@@ -593,20 +606,41 @@ function Get-AzResourcesGroupType {
 
 
 function ConvertTo-AzResourcesIsoDate {
-    # PowerShell 6+ ConvertFrom-Json turns ISO date strings into [datetime],
-    # and [string] on that gives a culture-formatted, zone-less value; 5.1
-    # leaves the original string. Normalize both to round-trip ISO 8601 UTC so
-    # the cache is identical whichever edition synced it.
+    # PowerShell 6+ ConvertFrom-Json turns ISO date strings into [datetime]
+    # (whose [string] is culture-formatted and zone-less); 5.1 leaves the raw
+    # string, which az / Graph may write as ...Z or ...+00:00. Every shape is
+    # parsed to UTC and written back in one round-trip format, so the cache is
+    # byte-identical whichever edition synced it. An unparseable value is kept
+    # verbatim rather than dropped.
     param([AllowNull()] $Value)
 
-    $isoDate = if ($null -eq $Value) {
-        ''
-    } elseif ($Value -is [datetime] -or $Value -is [datetimeoffset]) {
-        $Value.ToUniversalTime().ToString($script:AzResourcesIsoDateFormat)
-    } else {
-        [string]$Value
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return ''
     }
 
+    if ($Value -is [datetime]) {
+        $utc = $Value.ToUniversalTime()
+    } elseif ($Value -is [datetimeoffset]) {
+        $utc = $Value.UtcDateTime
+    } else {
+        $raw = [string]$Value
+        $parsed = [datetimeoffset]::MinValue
+
+        $isParsed = [datetimeoffset]::TryParse(
+            $raw,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::AssumeUniversal,
+            [ref]$parsed
+        )
+
+        if (-not $isParsed) {
+            return $raw
+        }
+
+        $utc = $parsed.UtcDateTime
+    }
+
+    $isoDate = $utc.ToString($script:AzResourcesIsoDateFormat)
     return $isoDate
 }
 
@@ -681,7 +715,7 @@ function ConvertTo-AzResourcesRoleRecord {
         principalType    = [string]$Raw.principalType
         subscriptionId   = $Subscription.Id
         subscriptionName = $Subscription.Name
-        portalUrl        = Get-AzResourcesPortalUrl -Kind 'resource' -TenantId $Context.TenantId -ResourceId $scope
+        portalUrl        = Get-AzResourcesPortalUrl -Kind $script:AzResourcesKindResource -TenantId $Context.TenantId -ResourceId $scope
     }
 
     return $record
@@ -708,6 +742,14 @@ function Get-AzResourcesRoleTile {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.List[object]] $Subscriptions
     )
 
+    # A managed-identity login reports a placeholder name (e.g.
+    # systemAssignedIdentity) that `ad sp show` can't resolve, leaving no
+    # usable --assignee; say so instead of failing every sync.
+    if (-not $Context.IsUser -and -not $Context.ObjectId) {
+        $unresolved = New-AzResourcesNotPermittedResult -Message 'Role assignments need a resolvable object id; az is signed in as an identity it cannot look up.'
+        return $unresolved
+    }
+
     $records = New-Object System.Collections.Generic.List[object]
     $seenIds = New-AzResourcesAssignmentIdSet
     $tally = New-AzResourcesCallTally
@@ -730,7 +772,8 @@ function Get-AzResourcesRoleTile {
                 continue
             }
 
-            $records.Add((ConvertTo-AzResourcesRoleRecord -Raw $raw -Context $Context -Subscription $sub))
+            $record = ConvertTo-AzResourcesRoleRecord -Raw $raw -Context $Context -Subscription $sub
+            $records.Add($record)
         }
     }
 
@@ -778,7 +821,7 @@ function Get-AzResourcesGroupTile {
                 relationship = $source.Relationship
                 mail         = [string]$raw.mail
                 groupType    = Get-AzResourcesGroupType -Group $raw
-                portalUrl    = Get-AzResourcesPortalUrl -Kind 'group' -TenantId $Context.TenantId -ObjectId $groupId
+                portalUrl    = Get-AzResourcesPortalUrl -Kind $script:AzResourcesKindGroup -TenantId $Context.TenantId -ObjectId $groupId
             })
         }
     }
@@ -957,7 +1000,7 @@ function ConvertTo-AzResourcesIdentityRecord {
         subscriptionName = $Subscription.Name
         principalId      = $PrincipalId
         roles            = $roles
-        portalUrl        = Get-AzResourcesPortalUrl -Kind 'resource' -TenantId $TenantId -ResourceId $resourceId
+        portalUrl        = Get-AzResourcesPortalUrl -Kind $script:AzResourcesKindResource -TenantId $TenantId -ResourceId $resourceId
     }
 
     return $record
@@ -997,7 +1040,8 @@ function Get-AzResourcesIdentityTile {
                     continue
                 }
 
-                $records.Add((ConvertTo-AzResourcesIdentityRecord -Raw $raw -IdentityType $source.IdentityType -PrincipalId $principalId @recordArgs))
+                $record = ConvertTo-AzResourcesIdentityRecord -Raw $raw -IdentityType $source.IdentityType -PrincipalId $principalId @recordArgs
+                $records.Add($record)
             }
         }
     }
@@ -1089,6 +1133,16 @@ function az-Sync-AzResources {
         return
     }
 
+    # Resolve (and GUID-validate) the cache dir once, before any expensive
+    # fetch, so a bad tenant id stops the sync with one clear message.
+    try {
+        $cacheDir = Get-AzResourcesCacheDir -TenantId $context.TenantId
+    }
+    catch {
+        Write-Host "Cannot sync Azure resources: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
     # Typed so a single -Tile stays an array (an if-expression would unroll it).
     [string[]] $tiles = $script:AzResourcesTileNames
     if ($Tile) {
@@ -1129,8 +1183,6 @@ function az-Sync-AzResources {
             Write-Host "  ${name}: failed, previous cache kept - $($_.Exception.Message)" -ForegroundColor Red
         }
     }
-
-    $cacheDir = Get-AzResourcesCacheDir -TenantId $context.TenantId
 
     Write-Host ''
     Write-Host "Cache: $cacheDir" -ForegroundColor Cyan
