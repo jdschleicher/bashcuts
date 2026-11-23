@@ -28,6 +28,12 @@ $script:LocalViewerFallbackMimeType = 'application/octet-stream'
 $script:LocalViewerJsonContentType  = 'application/json; charset=utf-8'
 $script:LocalViewerIndexFile        = 'index.html'
 
+# Relative-age buckets — mirror formatAge in daily-viewer/app.js.
+$script:LocalViewerJustNowSeconds    = 45
+$script:LocalViewerSecondsPerMinute  = 60
+$script:LocalViewerMinutesPerHour    = 60
+$script:LocalViewerHoursPerDay       = 24
+
 $script:LocalViewerMimeTypes = @{
     '.html' = 'text/html; charset=utf-8'
     '.css'  = 'text/css; charset=utf-8'
@@ -116,6 +122,45 @@ function Invoke-LocalViewerListenLoop {
         Stop-LocalViewerListener -Listener $Listener
         Write-Host "$DisplayName stopped." -ForegroundColor DarkGray
     }
+}
+
+
+function ConvertTo-LocalViewerRoundedHalfUp {
+    # JavaScript's Math.round (half rounds up) for non-negative values;
+    # [math]::Round defaults to banker's rounding, which would drift from the
+    # browser at every .5 boundary.
+    param([Parameter(Mandatory)] [double] $Value)
+
+    $rounded = [int][math]::Floor($Value + 0.5)
+    return $rounded
+}
+
+
+function Get-LocalViewerRelativeTime {
+    # Compact "how long ago" label ("just now", "12m ago", "3h ago", "2d ago").
+    # Same thresholds and rounding as formatAge in daily-viewer/app.js (each
+    # unit is rounded from the previous rounded unit), so the browser and the
+    # terminal print the same label for the same age.
+    param([Parameter(Mandatory)] [datetime] $When)
+
+    $seconds = ((Get-Date) - $When).TotalSeconds
+
+    if ($seconds -lt $script:LocalViewerJustNowSeconds) {
+        return 'just now'
+    }
+
+    $mins = ConvertTo-LocalViewerRoundedHalfUp -Value ($seconds / $script:LocalViewerSecondsPerMinute)
+    if ($mins -lt $script:LocalViewerMinutesPerHour) {
+        return "${mins}m ago"
+    }
+
+    $hours = ConvertTo-LocalViewerRoundedHalfUp -Value ($mins / $script:LocalViewerMinutesPerHour)
+    if ($hours -lt $script:LocalViewerHoursPerDay) {
+        return "${hours}h ago"
+    }
+
+    $days = ConvertTo-LocalViewerRoundedHalfUp -Value ($hours / $script:LocalViewerHoursPerDay)
+    return "${days}d ago"
 }
 
 

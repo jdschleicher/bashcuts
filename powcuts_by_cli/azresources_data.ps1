@@ -40,8 +40,12 @@ $script:AzResourcesJsonDepth   = 10
 
 # Keep in sync with az-Sync-AzResources' [ValidateSet] (attribute arguments
 # must be literals, and ValidateSet is what gives -Tile tab completion).
-$script:AzResourcesTileNames         = @('roles', 'groups', 'apps', 'identities')
-$script:AzResourcesSubscriptionTiles = @('roles', 'identities')
+$script:AzResourcesTileRoles         = 'roles'
+$script:AzResourcesTileGroups        = 'groups'
+$script:AzResourcesTileApps          = 'apps'
+$script:AzResourcesTileIdentities    = 'identities'
+$script:AzResourcesTileNames         = @($script:AzResourcesTileRoles, $script:AzResourcesTileGroups, $script:AzResourcesTileApps, $script:AzResourcesTileIdentities)
+$script:AzResourcesSubscriptionTiles = @($script:AzResourcesTileRoles, $script:AzResourcesTileIdentities)
 
 $script:AzResourcesStateOk           = 'ok'
 $script:AzResourcesStateNotPermitted = 'notPermitted'
@@ -110,6 +114,14 @@ $script:AzResourcesPortalAppIdSegment    = '/appId/'
 # Cache layout
 # ---------------------------------------------------------------------------
 
+function Get-AzResourcesCacheRoot {
+    # Parent of every per-tenant cache folder.
+    $appRoot = Join-Path $HOME $script:AzResourcesAppDirName
+    $cacheRoot = Join-Path $appRoot $script:AzResourcesCacheSubdir
+    return $cacheRoot
+}
+
+
 function Get-AzResourcesCacheDir {
     # The tenant id becomes a path segment, so it must be a GUID — never a
     # value that could climb out of the cache root.
@@ -120,8 +132,7 @@ function Get-AzResourcesCacheDir {
         throw "Tenant id '$TenantId' is not a GUID."
     }
 
-    $appRoot = Join-Path $HOME $script:AzResourcesAppDirName
-    $cacheRoot = Join-Path $appRoot $script:AzResourcesCacheSubdir
+    $cacheRoot = Get-AzResourcesCacheRoot
     $dir = Join-Path $cacheRoot $parsedTenant.ToString()
     return $dir
 }
@@ -605,42 +616,61 @@ function Get-AzResourcesGroupType {
 }
 
 
+function ConvertTo-AzResourcesDateTimeOffset {
+    # Any date shape az / the cache hands back -> [datetimeoffset], or $null.
+    # PowerShell 6+ ConvertFrom-Json turns ISO strings into [datetime]; 5.1
+    # leaves the raw string (...Z or ...+00:00). Shared by the sync (writing
+    # ISO) and the views (sorting / comparing expiry dates).
+    param([AllowNull()] $Value)
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $null
+    }
+
+    if ($Value -is [datetimeoffset]) {
+        return $Value
+    }
+
+    if ($Value -is [datetime]) {
+        $fromDate = [datetimeoffset]$Value.ToUniversalTime()
+        return $fromDate
+    }
+
+    $parsed = [datetimeoffset]::MinValue
+
+    $isParsed = [datetimeoffset]::TryParse(
+        [string]$Value,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$parsed
+    )
+
+    if (-not $isParsed) {
+        return $null
+    }
+
+    return $parsed
+}
+
+
 function ConvertTo-AzResourcesIsoDate {
-    # PowerShell 6+ ConvertFrom-Json turns ISO date strings into [datetime]
-    # (whose [string] is culture-formatted and zone-less); 5.1 leaves the raw
-    # string, which az / Graph may write as ...Z or ...+00:00. Every shape is
-    # parsed to UTC and written back in one round-trip format, so the cache is
-    # byte-identical whichever edition synced it. An unparseable value is kept
-    # verbatim rather than dropped.
+    # Normalize a date to one round-trip ISO 8601 UTC string, so the cache is
+    # byte-identical whichever PowerShell edition synced it. An unparseable
+    # value is kept verbatim rather than dropped.
     param([AllowNull()] $Value)
 
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
         return ''
     }
 
-    if ($Value -is [datetime]) {
-        $utc = $Value.ToUniversalTime()
-    } elseif ($Value -is [datetimeoffset]) {
-        $utc = $Value.UtcDateTime
-    } else {
+    $offset = ConvertTo-AzResourcesDateTimeOffset -Value $Value
+
+    if ($null -eq $offset) {
         $raw = [string]$Value
-        $parsed = [datetimeoffset]::MinValue
-
-        $isParsed = [datetimeoffset]::TryParse(
-            $raw,
-            [System.Globalization.CultureInfo]::InvariantCulture,
-            [System.Globalization.DateTimeStyles]::AssumeUniversal,
-            [ref]$parsed
-        )
-
-        if (-not $isParsed) {
-            return $raw
-        }
-
-        $utc = $parsed.UtcDateTime
+        return $raw
     }
 
-    $isoDate = $utc.ToString($script:AzResourcesIsoDateFormat)
+    $isoDate = $offset.UtcDateTime.ToString($script:AzResourcesIsoDateFormat)
     return $isoDate
 }
 

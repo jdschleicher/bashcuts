@@ -261,33 +261,6 @@ function Get-AzDevOpsDailyViewerActiveRows {
 }
 
 
-function Get-AzDevOpsDailyViewerRelativeTime {
-    # Compact "how long ago" label for the activity tile's note column
-    # (e.g. "2h ago"). Mirrors the front-end formatAge buckets so cached notes
-    # and freshly-refreshed ones read the same.
-    param([Parameter(Mandatory)] [datetime] $When)
-
-    $span = (Get-Date) - $When
-
-    if ($span.TotalMinutes -lt 1) {
-        return 'just now'
-    }
-
-    if ($span.TotalMinutes -lt 60) {
-        $mins = [int]$span.TotalMinutes
-        return "${mins}m ago"
-    }
-
-    if ($span.TotalHours -lt 24) {
-        $hours = [int]$span.TotalHours
-        return "${hours}h ago"
-    }
-
-    $days = [int]$span.TotalDays
-    return "${days}d ago"
-}
-
-
 function Format-AzDevOpsDailyViewerShortDate {
     # Compact date for a work-item row's date chip (e.g. "Jul 18"), matching the
     # front-end model's short-date look. The year is appended only when the date
@@ -587,7 +560,7 @@ function New-AzDevOpsDailyViewerActivityGroup {
 
         $when = $_.$DateField
         if ($when) {
-            $node.note = Get-AzDevOpsDailyViewerRelativeTime -When $when
+            $node.note = Get-LocalViewerRelativeTime -When $when
         }
 
         $node

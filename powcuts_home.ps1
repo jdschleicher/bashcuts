@@ -191,6 +191,13 @@ if ($azresources_data -ne $NULL) {
     Write-Host "no azresources_data.ps1"
 }
 
+$azresources_views = Get-Content "$path_to_bashcuts\powcuts_by_cli\azresources_views.ps1"
+if ($azresources_views -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\azresources_views.ps1"
+} else {
+    Write-Host "no azresources_views.ps1"
+}
+
 $daily_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
 if ($daily_viewer -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
