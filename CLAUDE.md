@@ -199,6 +199,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── azdevops_help.ps1               # az-help — guided walkthrough of az-AzDevOps* surface
 │   ├── localhost_viewer.ps1            # Shared 127.0.0.1 viewer plumbing (listener, CSP headers, static assets, tile cache)
 │   ├── daily_viewer.ps1                # Daily viewer backend — tiles + routes on top of localhost_viewer.ps1
+│   ├── azresources_data.ps1            # Azure / Entra footprint fetchers + tenant-keyed tile cache, az-Sync-AzResources
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1
 ├── vscode_snippets/                    # VS Code snippets synced via VS Code Settings Sync
