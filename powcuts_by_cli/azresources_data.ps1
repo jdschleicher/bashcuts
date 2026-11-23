@@ -18,7 +18,7 @@
 # Each file is the shared localhost-viewer tile record (Write-LocalViewerTileCache):
 #   { tile, writtenAt, items: { state, message, records[], syncedAs } }
 # state is 'ok' or 'notPermitted' (the tenant blocked the call for this user).
-# syncedAs { userName, userType, objectId } names the account that synced the
+# syncedAs { userName, userType, identityInfo, objectId } names the account that synced the
 # tile: the cache is per tenant, so two accounts in one tenant share a folder
 # and the views use this to flag rows that belong to the other account.
 # A tile that fails for any other reason keeps its previous cache file.
@@ -58,19 +58,25 @@ $script:AzResourcesPermissionPattern = 'AuthorizationFailed|Authorization_Reques
 $script:AzResourcesErrorLinePattern  = '^\s*ERROR:'
 
 # Sign-in problems az reports as AADSTS errors: re-running `az login` fixes
-# them, so they get that hint instead of a generic failure. The expired /
-# revoked subset stops the whole sync up front, since every later call would
-# fail the same way (`az account show` still succeeds on an expired login).
+# them, so they get that hint instead of a generic failure. Only codes that end
+# the whole login (expired / revoked refresh token, password changed or
+# expired) stop the sync up front, since every later call would fail the same
+# way — `az account show` still succeeds on an expired login. MFA / Conditional
+# Access challenges can hit Graph alone, so those fail per tile instead. Consent
+# errors aren't fixed by signing in again; they read as not permitted.
 $script:AzResourcesReauthPattern       = 'AADSTS\d+|interaction_required|invalid_grant'
-$script:AzResourcesExpiredLoginPattern = 'AADSTS(700082|700084|70043|50173)\b|invalid_grant'
-$script:AzResourcesReauthHint          = "Your az sign-in needs refreshing - run 'az login' and try again."
+$script:AzResourcesExpiredLoginPattern = 'AADSTS(700082|50173|50132|50133)\b'
+$script:AzResourcesConsentPattern      = 'AADSTS(65001|90094)\b'
+$script:AzResourcesReauthHint          = "Your az sign-in needs refreshing - run 'az login' and try again (add --scope https://graph.microsoft.com//.default if only the Graph tiles fail)."
+$script:AzResourcesConsoleIndent       = '    '
 
 $script:AzResourcesSelfPrincipal   = 'me'
 $script:AzResourcesUserAccountType = 'user'
 $script:AzResourcesEnabledSubState = 'Enabled'
 
 # `az login --identity` reports one of these as user.name, and the identity's
-# id in user.assignedIdentityInfo as 'MSIObject-<objectId>' / 'MSIClient-<clientId>'.
+# id in user.assignedIdentityInfo as 'MSIObject-<objectId>' / 'MSIClient-<clientId>'
+# (also 'MSIResource-<armId>' or bare 'MSI', which can't be resolved here).
 $script:AzResourcesManagedIdentityNames = @('systemAssignedIdentity', 'userAssignedIdentity')
 $script:AzResourcesMsiObjectIdPattern   = '^MSIObject-(.+)$'
 $script:AzResourcesMsiClientIdPattern   = '^MSIClient-(.+)$'
@@ -147,10 +153,12 @@ function Get-AzResourcesCacheRoot {
 
 
 function Test-AzResourcesGuid {
+    # Canonical 8-4-4-4-12 form only: TryParse would also accept '{...}' /
+    # '(...)' forms, whose brackets cmd.exe can misread on az.cmd's command line.
     param([AllowNull()] [AllowEmptyString()] [string] $Value)
 
     $parsed = [guid]::Empty
-    $isGuid = [guid]::TryParse([string]$Value, [ref]$parsed)
+    $isGuid = [guid]::TryParseExact($Value, 'D', [ref]$parsed)
     return $isGuid
 }
 
@@ -221,16 +229,17 @@ function Invoke-AzResourcesAz {
     # or unparseable output comes back as Ok = $false. NeedsLogin is true for an
     # AADSTS sign-in error (ExpiredLogin for the expired / revoked subset);
     # otherwise NotPermitted is true for an authorization / insufficient-
-    # privileges error.
+    # privileges / consent error.
     param([Parameter(Mandatory)] [string[]] $ArgList)
 
     $envelope = Invoke-AzDevOpsAzJson -ArgList $ArgList
     $errorText = [string]$envelope.Error
 
     $isOk = ($envelope.ExitCode -eq 0)
-    $isNeedsLogin = (-not $isOk) -and ($errorText -match $script:AzResourcesReauthPattern)
+    $isConsent = (-not $isOk) -and ($errorText -match $script:AzResourcesConsentPattern)
+    $isNeedsLogin = (-not $isOk) -and (-not $isConsent) -and ($errorText -match $script:AzResourcesReauthPattern)
     $isExpiredLogin = $isNeedsLogin -and ($errorText -match $script:AzResourcesExpiredLoginPattern)
-    $isNotPermitted = (-not $isOk) -and (-not $isNeedsLogin) -and ($errorText -match $script:AzResourcesPermissionPattern)
+    $isNotPermitted = $isConsent -or ((-not $isOk) -and (-not $isNeedsLogin) -and ($errorText -match $script:AzResourcesPermissionPattern))
     $errorSummary = Get-AzResourcesErrorSummary -ErrorText $errorText
 
     $data = $null
@@ -257,23 +266,54 @@ function Invoke-AzResourcesAz {
 }
 
 
+function Format-AzResourcesCallError {
+    # The one wording for a failed az call, used in throws and console notes.
+    param(
+        [Parameter(Mandatory)] [string] $What,
+        [Parameter(Mandatory)] [PSCustomObject] $Result
+    )
+
+    $detail = if ($Result.NeedsLogin) {
+        "$($script:AzResourcesReauthHint) ($($Result.Error))"
+    } else {
+        $Result.Error
+    }
+
+    $message = "$What failed: $detail"
+    return $message
+}
+
+
+function Assert-AzResourcesSignedIn {
+    # Throw on a sign-in error: every later call in the tile would fail the
+    # same way, and throwing keeps the tile's previous cache.
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Result,
+        [Parameter(Mandatory)] [string] $What
+    )
+
+    if ($Result.NeedsLogin) {
+        throw (Format-AzResourcesCallError -What $What -Result $Result)
+    }
+}
+
+
 function Invoke-AzResourcesAzChecked {
-    # Invoke-AzResourcesAz plus the fetchers' failure gate in one step, so no
-    # fetcher can forget it: a permission denial is returned for the caller to
-    # tally; any other failure throws and fails this tile.
+    # Invoke-AzResourcesAz plus the fetchers' failure gate in one step, for the
+    # single-call tenant-wide tiles (groups, apps): a permission denial is
+    # returned for the caller to tally; any other failure throws, so the tile
+    # keeps its previous cache. The per-subscription tiles call
+    # Invoke-AzResourcesAz directly and tally failures instead.
     param(
         [Parameter(Mandatory)] [string[]] $ArgList,
         [Parameter(Mandatory)] [string] $What
     )
 
     $result = Invoke-AzResourcesAz -ArgList $ArgList
-
-    if ($result.NeedsLogin) {
-        throw "$What failed: $($script:AzResourcesReauthHint) ($($result.Error))"
-    }
+    Assert-AzResourcesSignedIn -Result $result -What $What
 
     if (-not $result.Ok -and -not $result.NotPermitted) {
-        throw "$What failed: $($result.Error)"
+        throw (Format-AzResourcesCallError -What $What -Result $result)
     }
 
     return $result
@@ -306,9 +346,7 @@ function Test-AzResourcesCallPermitted {
         [string] $What = 'az call'
     )
 
-    if ($Result.NeedsLogin) {
-        throw "$What failed: $($script:AzResourcesReauthHint) ($($Result.Error))"
-    }
+    Assert-AzResourcesSignedIn -Result $Result -What $What
 
     if ($Result.NotPermitted) {
         $Tally.Denied++
@@ -319,7 +357,7 @@ function Test-AzResourcesCallPermitted {
         $Tally.Failed++
 
         if (-not $Tally.FirstError) {
-            $Tally.FirstError = "$What - $($Result.Error)"
+            $Tally.FirstError = Format-AzResourcesCallError -What $What -Result $Result
         }
 
         return $false
@@ -330,49 +368,87 @@ function Test-AzResourcesCallPermitted {
 }
 
 
-function Get-AzResourcesSignedInObjectId {
-    # The signed-in principal's object id, used as --assignee and for "is this
-    # role mine" matching. Returns { ObjectId; Error; ExpiredLogin }:
+function Get-AzResourcesObjectIdLookupArgs {
+    # Where the signed-in principal's object id comes from, as
+    # { ObjectId; LookupArgs; Error } — at most one is set:
     #   user              -> `az ad signed-in-user show`
     #   service principal -> `az ad sp show --id <appId>`
     #   managed identity  -> 'MSIObject-<id>' directly, or 'MSIClient-<id>' via
-    #                        `az ad sp show`; a bare system-assigned identity
-    #                        can't be resolved and reports why
+    #                        `az ad sp show`; other identity forms can't be
+    #                        resolved and say why
     # Ids handed to az are GUID-checked first (they reach az.cmd's command line).
-    param([Parameter(Mandatory)] $Account)
-
-    $userName = [string]$Account.user.name
-    $isUser = ([string]$Account.user.type -eq $script:AzResourcesUserAccountType)
-    $identityInfo = [string]$Account.user.assignedIdentityInfo
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $UserName,
+        [Parameter(Mandatory)] [bool] $IsUser,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $IdentityInfo
+    )
 
     $objectId = ''
-    $lookupError = ''
-    $isExpiredLogin = $false
     $lookupArgs = $null
+    $reason = ''
 
-    if ($isUser) {
+    if ($IsUser) {
         $lookupArgs = @('ad', 'signed-in-user', 'show')
-    } elseif ($script:AzResourcesManagedIdentityNames -contains $userName) {
-        if ($identityInfo -match $script:AzResourcesMsiObjectIdPattern) {
-            $objectId = $Matches[1]
-        } elseif (($identityInfo -match $script:AzResourcesMsiClientIdPattern) -and (Test-AzResourcesGuid -Value $Matches[1])) {
-            $lookupArgs = @('ad', 'sp', 'show', '--id', $Matches[1])
-        } else {
-            $lookupError = 'az is signed in as a managed identity whose object id it does not report.'
+    } elseif ($script:AzResourcesManagedIdentityNames -contains $UserName) {
+        $msiObjectId = ''
+        $msiClientId = ''
+
+        if ($IdentityInfo -match $script:AzResourcesMsiObjectIdPattern) {
+            $msiObjectId = $Matches[1]
+        } elseif ($IdentityInfo -match $script:AzResourcesMsiClientIdPattern) {
+            $msiClientId = $Matches[1]
         }
-    } elseif (Test-AzResourcesGuid -Value $userName) {
-        $lookupArgs = @('ad', 'sp', 'show', '--id', $userName)
+
+        if ($msiObjectId) {
+            $objectId = $msiObjectId
+        } elseif (Test-AzResourcesGuid -Value $msiClientId) {
+            $lookupArgs = @('ad', 'sp', 'show', '--id', $msiClientId)
+        } else {
+            $reason = "az is signed in as a managed identity ('$IdentityInfo') whose object id it does not report."
+        }
+    } elseif (Test-AzResourcesGuid -Value $UserName) {
+        $lookupArgs = @('ad', 'sp', 'show', '--id', $UserName)
     } else {
-        $lookupError = "az reports a sign-in name ('$userName') that is not an app id."
+        $reason = "az reports a sign-in name ('$UserName') that is not an app id."
     }
 
-    if ($lookupArgs) {
-        $lookup = Invoke-AzResourcesAz -ArgList $lookupArgs
+    $plan = [PSCustomObject]@{
+        ObjectId   = $objectId
+        LookupArgs = $lookupArgs
+        Error      = $reason
+    }
+
+    return $plan
+}
+
+
+function Get-AzResourcesSignedInObjectId {
+    # The signed-in principal's object id, used as --assignee and for "is this
+    # role mine" matching. Returns { ObjectId; Error; Retryable; ExpiredLogin }. Retryable marks a lookup that failed for a reason a later
+    # sync may not hit (throttling, a 5xx, an MFA / Conditional Access
+    # challenge): the roles tile then fails and keeps its previous cache instead
+    # of overwriting it with "not permitted".
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $UserName,
+        [Parameter(Mandatory)] [bool] $IsUser,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $IdentityInfo
+    )
+
+    $plan = Get-AzResourcesObjectIdLookupArgs -UserName $UserName -IsUser $IsUser -IdentityInfo $IdentityInfo
+
+    $objectId = $plan.ObjectId
+    $lookupError = $plan.Error
+    $isRetryable = $false
+    $isExpiredLogin = $false
+
+    if ($plan.LookupArgs) {
+        $lookup = Invoke-AzResourcesAz -ArgList $plan.LookupArgs
 
         if ($lookup.Ok) {
             $objectId = [string]$lookup.Data.id
         } else {
-            $lookupError = $lookup.Error
+            $lookupError = Format-AzResourcesCallError -What 'object id lookup' -Result $lookup
+            $isRetryable = -not $lookup.NotPermitted
             $isExpiredLogin = $lookup.ExpiredLogin
         }
     }
@@ -385,6 +461,7 @@ function Get-AzResourcesSignedInObjectId {
     $signedIn = [PSCustomObject]@{
         ObjectId     = $objectId
         Error        = $lookupError
+        Retryable    = $isRetryable
         ExpiredLogin = $isExpiredLogin
     }
 
@@ -395,23 +472,31 @@ function Get-AzResourcesSignedInObjectId {
 function Get-AzResourcesAccountContext {
     # Who am I, in which tenant? Returns $null when az isn't logged in so the
     # caller can print one clear message before touching the cache. ObjectId is
-    # '' when it can't be resolved (ObjectIdError says why); ExpiredLogin means
-    # the sign-in itself has lapsed and the sync should stop up front.
+    # '' when it can't be resolved (ObjectIdError says why, ObjectIdRetryable
+    # whether a later sync might succeed); ExpiredLogin means the sign-in itself
+    # has lapsed and the sync should stop up front.
     $account = Invoke-AzResourcesAz -ArgList @('account', 'show')
     if (-not $account.Ok -or -not $account.Data.tenantId) {
         return $null
     }
 
-    $signedIn = Get-AzResourcesSignedInObjectId -Account $account.Data
+    $userName = [string]$account.Data.user.name
+    $userType = [string]$account.Data.user.type
+    $identityInfo = [string]$account.Data.user.assignedIdentityInfo
+    $isUser = ($userType -eq $script:AzResourcesUserAccountType)
+
+    $signedIn = Get-AzResourcesSignedInObjectId -UserName $userName -IsUser $isUser -IdentityInfo $identityInfo
 
     $context = [PSCustomObject]@{
-        TenantId      = [string]$account.Data.tenantId
-        UserName      = [string]$account.Data.user.name
-        UserType      = [string]$account.Data.user.type
-        IsUser        = ([string]$account.Data.user.type -eq $script:AzResourcesUserAccountType)
-        ObjectId      = $signedIn.ObjectId
-        ObjectIdError = $signedIn.Error
-        ExpiredLogin  = $signedIn.ExpiredLogin
+        TenantId          = [string]$account.Data.tenantId
+        UserName          = $userName
+        UserType          = $userType
+        IdentityInfo      = $identityInfo
+        IsUser            = $isUser
+        ObjectId          = $signedIn.ObjectId
+        ObjectIdError     = $signedIn.Error
+        ObjectIdRetryable = $signedIn.Retryable
+        ExpiredLogin      = $signedIn.ExpiredLogin
     }
 
     return $context
@@ -495,7 +580,8 @@ function ConvertFrom-AzResourcesGraphNextLink {
 
 function Get-AzResourcesGraphCollection {
     # GET a Graph collection through `az rest`, following @odata.nextLink.
-    # Returns { NotPermitted, Items }.
+    # Returns { Ok, NotPermitted, NeedsLogin, Error, Items } — the same fields
+    # Test-AzResourcesCallPermitted reads off a single az call.
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [string] $Select
@@ -540,6 +626,8 @@ function Get-AzResourcesGraphCollection {
     $collection = [PSCustomObject]@{
         Ok           = -not $isNotPermitted
         NotPermitted = $isNotPermitted
+        NeedsLogin   = $false
+        Error        = ''
         Items        = $items
     }
 
@@ -602,7 +690,7 @@ function Get-AzResourcesTallyTileResult {
     if ($Tally.Failed -gt 0) {
         # The cached message stays generic; the az error itself goes to the console only.
         $messages.Add("Partial: $($Tally.Failed) of $attempted $Label call(s) failed; run az-Sync-AzResources again to retry.")
-        Write-Host "    first failure: $($Tally.FirstError)" -ForegroundColor DarkYellow
+        Write-Host "$($script:AzResourcesConsoleIndent)first failure: $($Tally.FirstError)" -ForegroundColor DarkYellow
     }
 
     foreach ($note in $Notes) {
@@ -920,6 +1008,26 @@ function ConvertTo-AzResourcesRoleRecord {
 }
 
 
+function Get-AzResourcesNoSubscriptionNotes {
+    # Why a per-subscription tile is empty when the tenant has no enabled
+    # subscriptions (e.g. `az login --allow-no-subscriptions`): without this the
+    # tile reads as a clean "0 records". Management-group / root roles are only
+    # found through a subscription today.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.List[object]] $Subscriptions,
+        [Parameter(Mandatory)] [string] $What
+    )
+
+    $notes = @()
+
+    if ($Subscriptions.Count -eq 0) {
+        $notes += "$What come from subscriptions, and az lists none you can use in this tenant; management-group and root assignments are not listed without one."
+    }
+
+    return $notes
+}
+
+
 function New-AzResourcesAssignmentIdSet {
     # ARM ids are case-insensitive; de-duplicate them that way.
     $idSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -943,6 +1051,10 @@ function Get-AzResourcesRoleTile {
     # Matching by sign-in name instead would misfire for guests (#EXT# UPNs)
     # and could hand az.cmd a name cmd.exe mangles, so with no object id the
     # tile says why rather than guessing.
+    if (-not $Context.ObjectId -and $Context.ObjectIdRetryable) {
+        throw $Context.ObjectIdError
+    }
+
     if (-not $Context.ObjectId) {
         $unresolved = New-AzResourcesNotPermittedResult -Message 'Role assignments need your object id, which could not be looked up for this sign-in (see the az-Sync-AzResources output).'
         return $unresolved
@@ -980,7 +1092,9 @@ function Get-AzResourcesRoleTile {
         }
     }
 
-    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label 'role assignments'
+    $notes = Get-AzResourcesNoSubscriptionNotes -Subscriptions $Subscriptions -What 'Role assignments'
+
+    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label 'role assignments' -Notes $notes
     return $tileResult
 }
 
@@ -1253,7 +1367,7 @@ function Get-AzResourcesIdentityTile {
 
     $roleGaps = $roleTally.Denied + $roleTally.Failed
 
-    $notes = @()
+    $notes = @(Get-AzResourcesNoSubscriptionNotes -Subscriptions $Subscriptions -What 'Managed identities')
     if ($roleGaps -gt 0) {
         $notes += "Roles could not be read in $roleGaps subscription(s); identities may show fewer roles than they hold."
     }
@@ -1304,6 +1418,42 @@ function Invoke-AzResourcesTileFetch {
 # Public entry point
 # ---------------------------------------------------------------------------
 
+function Test-AzResourcesSyncContext {
+    # Print what the sign-in context means for this sync, and say whether to go
+    # on: an expired / revoked login stops it up front; an unresolved object id
+    # only skips (or, when retryable, fails) the roles tile.
+    param([Parameter(Mandatory)] [PSCustomObject] $Context)
+
+    if ($Context.ExpiredLogin) {
+        Write-Host $Context.ObjectIdError -ForegroundColor Yellow
+        return $false
+    }
+
+    if (-not $Context.ObjectId) {
+        Write-Host "Could not resolve your object id, so role assignments are skipped: $($Context.ObjectIdError)" -ForegroundColor DarkYellow
+    }
+
+    return $true
+}
+
+
+function New-AzResourcesSyncedAs {
+    # Who this sync ran as, stamped on every tile (see the file header). Every
+    # managed identity reports the same placeholder user.name, so its
+    # assignedIdentityInfo is kept too to tell two identities apart.
+    param([Parameter(Mandatory)] [PSCustomObject] $Context)
+
+    $syncedAs = [ordered]@{
+        userName     = $Context.UserName
+        userType     = $Context.UserType
+        identityInfo = $Context.IdentityInfo
+        objectId     = $Context.ObjectId
+    }
+
+    return $syncedAs
+}
+
+
 function az-Sync-AzResources {
     <#
     .SYNOPSIS
@@ -1340,21 +1490,11 @@ function az-Sync-AzResources {
         return
     }
 
-    if ($context.ExpiredLogin) {
-        Write-Host "$($script:AzResourcesReauthHint) ($($context.ObjectIdError))" -ForegroundColor Yellow
+    if (-not (Test-AzResourcesSyncContext -Context $context)) {
         return
     }
 
-    if (-not $context.ObjectId) {
-        Write-Host "Could not resolve your object id, so role assignments are skipped: $($context.ObjectIdError)" -ForegroundColor DarkYellow
-    }
-
-    # Who this sync ran as, stamped on every tile (see the file header).
-    $syncedAs = [ordered]@{
-        userName = $context.UserName
-        userType = $context.UserType
-        objectId = $context.ObjectId
-    }
+    $syncedAs = New-AzResourcesSyncedAs -Context $context
 
     # Resolve (and GUID-validate) the cache dir once, before any expensive
     # fetch, so a bad tenant id stops the sync with one clear message.

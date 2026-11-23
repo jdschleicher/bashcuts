@@ -55,12 +55,13 @@ $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCou
 # ---------------------------------------------------------------------------
 
 function Get-AzResourcesViewAccount {
-    # The tenant + account to show, as { TenantId; UserName; IsFallback }: the
-    # one az is logged into, read from the local az profile (no network); else
-    # the most recently synced tenant folder (IsFallback, no UserName); else a
-    # blank TenantId.
+    # The tenant + account to show, as { TenantId; UserName; IdentityInfo;
+    # IsFallback }: the one az is logged into, read from the local az profile
+    # (no network); else the most recently synced tenant folder (IsFallback, no
+    # account); else a blank TenantId.
     $tenantId = ''
     $userName = ''
+    $identityInfo = ''
 
     if (Get-Command az -ErrorAction SilentlyContinue) {
         # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
@@ -79,10 +80,12 @@ function Get-AzResourcesViewAccount {
                 $account = ($accountJson -join "`n") | ConvertFrom-Json
                 $tenantId = ([string]$account.tenantId).Trim()
                 $userName = [string]$account.user.name
+                $identityInfo = [string]$account.user.assignedIdentityInfo
             }
             catch {
                 $tenantId = ''
                 $userName = ''
+                $identityInfo = ''
             }
         }
     }
@@ -104,9 +107,10 @@ function Get-AzResourcesViewAccount {
     }
 
     $viewAccount = [PSCustomObject]@{
-        TenantId   = $tenantId
-        UserName   = $userName
-        IsFallback = $isFallback
+        TenantId     = $tenantId
+        UserName     = $userName
+        IdentityInfo = $identityInfo
+        IsFallback   = $isFallback
     }
 
     return $viewAccount
@@ -129,6 +133,12 @@ function Write-AzResourcesViewOwnerNotice {
         ''
     }
 
+    $syncedIdentity = if ($SyncedAs) {
+        [string]$SyncedAs.identityInfo
+    } else {
+        ''
+    }
+
     if ($Account.IsFallback) {
         $who = if ($syncedName) {
             ", synced as $syncedName"
@@ -140,10 +150,19 @@ function Write-AzResourcesViewOwnerNotice {
         return
     }
 
-    $isOtherAccount = $syncedName -and $Account.UserName -and ($syncedName -ne $Account.UserName)
+    if (-not $SyncedAs) {
+        Write-Host "${Title}: synced before account tracking - $($script:AzResourcesViewSyncHint)" -ForegroundColor DarkGray
+        return
+    }
 
-    if ($isOtherAccount) {
-        Write-Host "${Title}: cached for $syncedName, but az is signed in as $($Account.UserName) - 'me' rows are theirs. $($script:AzResourcesViewSyncHint)" -ForegroundColor Yellow
+    # Every managed identity reports the same placeholder user.name, so two
+    # identities are told apart by assignedIdentityInfo when both sides have it.
+    $isOtherName = $syncedName -and $Account.UserName -and ($syncedName -ne $Account.UserName)
+    $isOtherIdentity = $syncedIdentity -and $Account.IdentityInfo -and ($syncedIdentity -ne $Account.IdentityInfo)
+
+    if ($isOtherName -or $isOtherIdentity) {
+        $self = $script:AzResourcesSelfPrincipal
+        Write-Host "${Title}: cached for $syncedName $syncedIdentity, but az is signed in as $($Account.UserName) $($Account.IdentityInfo) - '$self' rows are theirs. $($script:AzResourcesViewSyncHint)" -ForegroundColor Yellow
     }
 }
 
