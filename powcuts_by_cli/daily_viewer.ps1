@@ -46,7 +46,6 @@ $script:AzDevOpsDailyViewerTimerMaxSeconds = 86400     # sanity cap on a client-
 $script:AzDevOpsDailyViewerRefreshStampFile = 'refreshed-on.json'  # per-day full-refresh marker beside the tile cache
 $script:AzDevOpsDailyViewerDayKeyFormat     = 'yyyy-MM-dd'         # calendar-day granularity the daily refresh gates on
 
-
 $script:AzDevOpsDailyViewerTitleDash = "$([char]0x2014)"   # em dash — "Story #1234 — <title>"
 $script:AzDevOpsDailyViewerMiddot    = "$([char]0x00B7)"   # middle dot — "<sub> · <state>"
 $script:AzDevOpsDailyViewerJoinLabel = "Join meeting $([char]0x2192)"   # right arrow
@@ -1130,11 +1129,12 @@ function Get-AzDevOpsDailyViewerActionRoute {
 
 
 function Test-AzDevOpsDailyViewerActionMethod {
-    # Shared method / content-type gate for the single-action write surfaces (create /
+    # Shared method / request gate for the single-action write surfaces (create /
     # draft / timer / unplanned): the read-only action answers a GET, every other
-    # action requires POST + application/json — a JSON content-type forces a preflight
-    # this loopback server never answers, so a cross-origin simple-request forgery
-    # can't reach a write. Writes the 405 / 415 error itself and returns $false when
+    # action requires POST plus a same-origin application/json request (the shared
+    # Get-LocalViewerStateChangeRejection) — a JSON content-type forces a preflight
+    # this loopback server never answers, and Sec-Fetch-Site / Origin refuse a
+    # request the browser marks as cross-site, so a forgery can't reach a write. Writes the 405 / 415 error itself and returns $false when
     # the method or content-type is wrong; $true when the handler may proceed to its
     # action switch. Private helper, so an unapproved verb is fine.
     param(
@@ -1159,8 +1159,9 @@ function Test-AzDevOpsDailyViewerActionMethod {
         return $false
     }
 
-    if (-not (Test-LocalViewerStateChangeAllowed -Request $Request)) {
-        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode 415 -Message "$WriteLabel require a same-origin application/json request."
+    $rejection = Get-LocalViewerStateChangeRejection -Request $Request
+    if ($null -ne $rejection) {
+        Write-AzDevOpsDailyViewerError -Response $Response -StatusCode $rejection.StatusCode -Message "$WriteLabel $($rejection.Message)"
         return $false
     }
 
@@ -2867,8 +2868,9 @@ function Invoke-AzDevOpsDailyViewerApiRequest {
 
         # The re-query is expensive (az boards / Outlook) and rewrites the cache,
         # so a cross-site simple-request must not be able to trigger it.
-        if (-not (Test-LocalViewerStateChangeAllowed -Request $request)) {
-            Write-AzDevOpsDailyViewerError -Response $response -StatusCode 415 -Message 'Refresh requires a same-origin application/json request.'
+        $rejection = Get-LocalViewerStateChangeRejection -Request $request
+        if ($null -ne $rejection) {
+            Write-AzDevOpsDailyViewerError -Response $response -StatusCode $rejection.StatusCode -Message "Refresh $($rejection.Message)"
             return
         }
 

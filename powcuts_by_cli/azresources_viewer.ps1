@@ -205,8 +205,9 @@ function Invoke-AzResourcesViewerTileRequest {
             return
         }
 
-        if (-not (Test-LocalViewerStateChangeAllowed -Request $request)) {
-            Write-AzResourcesViewerError -Response $response -StatusCode 415 -Message 'Refresh requires a same-origin application/json request.'
+        $rejection = Get-LocalViewerStateChangeRejection -Request $request
+        if ($null -ne $rejection) {
+            Write-AzResourcesViewerError -Response $response -StatusCode $rejection.StatusCode -Message "Refresh $($rejection.Message)"
             return
         }
 
@@ -319,13 +320,12 @@ function az-Start-AzResourceViewer {
         return
     }
 
-    try {
-        $cacheDir = Get-AzResourcesCacheDir -TenantId $tenantId
-    }
-    catch {
-        Write-Host "Cannot serve tenant '$tenantId': $($_.Exception.Message)" -ForegroundColor Red
+    if (-not (Test-AzResourcesTenantId -TenantId $tenantId)) {
+        Write-Host "Cannot serve tenant '$tenantId': it is not a GUID." -ForegroundColor Red
         return
     }
+
+    $cacheDir = Get-AzResourcesCacheDir -TenantId $tenantId
 
     if (-not (Test-Path -LiteralPath $cacheDir)) {
         Write-Host "No cache yet for tenant $tenantId - tiles will be empty until you run az-Sync-AzResources or refresh them." -ForegroundColor Yellow

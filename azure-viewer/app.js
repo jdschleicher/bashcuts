@@ -66,6 +66,10 @@ var LABEL_OFFLINE = "server offline";
 var LABEL_NO_CACHE = "no cache yet";
 var LABEL_UNREADABLE = "unreadable cache";
 var SYNCED_ONLINE = "Local cache";
+var CACHED_PREFIX = "cached ";
+var REFRESH_FAILED_PREFIX = "Refresh failed: ";
+var NO_ROLES_TEXT = "No role assignments";
+var ANNOUNCE_REFRESHING_ALL = "Refreshing all tiles…";
 var SYNCED_OFFLINE = "Server offline";
 
 // setStaleLabel modes — each maps to one .stale modifier class (ok = none).
@@ -283,7 +287,7 @@ function identityRow(i) {
       return el("li", { text: role.roleName + ROLE_SCOPE_SEP + scopeName(role.scope) });
     });
   } else {
-    roleItems = [el("li", { text: "No role assignments" })];
+    roleItems = [el("li", { text: NO_ROLES_TEXT })];
   }
 
   var roleList = el("ul", { "class": "role-list", "aria-label": "Roles held" }, roleItems);
@@ -345,7 +349,7 @@ function renderTile(key) {
   count.textContent = "";
 
   if (state.refreshError) {
-    renderNote(body, "Refresh failed: " + state.refreshError, "notice");
+    renderNote(body, REFRESH_FAILED_PREFIX + state.refreshError, "notice");
   }
 
   if (state.offline) {
@@ -371,10 +375,10 @@ function renderTile(key) {
 
   var model = state.model;
   var items = model.items;
-  setStaleLabel(key, "cached " + formatAge(model.ageSeconds), model.stale ? "warn" : "ok");
-
   if (state.refreshError) {
     setStaleLabel(key, LABEL_REFRESH_FAILED, "warn");
+  } else {
+    setStaleLabel(key, CACHED_PREFIX + formatAge(model.ageSeconds), model.stale ? "warn" : "ok");
   }
 
   if (items.state === STATE_NOT_PERMITTED) {
@@ -509,18 +513,33 @@ function refreshTile(btn, quiet) {
 
   return request(API + key + REFRESH_SUFFIX, { method: "POST", headers: JSON_HEADERS, body: EMPTY_JSON_BODY })
     .then(function (res) {
+      setSyncedOffline(false);
+
       if (res.ok && res.data) {
         tileState[key] = { model: res.data };
         return settle(true, "");
       }
 
-      var reason = res.ok ? EMPTY_RESPONSE : (res.data && res.data.error ? res.data.error : "HTTP " + res.status);
-      return settle(false, reason);
+      return settle(false, failureReason(res));
     })
     .catch(function () {
       setSyncedOffline(true);
       return settle(false, OFFLINE_NOTE);
     });
+}
+
+// The server's own explanation when it gave one, else the HTTP status; a 200
+// with no body is its own failure.
+function failureReason(res) {
+  if (res.ok) {
+    return EMPTY_RESPONSE;
+  }
+
+  if (res.data && res.data.error) {
+    return res.data.error;
+  }
+
+  return "HTTP " + res.status;
 }
 
 function announceIf(quiet, message) {
@@ -543,7 +562,7 @@ document.querySelectorAll(".refresh-btn").forEach(function (btn) {
 document.getElementById("refreshAll").addEventListener("click", function () {
   var buttons = Array.prototype.slice.call(document.querySelectorAll(".refresh-btn"));
 
-  announce("Refreshing all tiles…");
+  announce(ANNOUNCE_REFRESHING_ALL);
 
   Promise.all(buttons.map(function (btn) { return refreshTile(btn, true); })).then(function (results) {
     var ran = results.filter(function (r) { return r !== null; });
@@ -571,12 +590,14 @@ document.getElementById("collapseAll").addEventListener("click", function () {
   setAllTilesOpen(false);
 });
 
-// The "Local cache" chip doubles as the connection indicator.
+// The "Local cache" chip doubles as the connection indicator: any answer from
+// the server flips it back online, a network failure flips it offline.
 var syncedChip = document.querySelector(".synced");
+var syncedLabel = syncedChip.querySelector(".synced-label");
 
 function setSyncedOffline(offline) {
   syncedChip.classList.toggle("offline", offline);
-  syncedChip.lastChild.textContent = offline ? SYNCED_OFFLINE : SYNCED_ONLINE;
+  syncedLabel.textContent = offline ? SYNCED_OFFLINE : SYNCED_ONLINE;
 }
 
 var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");

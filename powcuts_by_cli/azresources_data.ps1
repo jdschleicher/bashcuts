@@ -122,18 +122,26 @@ function Get-AzResourcesCacheRoot {
 }
 
 
-function Get-AzResourcesCacheDir {
+function Test-AzResourcesTenantId {
     # The tenant id becomes a path segment, so it must be a GUID — never a
     # value that could climb out of the cache root.
-    param([Parameter(Mandatory)] [string] $TenantId)
+    param([AllowNull()] [AllowEmptyString()] [string] $TenantId)
 
     $parsedTenant = [guid]::Empty
-    if (-not [guid]::TryParse($TenantId, [ref]$parsedTenant)) {
+    $isGuid = [guid]::TryParse([string]$TenantId, [ref]$parsedTenant)
+    return $isGuid
+}
+
+
+function Get-AzResourcesCacheDir {
+    param([Parameter(Mandatory)] [string] $TenantId)
+
+    if (-not (Test-AzResourcesTenantId -TenantId $TenantId)) {
         throw "Tenant id '$TenantId' is not a GUID."
     }
 
     $cacheRoot = Get-AzResourcesCacheRoot
-    $dir = Join-Path $cacheRoot $parsedTenant.ToString()
+    $dir = Join-Path $cacheRoot ([guid]$TenantId).ToString()
     return $dir
 }
 
@@ -265,18 +273,63 @@ function Test-AzResourcesCallPermitted {
 }
 
 
+function Get-AzResourcesLocalAccount {
+    # { TenantId, UserName, UserType } az is logged into, read from the local
+    # az profile (no network), or $null when az is missing or signed out. The
+    # single `az account show` reader — the sync, the terminal views, and the
+    # viewer's per-refresh tenant check all go through it.
+    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
+    # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw.
+    $raw = $null
+    try {
+        $raw = az account show --output json 2>$null
+    }
+    catch {
+        $raw = $null
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $raw) {
+        return $null
+    }
+
+    $account = $null
+    try {
+        $account = ($raw -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    if (-not $account.tenantId) {
+        return $null
+    }
+
+    $localAccount = [PSCustomObject]@{
+        TenantId = ([string]$account.tenantId).Trim()
+        UserName = [string]$account.user.name
+        UserType = [string]$account.user.type
+    }
+
+    return $localAccount
+}
+
+
 function Get-AzResourcesAccountContext {
     # Who am I, in which tenant? Returns $null when az isn't logged in so the
     # caller can print one clear message before touching the cache. ObjectId
     # is best-effort (some tenants block directory reads); role matching falls
     # back to the sign-in name when it's missing.
-    $account = Invoke-AzResourcesAz -ArgList @('account', 'show')
-    if (-not $account.Ok -or -not $account.Data.tenantId) {
+    $account = Get-AzResourcesLocalAccount
+    if ($null -eq $account) {
         return $null
     }
 
-    $userName = [string]$account.Data.user.name
-    $isUser = ([string]$account.Data.user.type -eq $script:AzResourcesUserAccountType)
+    $userName = $account.UserName
+    $isUser = ($account.UserType -eq $script:AzResourcesUserAccountType)
 
     $objectArgs = if ($isUser) {
         @('ad', 'signed-in-user', 'show')
@@ -299,7 +352,7 @@ function Get-AzResourcesAccountContext {
     }
 
     $context = [PSCustomObject]@{
-        TenantId = [string]$account.Data.tenantId
+        TenantId = $account.TenantId
         UserName = $userName
         IsUser   = $isUser
         ObjectId = $objectId

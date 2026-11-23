@@ -27,12 +27,15 @@ $script:LocalViewerLoopbackAddress  = '127.0.0.1'
 $script:LocalViewerFallbackMimeType = 'application/octet-stream'
 $script:LocalViewerJsonContentType  = 'application/json; charset=utf-8'
 $script:LocalViewerIndexFile        = 'index.html'
-$script:LocalViewerJsonMediaType   = 'application/json'
-$script:LocalViewerMediaTypeSep    = ';'
-$script:LocalViewerFetchSiteHeader = 'Sec-Fetch-Site'
-$script:LocalViewerOriginHeader    = 'Origin'
-$script:LocalViewerSameOriginSites = @('same-origin', 'none')   # Sec-Fetch-Site values a same-page fetch / typed URL send
-$script:LocalViewerInternalError   = 'Internal server error.'
+$script:LocalViewerJsonMediaType    = 'application/json'
+$script:LocalViewerMediaTypeSep     = ';'
+$script:LocalViewerFetchSiteHeader  = 'Sec-Fetch-Site'
+$script:LocalViewerOriginHeader     = 'Origin'
+$script:LocalViewerSameOriginSites  = @('same-origin', 'none')   # Sec-Fetch-Site values a same-page fetch / typed URL send
+$script:LocalViewerInternalError    = 'Internal server error.'
+$script:LocalViewerDefaultHttpPort        = 80    # a browser's Origin omits the port when it's the default
+$script:LocalViewerStatusForbidden        = 403
+$script:LocalViewerStatusUnsupportedMedia = 415
 
 # Strict Content-Security-Policy shared by every viewer. Pages load styles.css +
 # app.js as same-origin assets and fetch /api/* same-origin; there are no inline
@@ -455,8 +458,17 @@ function Test-LocalViewerSameOriginRequest {
         return $false
     }
 
+    # Own origin from the fixed loopback address + the socket's local port —
+    # never from the client-supplied Host header — so this check holds on its
+    # own even if HttpListener's Host matching ever let a rebinding name in.
     $origin = [string]$Request.Headers[$script:LocalViewerOriginHeader]
-    $ownOrigin = "$($Request.Url.Scheme)://$($Request.Url.Authority)"
+    $port = $Request.LocalEndPoint.Port
+
+    $ownOrigin = if ($port -eq $script:LocalViewerDefaultHttpPort) {
+        "http://$($script:LocalViewerLoopbackAddress)"
+    } else {
+        "http://$($script:LocalViewerLoopbackAddress):$port"
+    }
 
     if ($origin -and $origin -ne $ownOrigin) {
         return $false
@@ -466,13 +478,41 @@ function Test-LocalViewerSameOriginRequest {
 }
 
 
-function Test-LocalViewerStateChangeAllowed {
-    # The gate every state-changing request (a write, an expensive refresh)
-    # must pass: a genuine application/json media type, which forces a
-    # preflight this server never answers, AND no cross-site markers.
+function Get-LocalViewerStateChangeRejection {
+    # Why a state-changing request (a write, an expensive refresh) must be
+    # refused, or $null when it may proceed: { StatusCode, Message } with 415
+    # for a non-JSON media type (JSON forces a preflight this server never
+    # answers) and 403 for a request the browser marks as cross-site. Message
+    # completes a sentence the caller starts ("Refresh requires …").
     param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
 
-    $isAllowed = (Test-LocalViewerJsonContentType -Request $Request) -and (Test-LocalViewerSameOriginRequest -Request $Request)
+    if (-not (Test-LocalViewerJsonContentType -Request $Request)) {
+        $unsupported = [PSCustomObject]@{
+            StatusCode = $script:LocalViewerStatusUnsupportedMedia
+            Message    = 'requires Content-Type: application/json.'
+        }
+
+        return $unsupported
+    }
+
+    if (-not (Test-LocalViewerSameOriginRequest -Request $Request)) {
+        $forbidden = [PSCustomObject]@{
+            StatusCode = $script:LocalViewerStatusForbidden
+            Message    = 'refused: cross-site requests are not allowed.'
+        }
+
+        return $forbidden
+    }
+
+    return $null
+}
+
+
+function Test-LocalViewerStateChangeAllowed {
+    param([Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request)
+
+    $rejection = Get-LocalViewerStateChangeRejection -Request $Request
+    $isAllowed = ($null -eq $rejection)
     return $isAllowed
 }
 
