@@ -26,10 +26,15 @@
 
 $script:AzResourcesViewStaleSeconds = 86400   # a day: past this the status line nudges a re-sync
 $script:AzResourcesViewSyncHint     = "Run 'az-Sync-AzResources' to refresh."
-$script:AzResourcesViewDateFormat   = 'yyyy-MM-dd'
 $script:AzResourcesViewMiddot       = "$([char]0x00B7)"   # middle dot — "12 rows · cached 3m ago"
 $script:AzResourcesViewRoleJoin     = ', '
+$script:AzResourcesViewRoleScopeSep = ' @ '                 # "Reader @ rg-payments"
 $script:AzResourcesViewScopeRoot    = '/'
+
+$script:AzResourcesRoleTitle     = 'Role assignments'
+$script:AzResourcesGroupTitle    = 'Group memberships'
+$script:AzResourcesAppTitle      = 'App registrations'
+$script:AzResourcesIdentityTitle = 'Managed identities'
 
 $script:AzResourcesRoleRowType     = 'Bashcuts.AzResources.RoleAssignment'
 $script:AzResourcesGroupRowType    = 'Bashcuts.AzResources.GroupMembership'
@@ -38,7 +43,7 @@ $script:AzResourcesIdentityRowType = 'Bashcuts.AzResources.ManagedIdentity'
 
 $script:AzResourcesRoleDisplay     = @('Role', 'Principal', 'ScopeType', 'ScopeName')
 $script:AzResourcesGroupDisplay    = @('Name', 'Relationship', 'GroupType', 'Mail')
-$script:AzResourcesAppDisplay      = @('Name', 'Kind', 'Credentials', 'NextExpiry')
+$script:AzResourcesAppDisplay      = @('Name', 'Kind', 'CredentialCount', 'NextExpiry')
 $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCount')
 
 
@@ -52,7 +57,17 @@ function Get-AzResourcesViewTenantId {
     $tenantId = ''
 
     if (Get-Command az -ErrorAction SilentlyContinue) {
-        $azTenant = az account show --query tenantId --output tsv 2>$null
+        # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
+        # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw
+        # instead of falling through to the cache-folder fallback.
+        $azTenant = $null
+        try {
+            $azTenant = az account show --query tenantId --output tsv 2>$null
+        }
+        catch {
+            $azTenant = $null
+        }
+
         if ($LASTEXITCODE -eq 0 -and $azTenant) {
             $tenantId = ([string]$azTenant).Trim()
         }
@@ -77,16 +92,34 @@ function Get-AzResourcesViewTenantId {
 
 
 function Write-AzResourcesViewMissing {
-    param([Parameter(Mandatory)] [string] $Title)
+    # The "nothing to show yet" hint. -TenantId names the tenant that was
+    # looked up, so "az is on tenant A but only B was synced" is obvious;
+    # -Unreadable distinguishes a corrupt file from one never written.
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [string] $TenantId = '',
+        [switch] $Unreadable
+    )
 
-    Write-Host "${Title}: no cached data yet. $($script:AzResourcesViewSyncHint)" -ForegroundColor Yellow
+    $what = if ($Unreadable) {
+        'no readable cached data'
+    } else {
+        'no cached data yet'
+    }
+
+    $forTenant = if ($TenantId) {
+        " for tenant $TenantId"
+    } else {
+        ''
+    }
+
+    Write-Host "${Title}: $what$forTenant. $($script:AzResourcesViewSyncHint)" -ForegroundColor Yellow
 }
 
 
-function Read-AzResourcesViewTile {
-    # Load one tile from the cache and print its status line. Returns the
-    # tile's records (possibly none). Prints a hint and returns nothing when the
-    # cache is missing, and a one-line notice when the tile is notPermitted.
+function Get-AzResourcesViewTilePath {
+    # Path of -Tile's cache file for the current tenant, or '' (after printing
+    # the missing-cache hint) when there's no tenant or its id isn't a GUID.
     param(
         [Parameter(Mandatory)] [string] $Tile,
         [Parameter(Mandatory)] [string] $Title
@@ -95,25 +128,79 @@ function Read-AzResourcesViewTile {
     $tenantId = Get-AzResourcesViewTenantId
     if (-not $tenantId) {
         Write-AzResourcesViewMissing -Title $Title
-        return
+        return ''
     }
 
+    $path = ''
     try {
         $path = Get-AzResourcesTilePath -TenantId $tenantId -Tile $Tile
     }
     catch {
-        Write-AzResourcesViewMissing -Title $Title
+        Write-AzResourcesViewMissing -Title $Title -TenantId $tenantId
+    }
+
+    return $path
+}
+
+
+function Write-AzResourcesViewStatus {
+    # "<title>: N · cached 12m ago", yellow with a re-sync nudge once stale,
+    # plus any partial-permission message the sync recorded.
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [int] $Count,
+        [Parameter(Mandatory)] [string] $AgeLabel,
+        [Parameter(Mandatory)] [bool] $IsStale,
+        [AllowEmptyString()] [string] $Message = ''
+    )
+
+    $dot = $script:AzResourcesViewMiddot
+    $status = "${Title}: $Count $dot $AgeLabel"
+
+    if ($IsStale) {
+        $status = "$status $dot $($script:AzResourcesViewSyncHint)"
+        $statusColor = 'Yellow'
+    } else {
+        $statusColor = 'DarkGray'
+    }
+
+    Write-Host $status -ForegroundColor $statusColor
+
+    if ($Message) {
+        Write-Host "  $Message" -ForegroundColor Yellow
+    }
+}
+
+
+function Read-AzResourcesViewTile {
+    # Load one tile from the cache and print its status line. Returns the
+    # tile's records (possibly none). Prints a hint and returns nothing when the
+    # cache is missing or unreadable, and a one-line notice when the tile is
+    # notPermitted.
+    param(
+        [Parameter(Mandatory)] [string] $Tile,
+        [Parameter(Mandatory)] [string] $Title
+    )
+
+    $path = Get-AzResourcesViewTilePath -Tile $Tile -Title $Title
+    if (-not $path) {
         return
     }
 
     $model = Read-LocalViewerTileCache -Path $path -Tile $Tile -StaleSeconds $script:AzResourcesViewStaleSeconds
-    if ($null -eq $model -or $null -eq $model.items) {
+    if ($null -eq $model) {
         Write-AzResourcesViewMissing -Title $Title
         return
     }
 
+    if ($null -eq $model.items) {
+        Write-AzResourcesViewMissing -Title $Title -Unreadable
+        return
+    }
+
     $cachedAt = (Get-Date).AddSeconds(-$model.ageSeconds)
-    $ageLabel = "cached $(Get-LocalViewerRelativeTime -When $cachedAt)"
+    $relative = Get-LocalViewerRelativeTime -When $cachedAt
+    $ageLabel = "cached $relative"
     $items = $model.items
 
     if ($items.state -eq $script:AzResourcesStateNotPermitted) {
@@ -123,22 +210,8 @@ function Read-AzResourcesViewTile {
 
     $records = @($items.records | Where-Object { $null -ne $_ })
 
-    $statusColor = if ($model.stale) {
-        'Yellow'
-    } else {
-        'DarkGray'
-    }
-
-    $status = "${Title}: $($records.Count) $($script:AzResourcesViewMiddot) $ageLabel"
-    if ($model.stale) {
-        $status = "$status $($script:AzResourcesViewMiddot) $($script:AzResourcesViewSyncHint)"
-    }
-
-    Write-Host $status -ForegroundColor $statusColor
-
-    if ($items.message) {
-        Write-Host "  $($items.message)" -ForegroundColor Yellow
-    }
+    Write-AzResourcesViewStatus -Title $Title -Count $records.Count -AgeLabel $ageLabel `
+        -IsStale ([bool]$model.stale) -Message ([string]$items.message)
 
     return $records
 }
@@ -160,41 +233,6 @@ function Set-AzResourcesViewDisplay {
 # ---------------------------------------------------------------------------
 # Field helpers
 # ---------------------------------------------------------------------------
-
-function ConvertTo-AzResourcesDateTimeOffset {
-    # A cached date back to [datetimeoffset], or $null. The cache stores ISO
-    # strings, but PowerShell 6+ ConvertFrom-Json hands them back as [datetime].
-    param([AllowNull()] $Value)
-
-    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
-        return $null
-    }
-
-    if ($Value -is [datetimeoffset]) {
-        return $Value
-    }
-
-    if ($Value -is [datetime]) {
-        $fromDate = [datetimeoffset]$Value.ToUniversalTime()
-        return $fromDate
-    }
-
-    $parsed = [datetimeoffset]::MinValue
-
-    $isParsed = [datetimeoffset]::TryParse(
-        [string]$Value,
-        [System.Globalization.CultureInfo]::InvariantCulture,
-        [System.Globalization.DateTimeStyles]::AssumeUniversal,
-        [ref]$parsed
-    )
-
-    if (-not $isParsed) {
-        return $null
-    }
-
-    return $parsed
-}
-
 
 function Get-AzResourcesScopeDisplayName {
     # Last segment of an ARM scope ("rg-payments", the subscription GUID, a
@@ -248,7 +286,7 @@ function az-Show-AzRoleAssignments {
     .EXAMPLE
         az-Show-AzRoleAssignments | Where-Object ScopeType -eq 'subscription'
     #>
-    $records = Read-AzResourcesViewTile -Tile 'roles' -Title 'Role assignments'
+    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileRoles -Title $script:AzResourcesRoleTitle
     Set-AzResourcesViewDisplay -TypeName $script:AzResourcesRoleRowType -Properties $script:AzResourcesRoleDisplay
 
     $rows = foreach ($record in $records) {
@@ -283,7 +321,7 @@ function az-Show-AzGroupMemberships {
     .EXAMPLE
         az-Show-AzGroupMemberships | Where-Object Relationship -eq 'owner'
     #>
-    $records = Read-AzResourcesViewTile -Tile 'groups' -Title 'Group memberships'
+    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileGroups -Title $script:AzResourcesGroupTitle
     Set-AzResourcesViewDisplay -TypeName $script:AzResourcesGroupRowType -Properties $script:AzResourcesGroupDisplay
 
     $rows = foreach ($record in $records) {
@@ -310,36 +348,30 @@ function az-Show-AzAppRegistrations {
 
     .DESCRIPTION
         Reads the apps tile written by az-Sync-AzResources (no network call).
-        NextExpiry is the soonest secret / certificate end date (blank when no
-        credential has one); the full list is on each row's CredentialList.
-        For expiry warnings use az-Show-AzExpiringCredentials.
+        NextExpiry is the soonest secret / certificate end date as a
+        [datetimeoffset] ($null when no credential has one); the full list is
+        on each row's CredentialList.
 
     .EXAMPLE
         az-Show-AzAppRegistrations | Sort-Object NextExpiry
     #>
-    $records = Read-AzResourcesViewTile -Tile 'apps' -Title 'App registrations'
+    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileApps -Title $script:AzResourcesAppTitle
     Set-AzResourcesViewDisplay -TypeName $script:AzResourcesAppRowType -Properties $script:AzResourcesAppDisplay
 
     $rows = foreach ($record in $records) {
         $credentialList = @($record.credentials | Where-Object { $null -ne $_ })
-        $soonest = Get-AzResourcesSoonestExpiry -Credentials $credentialList
-
-        $nextExpiry = if ($null -ne $soonest) {
-            $soonest.UtcDateTime.ToString($script:AzResourcesViewDateFormat)
-        } else {
-            ''
-        }
+        $nextExpiry = Get-AzResourcesSoonestExpiry -Credentials $credentialList
 
         [PSCustomObject]@{
-            PSTypeName     = $script:AzResourcesAppRowType
-            Name           = [string]$record.displayName
-            Kind           = [string]$record.kind
-            Credentials    = $credentialList.Count
-            NextExpiry     = $nextExpiry
-            AppId          = [string]$record.appId
-            ObjectId       = [string]$record.objectId
-            CredentialList = $credentialList
-            PortalUrl      = [string]$record.portalUrl
+            PSTypeName      = $script:AzResourcesAppRowType
+            Name            = [string]$record.displayName
+            Kind            = [string]$record.kind
+            CredentialCount = $credentialList.Count
+            NextExpiry      = $nextExpiry
+            AppId           = [string]$record.appId
+            ObjectId        = [string]$record.objectId
+            CredentialList  = $credentialList
+            PortalUrl       = [string]$record.portalUrl
         }
     }
 
@@ -360,14 +392,15 @@ function az-Show-AzManagedIdentities {
     .EXAMPLE
         az-Show-AzManagedIdentities | Where-Object RoleCount -eq 0
     #>
-    $records = Read-AzResourcesViewTile -Tile 'identities' -Title 'Managed identities'
+    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileIdentities -Title $script:AzResourcesIdentityTitle
     Set-AzResourcesViewDisplay -TypeName $script:AzResourcesIdentityRowType -Properties $script:AzResourcesIdentityDisplay
 
     $rows = foreach ($record in $records) {
         $roleList = @($record.roles | Where-Object { $null -ne $_ })
 
         $roleLabels = foreach ($role in $roleList) {
-            "$($role.roleName) @ $(Get-AzResourcesScopeDisplayName -Scope ([string]$role.scope))"
+            $scopeName = Get-AzResourcesScopeDisplayName -Scope ([string]$role.scope)
+            "$($role.roleName)$($script:AzResourcesViewRoleScopeSep)$scopeName"
         }
 
         [PSCustomObject]@{
