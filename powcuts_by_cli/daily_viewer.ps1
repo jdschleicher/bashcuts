@@ -22,12 +22,17 @@
 # framing headers, so even a work-item title carrying markup renders inert:
 # the page has no inline-script/style path for it to escape into.
 #
-# Loaded by powcuts_home.ps1. See azdevops_auth.ps1 for the master docstring.
+# The generic server plumbing (loopback listener, security headers, static
+# assets, response writers, bounded body read, tile cache read/write) lives in
+# localhost_viewer.ps1; this file supplies the daily viewer's CSP, cache
+# location, tiles, and routes.
+#
+# Loaded by powcuts_home.ps1 after localhost_viewer.ps1. See azdevops_auth.ps1
+# for the master docstring.
 
 $script:AzDevOpsDailyViewerDefaultPort     = 8770
 $script:AzDevOpsDailyViewerStaleSeconds    = 900     # 15 min: mtime age past which a tile reads "stale"
 $script:AzDevOpsDailyViewerCacheSubdir     = 'daily-viewer'
-$script:AzDevOpsDailyViewerLoopbackAddress = '127.0.0.1'
 $script:AzDevOpsDailyViewerJsonDepth       = 10      # nesting the tile payloads / API responses serialize to
 $script:AzDevOpsDailyViewerPrepWindowDays  = 14      # "events to prepare for" look-ahead: the next two weeks
 $script:AzDevOpsDailyViewerMarkerNeeded    = 'needed'  # a newly-pulled meeting starts "prep still needed"
@@ -98,17 +103,6 @@ $script:AzDevOpsDailyViewerUnplannedDefaultMinutes = 5      # firefight minutes 
 $script:AzDevOpsDailyViewerUnplannedMaxMinutes     = 1440   # sanity cap on client-reported minutes (one day)
 $script:AzDevOpsDailyViewerUnplannedMaxItems       = 200    # cap on captured items per firefight
 $script:AzDevOpsDailyViewerUnplannedMaxTitle       = 255    # server-side clamp on the firefight title (mirrors the client maxlength)
-
-$script:AzDevOpsDailyViewerMimeTypes = @{
-    '.html' = 'text/html; charset=utf-8'
-    '.css'  = 'text/css; charset=utf-8'
-    '.js'   = 'text/javascript; charset=utf-8'
-    '.json' = 'application/json; charset=utf-8'
-    '.svg'  = 'image/svg+xml'
-    '.ico'  = 'image/x-icon'
-    '.png'  = 'image/png'
-    '.woff2'= 'font/woff2'
-}
 
 
 # ---------------------------------------------------------------------------
@@ -808,19 +802,10 @@ function Write-AzDevOpsDailyViewerTile {
         throw "Write-AzDevOpsDailyViewerTile: no active cache dir (run az-Connect-AzDevOps first)."
     }
 
-    $dir = Split-Path -Parent $path
-    New-AzDevOpsDirectoryIfMissing -Path $dir
-
     $items = New-AzDevOpsDailyViewerTileItems -Tile $Tile
 
-    $record = [ordered]@{
-        tile      = $Tile
-        writtenAt = (Get-Date).ToString('o')
-        items     = $items
-    }
-
-    $json = $record | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
-    Write-AzDevOpsCacheFile -Path $path -Content $json
+    Write-LocalViewerTileCache -Path $path -Tile $Tile -Items $items `
+        -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 
     $model = Read-AzDevOpsDailyViewerTile -Tile $Tile
     return $model
@@ -834,50 +819,20 @@ function Read-AzDevOpsDailyViewerTile {
     param([Parameter(Mandatory)] [string] $Tile)
 
     $path = Get-AzDevOpsDailyViewerTilePath -Tile $Tile
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    if (-not $path) {
         return $null
     }
 
-    $file = Get-Item -LiteralPath $path
-    $ageSeconds = [int]((Get-Date) - $file.LastWriteTime).TotalSeconds
-    $isStale = ($ageSeconds -ge $script:AzDevOpsDailyViewerStaleSeconds)
-
-    $raw = Get-Content -LiteralPath $path -Raw
-
-    $record = $null
-    try {
-        $record = $raw | ConvertFrom-Json
-    }
-    catch {
-        $record = $null
-    }
-
-    $writtenAt = if ($record -and $record.writtenAt) {
-        $record.writtenAt
-    } else {
-        $file.LastWriteTime.ToString('o')
-    }
-
-    $items = if ($record) {
-        $record.items
-    } else {
-        $null
-    }
+    $model = Read-LocalViewerTileCache -Path $path -Tile $Tile `
+        -StaleSeconds $script:AzDevOpsDailyViewerStaleSeconds
 
     # The prep tile's markers live in their own store, not the tile cache, so a
     # toggle survives a reload without a re-query. Overlay it here — the one seam
     # both the cheap GET and the POST /refresh return through (refresh ends by
     # re-reading) — so every response reflects the marker the user last chose.
-    if ($Tile -eq $script:AzDevOpsDailyViewerPrepTile) {
-        Set-AzDevOpsDailyViewerPrepMarkersFromStore -Items $items
-    }
-
-    $model = [ordered]@{
-        tile       = $Tile
-        writtenAt  = $writtenAt
-        ageSeconds = $ageSeconds
-        stale      = $isStale
-        items      = $items
+    # The overlay mutates the rows in place, so it lands on $model.items.
+    if ($null -ne $model -and $Tile -eq $script:AzDevOpsDailyViewerPrepTile) {
+        Set-AzDevOpsDailyViewerPrepMarkersFromStore -Items $model.items
     }
 
     return $model
@@ -1138,95 +1093,9 @@ function Update-AzDevOpsDailyViewerAllTiles {
 
 
 # ---------------------------------------------------------------------------
-# Static asset serving
+# HTTP response writers — bind the daily viewer's CSP + JSON depth onto the
+# shared localhost_viewer.ps1 writers so the many call sites below stay terse
 # ---------------------------------------------------------------------------
-
-function Get-AzDevOpsDailyViewerContentType {
-    param([Parameter(Mandatory)] [string] $Path)
-
-    $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
-
-    $type = if ($script:AzDevOpsDailyViewerMimeTypes.ContainsKey($ext)) {
-        $script:AzDevOpsDailyViewerMimeTypes[$ext]
-    } else {
-        'application/octet-stream'
-    }
-
-    return $type
-}
-
-
-function Resolve-AzDevOpsDailyViewerAssetPath {
-    # Map a request path to a file inside the static root, refusing anything that
-    # escapes the root (path traversal). Returns $null when the target is outside
-    # the root or does not exist, so the router answers 404.
-    param(
-        [Parameter(Mandatory)] [string] $RequestPath,
-        [Parameter(Mandatory)] [string] $Root
-    )
-
-    $relative = $RequestPath.TrimStart('/')
-    if (-not $relative) {
-        $relative = 'index.html'
-    }
-
-    $candidate = Join-Path $Root $relative
-    $fullCandidate = [System.IO.Path]::GetFullPath($candidate)
-    $fullRoot = [System.IO.Path]::GetFullPath($Root)
-
-    $rootPrefix = $fullRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
-    if (-not $fullCandidate.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $null
-    }
-
-    if (-not (Test-Path -LiteralPath $fullCandidate -PathType Leaf)) {
-        return $null
-    }
-
-    return $fullCandidate
-}
-
-
-# ---------------------------------------------------------------------------
-# HTTP response writers
-# ---------------------------------------------------------------------------
-
-function Add-AzDevOpsDailyViewerSecurityHeaders {
-    # Stamp the hardening headers on every response — HTML, static asset, JSON,
-    # and error alike — since all of them funnel through the byte writer below.
-    # A strict same-origin CSP is the anchor; nosniff stops MIME-confusion,
-    # no-referrer keeps local URLs off the wire, and DENY refuses any framing.
-    param([Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response)
-
-    $Response.Headers['Content-Security-Policy'] = $script:AzDevOpsDailyViewerContentSecurityPolicy
-    $Response.Headers['X-Content-Type-Options']  = 'nosniff'
-    $Response.Headers['Referrer-Policy']         = 'no-referrer'
-    $Response.Headers['X-Frame-Options']         = 'DENY'
-}
-
-
-function Write-AzDevOpsDailyViewerBytes {
-    param(
-        [Parameter(Mandatory)] [System.Net.HttpListenerResponse] $Response,
-        [Parameter(Mandatory)] [int]    $StatusCode,
-        [Parameter(Mandatory)] [string] $ContentType,
-        [byte[]] $Body = @()
-    )
-
-    Add-AzDevOpsDailyViewerSecurityHeaders -Response $Response
-
-    $Response.StatusCode  = $StatusCode
-    $Response.ContentType = $ContentType
-    $Response.ContentLength64 = $Body.Length
-
-    if ($Body.Length -gt 0) {
-        $Response.OutputStream.Write($Body, 0, $Body.Length)
-    }
-
-    $Response.OutputStream.Close()
-    $Response.Close()
-}
-
 
 function Write-AzDevOpsDailyViewerJson {
     param(
@@ -1235,11 +1104,9 @@ function Write-AzDevOpsDailyViewerJson {
         [Parameter(Mandatory)] [AllowNull()] $Object
     )
 
-    $json = $Object | ConvertTo-Json -Depth $script:AzDevOpsDailyViewerJsonDepth
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-
-    Write-AzDevOpsDailyViewerBytes -Response $Response -StatusCode $StatusCode `
-        -ContentType 'application/json; charset=utf-8' -Body $bytes
+    Write-LocalViewerJson -Response $Response -StatusCode $StatusCode -Object $Object `
+        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
 
@@ -1250,8 +1117,9 @@ function Write-AzDevOpsDailyViewerError {
         [Parameter(Mandatory)] [string] $Message
     )
 
-    $payload = [ordered]@{ error = $Message }
-    Write-AzDevOpsDailyViewerJson -Response $Response -StatusCode $StatusCode -Object $payload
+    Write-LocalViewerError -Response $Response -StatusCode $StatusCode -Message $Message `
+        -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+        -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
 }
 
 
@@ -1260,82 +1128,17 @@ function Write-AzDevOpsDailyViewerError {
 # ---------------------------------------------------------------------------
 
 function Read-AzDevOpsDailyViewerRequestJson {
-    # Parse a small JSON request body, bounded so a runaway/oversized POST can't
-    # exhaust memory. Returns the parsed object, or $null when the body is too
-    # large, empty, or not valid JSON — the caller answers 400 on $null. The
-    # store is never touched here, so a rejected body can't corrupt it. -MaxBytes
-    # lets a larger surface (the create payloads, which carry descriptions,
-    # acceptance criteria, and story batches) raise the cap above the tiny
-    # prep-marker default without loosening it for the marker path.
+    # Bounded JSON body read (see Read-LocalViewerRequestJson). -MaxBytes lets a
+    # larger surface (the create payloads, which carry descriptions, acceptance
+    # criteria, and story batches) raise the cap above the tiny prep-marker
+    # default without loosening it for the marker path.
     param(
         [Parameter(Mandatory)] [System.Net.HttpListenerRequest] $Request,
         [int] $MaxBytes = $script:AzDevOpsDailyViewerMaxRequestBytes
     )
 
-    $maxBytes = $MaxBytes
-
-    # A chunked / unknown-length body reports ContentLength64 -1 and would skip
-    # the size guard (ReadToEnd would buffer it all first), so reject it up front
-    # along with anything over the cap.
-    if ($Request.ContentLength64 -lt 0 -or $Request.ContentLength64 -gt $maxBytes) {
-        return $null
-    }
-
-    # Require a JSON content type. Beyond correctness this blunts cross-site POSTs:
-    # a browser can't set application/json cross-origin without a preflight this
-    # loopback server never satisfies, so a simple-request forgery can't reach the
-    # store — it lands here as a rejected body instead.
-    $contentType = [string]$Request.ContentType
-    if ($contentType -notlike '*application/json*') {
-        return $null
-    }
-
-    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-    try {
-        $text = $reader.ReadToEnd()
-    }
-    finally {
-        $reader.Dispose()
-    }
-
-    if (-not $text -or $text.Length -gt $maxBytes) {
-        return $null
-    }
-
-    try {
-        $parsed = $text | ConvertFrom-Json
-    }
-    catch {
-        return $null
-    }
-
+    $parsed = Read-LocalViewerRequestJson -Request $Request -MaxBytes $MaxBytes
     return $parsed
-}
-
-
-function Split-AzDevOpsDailyViewerApiPath {
-    # Shared scaffolding for the /api/* route parsers: require a known prefix,
-    # trim the surrounding slashes, and split what's left into path segments.
-    # Returns $null when the path doesn't carry the prefix or is empty after it,
-    # so each parser (tiles / create) keeps only its own segment-shape rules. The
-    # unary-comma return keeps a single-segment result an array — PowerShell would
-    # otherwise unroll it to a scalar and break the callers' .Count checks.
-    param(
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [string] $Prefix
-    )
-
-    if (-not $Path.StartsWith($Prefix)) {
-        return $null
-    }
-
-    $rest = $Path.Substring($Prefix.Length).Trim('/')
-    if (-not $rest) {
-        return $null
-    }
-
-    $segments = $rest -split '/'
-    return ,$segments
 }
 
 
@@ -1350,7 +1153,7 @@ function Get-AzDevOpsDailyViewerActionRoute {
         [Parameter(Mandatory)] [string] $Prefix
     )
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix $Prefix
+    $segments = Split-LocalViewerApiPath -Path $Path -Prefix $Prefix
     if ($null -eq $segments) {
         return $null
     }
@@ -1411,7 +1214,7 @@ function Get-AzDevOpsDailyViewerTileRoute {
     # verbs (cheap GET, expensive refresh, prep-marker write) apart.
     param([Parameter(Mandatory)] [string] $Path)
 
-    $segments = Split-AzDevOpsDailyViewerApiPath -Path $Path -Prefix '/api/tiles/'
+    $segments = Split-LocalViewerApiPath -Path $Path -Prefix '/api/tiles/'
     if ($null -eq $segments) {
         return $null
     }
@@ -3147,33 +2950,6 @@ function Invoke-AzDevOpsDailyViewerApiRequest {
 }
 
 
-function Invoke-AzDevOpsDailyViewerStaticRequest {
-    param(
-        [Parameter(Mandatory)] [System.Net.HttpListenerContext] $Context,
-        [Parameter(Mandatory)] [string] $StaticRoot
-    )
-
-    $request  = $Context.Request
-    $response = $Context.Response
-
-    if ($request.HttpMethod -ne 'GET') {
-        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 405 -Message 'Static assets are GET only.'
-        return
-    }
-
-    $assetPath = Resolve-AzDevOpsDailyViewerAssetPath -RequestPath $request.Url.AbsolutePath -Root $StaticRoot
-    if (-not $assetPath) {
-        Write-AzDevOpsDailyViewerError -Response $response -StatusCode 404 -Message 'Not found.'
-        return
-    }
-
-    $bytes = [System.IO.File]::ReadAllBytes($assetPath)
-    $contentType = Get-AzDevOpsDailyViewerContentType -Path $assetPath
-
-    Write-AzDevOpsDailyViewerBytes -Response $response -StatusCode 200 -ContentType $contentType -Body $bytes
-}
-
-
 function Invoke-AzDevOpsDailyViewerRequest {
     # Front door: /api/tiles/* goes to the tile handler (cheap GET / expensive
     # POST), /api/create/* + /api/draft/* + /api/timer/* + /api/unplanned/* to the
@@ -3219,7 +2995,9 @@ function Invoke-AzDevOpsDailyViewerRequest {
             return
         }
 
-        Invoke-AzDevOpsDailyViewerStaticRequest -Context $Context -StaticRoot $StaticRoot
+        Invoke-LocalViewerStaticRequest -Context $Context -StaticRoot $StaticRoot `
+            -ContentSecurityPolicy $script:AzDevOpsDailyViewerContentSecurityPolicy `
+            -JsonDepth $script:AzDevOpsDailyViewerJsonDepth
     }
     catch {
         # Keep the exception detail (which can name filesystem paths) server-side;
@@ -3239,32 +3017,6 @@ function Invoke-AzDevOpsDailyViewerRequest {
 # ---------------------------------------------------------------------------
 # Server lifecycle
 # ---------------------------------------------------------------------------
-
-function Get-AzDevOpsDailyViewerPrefix {
-    param([Parameter(Mandatory)] [int] $Port)
-
-    $prefix = "http://$($script:AzDevOpsDailyViewerLoopbackAddress):$Port/"
-    return $prefix
-}
-
-
-function Open-AzDevOpsDailyViewerBrowser {
-    param([Parameter(Mandatory)] [string] $Url)
-
-    try {
-        if (Test-WpfIsWindows) {
-            Start-Process $Url
-        } elseif ($IsMacOS) {
-            & open $Url
-        } else {
-            & xdg-open $Url
-        }
-    }
-    catch {
-        Write-Host "Open $Url in your browser." -ForegroundColor Yellow
-    }
-}
-
 
 function az-Start-AzDevOpsDailyViewer {
     <#
@@ -3320,43 +3072,26 @@ function az-Start-AzDevOpsDailyViewer {
         Initialize-AzDevOpsDailyViewerCache
     }
 
-    $prefix = Get-AzDevOpsDailyViewerPrefix -Port $Port
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add($prefix)
-
-    try {
-        $listener.Start()
-    }
-    catch [System.Net.HttpListenerException] {
-        Write-Host "Could not bind $prefix - $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host 'On Windows a one-time URL reservation may be needed:' -ForegroundColor Yellow
-        Write-Host "  netsh http add urlacl url=$prefix user=$env:USERNAME" -ForegroundColor Yellow
-        Write-Host 'Or pass a different -Port.' -ForegroundColor Yellow
+    $listener = Start-LocalViewerListener -Port $Port
+    if ($null -eq $listener) {
         return
     }
 
+    $prefix = Get-LocalViewerPrefix -Port $Port
     Write-Host "Daily viewer serving at $prefix (Ctrl+C to stop)" -ForegroundColor Green
     Write-Host "  cache: $cacheDir" -ForegroundColor DarkGray
 
     if (-not $NoBrowser) {
-        Open-AzDevOpsDailyViewerBrowser -Url $prefix
+        Open-LocalViewerBrowser -Url $prefix
     }
 
-    try {
-        while ($listener.IsListening) {
-            $context = $listener.GetContext()
-            Invoke-AzDevOpsDailyViewerRequest -Context $context -StaticRoot $staticRoot
-        }
+    # Invoked from inside Invoke-LocalViewerListenLoop, a child scope of this
+    # function, so $staticRoot resolves through PowerShell's dynamic scoping.
+    $requestHandler = {
+        param([System.Net.HttpListenerContext] $Context)
+
+        Invoke-AzDevOpsDailyViewerRequest -Context $Context -StaticRoot $staticRoot
     }
-    catch {
-        # GetContext throws when the listener is stopped (Ctrl+C / disposal) —
-        # fall through to the finally so shutdown stays clean.
-    }
-    finally {
-        if ($listener.IsListening) {
-            $listener.Stop()
-        }
-        $listener.Close()
-        Write-Host 'Daily viewer stopped.' -ForegroundColor DarkGray
-    }
+
+    Invoke-LocalViewerListenLoop -Listener $listener -RequestHandler $requestHandler -DisplayName 'Daily viewer'
 }

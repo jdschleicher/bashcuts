@@ -177,6 +177,13 @@ if ($azdevops_help -ne $NULL) {
     Write-Host "no azdevops_help.ps1"
 }
 
+$localhost_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\localhost_viewer.ps1"
+if ($localhost_viewer -ne $NULL) {
+ . "$path_to_bashcuts\powcuts_by_cli\localhost_viewer.ps1"
+} else {
+    Write-Host "no localhost_viewer.ps1"
+}
+
 $daily_viewer = Get-Content "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
 if ($daily_viewer -ne $NULL) {
  . "$path_to_bashcuts\powcuts_by_cli\daily_viewer.ps1"
