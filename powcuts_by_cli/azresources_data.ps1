@@ -16,8 +16,11 @@
 #   $HOME/.bashcuts-az-resources-app/cache/<tenantId>/<tile>.json
 #
 # Each file is the shared localhost-viewer tile record (Write-LocalViewerTileCache):
-#   { tile, writtenAt, items: { state, message, records[] } }
+#   { tile, writtenAt, items: { state, message, records[], syncedAs } }
 # state is 'ok' or 'notPermitted' (the tenant blocked the call for this user).
+# syncedAs { userName, userType, objectId } names the account that synced the
+# tile: the cache is per tenant, so two accounts in one tenant share a folder
+# and the views use this to flag rows that belong to the other account.
 # A tile that fails for any other reason keeps its previous cache file.
 # Dates are normalized to one round-trip ISO 8601 UTC format
 # (yyyy-MM-ddTHH:mm:ss.fffffffZ), whichever PowerShell edition ran the sync.
@@ -54,9 +57,26 @@ $script:AzResourcesStateNotPermitted = 'notPermitted'
 $script:AzResourcesPermissionPattern = 'AuthorizationFailed|Authorization_RequestDenied|Insufficient privileges|Forbidden|\b403\b'
 $script:AzResourcesErrorLinePattern  = '^\s*ERROR:'
 
+# Sign-in problems az reports as AADSTS errors: re-running `az login` fixes
+# them, so they get that hint instead of a generic failure. The expired /
+# revoked subset stops the whole sync up front, since every later call would
+# fail the same way (`az account show` still succeeds on an expired login).
+$script:AzResourcesReauthPattern       = 'AADSTS\d+|interaction_required|invalid_grant'
+$script:AzResourcesExpiredLoginPattern = 'AADSTS(700082|700084|70043|50173)\b|invalid_grant'
+$script:AzResourcesReauthHint          = "Your az sign-in needs refreshing - run 'az login' and try again."
+
 $script:AzResourcesSelfPrincipal   = 'me'
 $script:AzResourcesUserAccountType = 'user'
 $script:AzResourcesEnabledSubState = 'Enabled'
+
+# `az login --identity` reports one of these as user.name, and the identity's
+# id in user.assignedIdentityInfo as 'MSIObject-<objectId>' / 'MSIClient-<clientId>'.
+$script:AzResourcesManagedIdentityNames = @('systemAssignedIdentity', 'userAssignedIdentity')
+$script:AzResourcesMsiObjectIdPattern   = '^MSIObject-(.+)$'
+$script:AzResourcesMsiClientIdPattern   = '^MSIClient-(.+)$'
+
+$script:AzResourcesSubscriptionScopePattern  = '^/subscriptions/([^/]+)'
+$script:AzResourcesUnresolvedPrincipalPrefix = '(unresolved) '
 $script:AzResourcesIsoDateFormat   = 'o'
 
 $script:AzResourcesGraphBaseUrl     = 'https://graph.microsoft.com/v1.0'
@@ -71,6 +91,7 @@ $script:AzResourcesRelationshipMember = 'member'
 $script:AzResourcesRelationshipOwner  = 'owner'
 
 $script:AzResourcesGroupTypeUnified       = 'Unified'
+$script:AzResourcesGroupTypeDynamic       = 'DynamicMembership'
 $script:AzResourcesGroupLabelM365         = 'Microsoft 365'
 $script:AzResourcesGroupLabelMailSecurity = 'Mail-enabled security'
 $script:AzResourcesGroupLabelSecurity     = 'Security'
@@ -95,14 +116,17 @@ $script:AzResourcesScopeResourceGroup          = 'resourceGroup'
 $script:AzResourcesScopeResource               = 'resource'
 $script:AzResourcesManagementGroupScopePattern = '^/providers/Microsoft\.Management/managementGroups/'
 $script:AzResourcesResourceGroupSegment        = 'resourceGroups'
+$script:AzResourcesSubscriptionSegment         = 'subscriptions'
 
 # Portal deep links. Every link is tenant-pinned (#@<tenantId>/...) so it opens
-# in the right directory. 'resource' covers subscriptions, resource groups,
-# resources, and management groups (the portal resolves any ARM id under
-# /resource); the tenant-root scope '/' has no blade of its own, so it lands on
-# the tenant's portal home. Entra objects use their dedicated blades.
+# in the right directory. 'resource' covers subscriptions, resource groups and
+# resources under /resource. Management groups have no /resource blade, so they
+# open the management-group hierarchy; the tenant-root scope '/' has no blade of
+# its own, so it lands on the tenant's portal home. Entra objects use their
+# dedicated blades.
 $script:AzResourcesPortalBaseUrl         = 'https://portal.azure.com/#@'
 $script:AzResourcesPortalHomePath        = '/home'
+$script:AzResourcesPortalMgmtGroupBlade  = '/view/Microsoft_Azure_ManagementGroups/HierarchyBlade'
 $script:AzResourcesPortalResourcePath    = '/resource'
 $script:AzResourcesPortalGroupBlade      = '/view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/'
 $script:AzResourcesPortalAppBlade        = '/view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/'
@@ -119,6 +143,15 @@ function Get-AzResourcesCacheRoot {
     $appRoot = Join-Path $HOME $script:AzResourcesAppDirName
     $cacheRoot = Join-Path $appRoot $script:AzResourcesCacheSubdir
     return $cacheRoot
+}
+
+
+function Test-AzResourcesGuid {
+    param([AllowNull()] [AllowEmptyString()] [string] $Value)
+
+    $parsed = [guid]::Empty
+    $isGuid = [guid]::TryParse([string]$Value, [ref]$parsed)
+    return $isGuid
 }
 
 
@@ -185,15 +218,20 @@ function Get-AzResourcesErrorSummary {
 function Invoke-AzResourcesAz {
     # Run one az call through the shared Invoke-AzDevOpsAzJson envelope (spinner,
     # separate stderr, exit code) and parse its JSON. Never throws: a bad exit
-    # or unparseable output comes back as Ok = $false. NotPermitted is true when
-    # the failure is an authorization / insufficient-privileges error.
+    # or unparseable output comes back as Ok = $false. NeedsLogin is true for an
+    # AADSTS sign-in error (ExpiredLogin for the expired / revoked subset);
+    # otherwise NotPermitted is true for an authorization / insufficient-
+    # privileges error.
     param([Parameter(Mandatory)] [string[]] $ArgList)
 
     $envelope = Invoke-AzDevOpsAzJson -ArgList $ArgList
+    $errorText = [string]$envelope.Error
 
     $isOk = ($envelope.ExitCode -eq 0)
-    $isNotPermitted = (-not $isOk) -and ([string]$envelope.Error -match $script:AzResourcesPermissionPattern)
-    $errorSummary = Get-AzResourcesErrorSummary -ErrorText $envelope.Error
+    $isNeedsLogin = (-not $isOk) -and ($errorText -match $script:AzResourcesReauthPattern)
+    $isExpiredLogin = $isNeedsLogin -and ($errorText -match $script:AzResourcesExpiredLoginPattern)
+    $isNotPermitted = (-not $isOk) -and (-not $isNeedsLogin) -and ($errorText -match $script:AzResourcesPermissionPattern)
+    $errorSummary = Get-AzResourcesErrorSummary -ErrorText $errorText
 
     $data = $null
     if ($isOk -and $envelope.Json) {
@@ -209,6 +247,8 @@ function Invoke-AzResourcesAz {
     $result = [PSCustomObject]@{
         Ok           = $isOk
         NotPermitted = $isNotPermitted
+        NeedsLogin   = $isNeedsLogin
+        ExpiredLogin = $isExpiredLogin
         Data         = $data
         Error        = $errorSummary
     }
@@ -228,6 +268,10 @@ function Invoke-AzResourcesAzChecked {
 
     $result = Invoke-AzResourcesAz -ArgList $ArgList
 
+    if ($result.NeedsLogin) {
+        throw "$What failed: $($script:AzResourcesReauthHint) ($($result.Error))"
+    }
+
     if (-not $result.Ok -and -not $result.NotPermitted) {
         throw "$What failed: $($result.Error)"
     }
@@ -238,8 +282,10 @@ function Invoke-AzResourcesAzChecked {
 
 function New-AzResourcesCallTally {
     $tally = [PSCustomObject]@{
-        Allowed = 0
-        Denied  = 0
+        Allowed    = 0
+        Denied     = 0
+        Failed     = 0
+        FirstError = ''
     }
 
     return $tally
@@ -248,15 +294,34 @@ function New-AzResourcesCallTally {
 
 function Test-AzResourcesCallPermitted {
     # Count one call against -Tally and say whether its data is usable. The
-    # single home of the "denied -> skip, allowed -> use" branch every fetcher
-    # needs.
+    # single home of the "denied / failed -> skip, allowed -> use" branch every
+    # fetcher needs. A per-subscription failure (throttling, a 5xx, a
+    # subscription cancelled mid-sync) is tallied rather than thrown, so one bad
+    # subscription doesn't discard the others; Get-AzResourcesTallyTileResult
+    # fails the tile only when nothing succeeded. A sign-in error throws: every
+    # later call would fail the same way.
     param(
         [Parameter(Mandatory)] [PSCustomObject] $Result,
-        [Parameter(Mandatory)] [PSCustomObject] $Tally
+        [Parameter(Mandatory)] [PSCustomObject] $Tally,
+        [string] $What = 'az call'
     )
+
+    if ($Result.NeedsLogin) {
+        throw "$What failed: $($script:AzResourcesReauthHint) ($($Result.Error))"
+    }
 
     if ($Result.NotPermitted) {
         $Tally.Denied++
+        return $false
+    }
+
+    if (-not $Result.Ok) {
+        $Tally.Failed++
+
+        if (-not $Tally.FirstError) {
+            $Tally.FirstError = "$What - $($Result.Error)"
+        }
+
         return $false
     }
 
@@ -265,45 +330,88 @@ function Test-AzResourcesCallPermitted {
 }
 
 
+function Get-AzResourcesSignedInObjectId {
+    # The signed-in principal's object id, used as --assignee and for "is this
+    # role mine" matching. Returns { ObjectId; Error; ExpiredLogin }:
+    #   user              -> `az ad signed-in-user show`
+    #   service principal -> `az ad sp show --id <appId>`
+    #   managed identity  -> 'MSIObject-<id>' directly, or 'MSIClient-<id>' via
+    #                        `az ad sp show`; a bare system-assigned identity
+    #                        can't be resolved and reports why
+    # Ids handed to az are GUID-checked first (they reach az.cmd's command line).
+    param([Parameter(Mandatory)] $Account)
+
+    $userName = [string]$Account.user.name
+    $isUser = ([string]$Account.user.type -eq $script:AzResourcesUserAccountType)
+    $identityInfo = [string]$Account.user.assignedIdentityInfo
+
+    $objectId = ''
+    $lookupError = ''
+    $isExpiredLogin = $false
+    $lookupArgs = $null
+
+    if ($isUser) {
+        $lookupArgs = @('ad', 'signed-in-user', 'show')
+    } elseif ($script:AzResourcesManagedIdentityNames -contains $userName) {
+        if ($identityInfo -match $script:AzResourcesMsiObjectIdPattern) {
+            $objectId = $Matches[1]
+        } elseif (($identityInfo -match $script:AzResourcesMsiClientIdPattern) -and (Test-AzResourcesGuid -Value $Matches[1])) {
+            $lookupArgs = @('ad', 'sp', 'show', '--id', $Matches[1])
+        } else {
+            $lookupError = 'az is signed in as a managed identity whose object id it does not report.'
+        }
+    } elseif (Test-AzResourcesGuid -Value $userName) {
+        $lookupArgs = @('ad', 'sp', 'show', '--id', $userName)
+    } else {
+        $lookupError = "az reports a sign-in name ('$userName') that is not an app id."
+    }
+
+    if ($lookupArgs) {
+        $lookup = Invoke-AzResourcesAz -ArgList $lookupArgs
+
+        if ($lookup.Ok) {
+            $objectId = [string]$lookup.Data.id
+        } else {
+            $lookupError = $lookup.Error
+            $isExpiredLogin = $lookup.ExpiredLogin
+        }
+    }
+
+    if ($objectId -and -not (Test-AzResourcesGuid -Value $objectId)) {
+        $lookupError = "the object id az returned ('$objectId') is not a GUID."
+        $objectId = ''
+    }
+
+    $signedIn = [PSCustomObject]@{
+        ObjectId     = $objectId
+        Error        = $lookupError
+        ExpiredLogin = $isExpiredLogin
+    }
+
+    return $signedIn
+}
+
+
 function Get-AzResourcesAccountContext {
     # Who am I, in which tenant? Returns $null when az isn't logged in so the
-    # caller can print one clear message before touching the cache. ObjectId
-    # is best-effort (some tenants block directory reads); role matching falls
-    # back to the sign-in name when it's missing.
+    # caller can print one clear message before touching the cache. ObjectId is
+    # '' when it can't be resolved (ObjectIdError says why); ExpiredLogin means
+    # the sign-in itself has lapsed and the sync should stop up front.
     $account = Invoke-AzResourcesAz -ArgList @('account', 'show')
     if (-not $account.Ok -or -not $account.Data.tenantId) {
         return $null
     }
 
-    $userName = [string]$account.Data.user.name
-    $isUser = ([string]$account.Data.user.type -eq $script:AzResourcesUserAccountType)
-
-    $objectArgs = if ($isUser) {
-        @('ad', 'signed-in-user', 'show')
-    } else {
-        @('ad', 'sp', 'show', '--id', $userName)
-    }
-
-    $principal = Invoke-AzResourcesAz -ArgList $objectArgs
-
-    $objectId = if ($principal.Ok) {
-        [string]$principal.Data.id
-    } else {
-        ''
-    }
-
-    $assignee = if ($objectId) {
-        $objectId
-    } else {
-        $userName
-    }
+    $signedIn = Get-AzResourcesSignedInObjectId -Account $account.Data
 
     $context = [PSCustomObject]@{
-        TenantId = [string]$account.Data.tenantId
-        UserName = $userName
-        IsUser   = $isUser
-        ObjectId = $objectId
-        Assignee = $assignee
+        TenantId      = [string]$account.Data.tenantId
+        UserName      = [string]$account.Data.user.name
+        UserType      = [string]$account.Data.user.type
+        IsUser        = ([string]$account.Data.user.type -eq $script:AzResourcesUserAccountType)
+        ObjectId      = $signedIn.ObjectId
+        ObjectIdError = $signedIn.Error
+        ExpiredLogin  = $signedIn.ExpiredLogin
     }
 
     return $context
@@ -312,7 +420,9 @@ function Get-AzResourcesAccountContext {
 
 function Get-AzResourcesSubscriptions {
     # Enabled subscriptions in the CURRENT tenant only — v1 is the tenant az is
-    # logged into, not a multi-tenant aggregate.
+    # logged into, not a multi-tenant aggregate. `az login --allow-no-subscriptions`
+    # adds a tenant-level placeholder whose id IS the tenant id; it isn't a
+    # subscription, so it is skipped.
     param([Parameter(Mandatory)] [string] $TenantId)
 
     $result = Invoke-AzResourcesAz -ArgList @('account', 'list')
@@ -323,10 +433,11 @@ function Get-AzResourcesSubscriptions {
     $subscriptions = New-Object System.Collections.Generic.List[object]
 
     foreach ($raw in $result.Data) {
-        $isInTenant = ($null -ne $raw) -and ($raw.tenantId -eq $TenantId)
-        $isEnabled  = ($null -ne $raw) -and ($raw.state -eq $script:AzResourcesEnabledSubState)
+        $isInTenant    = ($null -ne $raw) -and ($raw.tenantId -eq $TenantId)
+        $isEnabled     = ($null -ne $raw) -and ($raw.state -eq $script:AzResourcesEnabledSubState)
+        $isTenantLevel = ($null -ne $raw) -and ([string]$raw.id -eq $TenantId)
 
-        if ($isInTenant -and $isEnabled) {
+        if ($isInTenant -and $isEnabled -and -not $isTenantLevel) {
             $subscriptions.Add([PSCustomObject]@{
                 Id   = [string]$raw.id
                 Name = [string]$raw.name
@@ -427,6 +538,7 @@ function Get-AzResourcesGraphCollection {
     }
 
     $collection = [PSCustomObject]@{
+        Ok           = -not $isNotPermitted
         NotPermitted = $isNotPermitted
         Items        = $items
     }
@@ -459,15 +571,23 @@ function New-AzResourcesTileResult {
 
 
 function Get-AzResourcesTallyTileResult {
-    # Turn a fetcher's call tally into its tile result: every call denied means
-    # the whole tile is notPermitted; some denied means keep what we got and
-    # say so. -Notes appends extra caveats (e.g. roles that couldn't be read).
+    # Turn a fetcher's call tally into its tile result: no call succeeded and
+    # one failed means the tile fails (throws, so the previous cache is kept);
+    # every call denied means notPermitted; some denied or failed means keep
+    # what we got and say so. -Notes appends extra caveats (e.g. roles that
+    # couldn't be read).
     param(
         [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.List[object]] $Records,
         [Parameter(Mandatory)] [PSCustomObject] $Tally,
         [Parameter(Mandatory)] [string] $Label,
         [string[]] $Notes = @()
     )
+
+    $attempted = $Tally.Allowed + $Tally.Denied + $Tally.Failed
+
+    if ($Tally.Failed -gt 0 -and $Tally.Allowed -eq 0) {
+        throw "all $Label calls failed or were denied; first failure: $($Tally.FirstError)"
+    }
 
     $state = $script:AzResourcesStateOk
     $messages = New-Object System.Collections.Generic.List[string]
@@ -476,7 +596,13 @@ function Get-AzResourcesTallyTileResult {
         $state = $script:AzResourcesStateNotPermitted
         $messages.Add("Your account is not permitted to read $Label in this tenant.")
     } elseif ($Tally.Denied -gt 0) {
-        $messages.Add("Partial: $($Tally.Denied) of $($Tally.Allowed + $Tally.Denied) $Label call(s) were not permitted.")
+        $messages.Add("Partial: $($Tally.Denied) of $attempted $Label call(s) were not permitted.")
+    }
+
+    if ($Tally.Failed -gt 0) {
+        # The cached message stays generic; the az error itself goes to the console only.
+        $messages.Add("Partial: $($Tally.Failed) of $attempted $Label call(s) failed; run az-Sync-AzResources again to retry.")
+        Write-Host "    first failure: $($Tally.FirstError)" -ForegroundColor DarkYellow
     }
 
     foreach ($note in $Notes) {
@@ -549,9 +675,12 @@ function Get-AzResourcesPortalUrl {
     switch ($Kind) {
         'resource' {
             $isTenantRoot = -not $ResourceId.Trim('/')
+            $isManagementGroup = $ResourceId -match $script:AzResourcesManagementGroupScopePattern
 
             $url = if ($isTenantRoot) {
                 "$tenantRoot$($script:AzResourcesPortalHomePath)"
+            } elseif ($isManagementGroup) {
+                "$tenantRoot$($script:AzResourcesPortalMgmtGroupBlade)"
             } else {
                 "$tenantRoot$($script:AzResourcesPortalResourcePath)$(ConvertTo-AzResourcesUrlPath -Path $ResourceId)"
             }
@@ -583,9 +712,9 @@ function Get-AzResourcesScopeType {
         $script:AzResourcesScopeManagementGroup
     } elseif ($segments.Count -eq 0) {
         $script:AzResourcesScopeRoot
-    } elseif ($segments.Count -eq 2) {
+    } elseif ($segments.Count -eq 2 -and $segments[0] -ieq $script:AzResourcesSubscriptionSegment) {
         $script:AzResourcesScopeSubscription
-    } elseif ($segments.Count -eq 4 -and $segments[2] -ieq $script:AzResourcesResourceGroupSegment) {
+    } elseif ($segments.Count -eq 4 -and $segments[0] -ieq $script:AzResourcesSubscriptionSegment -and $segments[2] -ieq $script:AzResourcesResourceGroupSegment) {
         $script:AzResourcesScopeResourceGroup
     } else {
         $script:AzResourcesScopeResource
@@ -676,10 +805,12 @@ function ConvertTo-AzResourcesIsoDate {
 
 
 function ConvertTo-AzResourcesCredentials {
-    # Secrets + certificates reduced to name / id / kind / expiry. Only these
-    # fields are copied, so secretText or key material can never reach the
-    # cache even if az starts returning it. Older az builds name the expiry
-    # endDate; Graph-based builds use endDateTime.
+    # Secrets + certificates reduced to name / id / kind / dates, plus a
+    # certificate's usage (Sign / Verify — a SAML signing pair is two entries,
+    # not a duplicate) and key type. Only these fields are copied, so
+    # secretText or key material can never reach the cache even if az starts
+    # returning it. Older az builds name the dates startDate / endDate;
+    # Graph-based builds use startDateTime / endDateTime.
     param([Parameter(Mandatory)] $Raw)
 
     $credentials = New-Object System.Collections.Generic.List[object]
@@ -695,6 +826,12 @@ function ConvertTo-AzResourcesCredentials {
                 continue
             }
 
+            $rawStart = if ($null -ne $cred.startDateTime) {
+                $cred.startDateTime
+            } else {
+                $cred.startDate
+            }
+
             $rawEnd = if ($null -ne $cred.endDateTime) {
                 $cred.endDateTime
             } else {
@@ -702,10 +839,13 @@ function ConvertTo-AzResourcesCredentials {
             }
 
             $credentials.Add([ordered]@{
-                kind        = $source.Kind
-                name        = [string]$cred.displayName
-                keyId       = [string]$cred.keyId
-                endDateTime = ConvertTo-AzResourcesIsoDate -Value $rawEnd
+                kind          = $source.Kind
+                name          = [string]$cred.displayName
+                keyId         = [string]$cred.keyId
+                startDateTime = ConvertTo-AzResourcesIsoDate -Value $rawStart
+                endDateTime   = ConvertTo-AzResourcesIsoDate -Value $rawEnd
+                usage         = [string]$cred.usage
+                keyType       = [string]$cred.type
             })
         }
     }
@@ -715,26 +855,54 @@ function ConvertTo-AzResourcesCredentials {
 }
 
 
+function Get-AzResourcesScopeSubscription {
+    # The subscription a scope sits in, taken from the scope itself rather than
+    # from whichever subscription's listing returned it: management-group and
+    # root assignments sit above every subscription, so both fields are ''.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Scope,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [hashtable] $SubscriptionNames
+    )
+
+    $subscriptionId = ''
+    $subscriptionName = ''
+
+    if ($Scope -match $script:AzResourcesSubscriptionScopePattern) {
+        $subscriptionId = $Matches[1]
+
+        if ($SubscriptionNames.ContainsKey($subscriptionId)) {
+            $subscriptionName = $SubscriptionNames[$subscriptionId]
+        }
+    }
+
+    $subscription = [PSCustomObject]@{
+        Id   = $subscriptionId
+        Name = $subscriptionName
+    }
+
+    return $subscription
+}
+
+
 function ConvertTo-AzResourcesRoleRecord {
     param(
         [Parameter(Mandatory)] $Raw,
         [Parameter(Mandatory)] [PSCustomObject] $Context,
-        [Parameter(Mandatory)] [PSCustomObject] $Subscription
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [hashtable] $SubscriptionNames
     )
 
-    $isMine = if ($Context.ObjectId) {
-        $Raw.principalId -eq $Context.ObjectId
-    } else {
-        $Raw.principalName -eq $Context.UserName
-    }
-
-    $principal = if ($isMine) {
+    # principalName is empty when az couldn't look the principal up (directory
+    # reads blocked, or the principal was deleted) — show its id instead.
+    $principal = if ($Raw.principalId -eq $Context.ObjectId) {
         $script:AzResourcesSelfPrincipal
-    } else {
+    } elseif ($Raw.principalName) {
         [string]$Raw.principalName
+    } else {
+        "$($script:AzResourcesUnresolvedPrincipalPrefix)$($Raw.principalId)"
     }
 
     $scope = [string]$Raw.scope
+    $subscription = Get-AzResourcesScopeSubscription -Scope $scope -SubscriptionNames $SubscriptionNames
 
     $record = [ordered]@{
         id               = [string]$Raw.id
@@ -743,8 +911,8 @@ function ConvertTo-AzResourcesRoleRecord {
         scopeType        = Get-AzResourcesScopeType -Scope $scope
         principal        = $principal
         principalType    = [string]$Raw.principalType
-        subscriptionId   = $Subscription.Id
-        subscriptionName = $Subscription.Name
+        subscriptionId   = $subscription.Id
+        subscriptionName = $subscription.Name
         portalUrl        = Get-AzResourcesPortalUrl -Kind $script:AzResourcesKindResource -TenantId $Context.TenantId -ResourceId $scope
     }
 
@@ -772,28 +940,33 @@ function Get-AzResourcesRoleTile {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.List[object]] $Subscriptions
     )
 
-    # A managed-identity login reports a placeholder name (e.g.
-    # systemAssignedIdentity) that `ad sp show` can't resolve, leaving no
-    # usable --assignee; say so instead of failing every sync.
-    if (-not $Context.IsUser -and -not $Context.ObjectId) {
-        $unresolved = New-AzResourcesNotPermittedResult -Message 'Role assignments need a resolvable object id; az is signed in as an identity it cannot look up.'
+    # Matching by sign-in name instead would misfire for guests (#EXT# UPNs)
+    # and could hand az.cmd a name cmd.exe mangles, so with no object id the
+    # tile says why rather than guessing.
+    if (-not $Context.ObjectId) {
+        $unresolved = New-AzResourcesNotPermittedResult -Message 'Role assignments need your object id, which could not be looked up for this sign-in (see the az-Sync-AzResources output).'
         return $unresolved
     }
 
     $records = New-Object System.Collections.Generic.List[object]
     $seenIds = New-AzResourcesAssignmentIdSet
     $tally = New-AzResourcesCallTally
+    $subscriptionNames = @{}
+
+    foreach ($sub in $Subscriptions) {
+        $subscriptionNames[$sub.Id] = $sub.Name
+    }
 
     foreach ($sub in $Subscriptions) {
         $argList = @(
             'role', 'assignment', 'list',
-            '--assignee', $Context.Assignee,
+            '--assignee', $Context.ObjectId,
             '--include-groups', '--all',
             '--subscription', $sub.Id
         )
 
-        $result = Invoke-AzResourcesAzChecked -ArgList $argList -What "role assignment list ($($sub.Name))"
-        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally)) {
+        $result = Invoke-AzResourcesAz -ArgList $argList
+        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally -What "role assignment list ($($sub.Name))")) {
             continue
         }
 
@@ -802,7 +975,7 @@ function Get-AzResourcesRoleTile {
                 continue
             }
 
-            $record = ConvertTo-AzResourcesRoleRecord -Raw $raw -Context $Context -Subscription $sub
+            $record = ConvertTo-AzResourcesRoleRecord -Raw $raw -Context $Context -SubscriptionNames $subscriptionNames
             $records.Add($record)
         }
     }
@@ -851,6 +1024,7 @@ function Get-AzResourcesGroupTile {
                 relationship = $source.Relationship
                 mail         = [string]$raw.mail
                 groupType    = Get-AzResourcesGroupType -Group $raw
+                isDynamic    = @($raw.groupTypes) -contains $script:AzResourcesGroupTypeDynamic
                 portalUrl    = Get-AzResourcesPortalUrl -Kind $script:AzResourcesKindGroup -TenantId $Context.TenantId -ObjectId $groupId
             })
         }
@@ -880,8 +1054,9 @@ function Get-AzResourcesAppTile {
     )
 
     foreach ($source in $sources) {
-        $result = Invoke-AzResourcesAzChecked -ArgList $source.ArgList -What ($source.ArgList -join ' ')
-        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally)) {
+        $what = $source.ArgList -join ' '
+        $result = Invoke-AzResourcesAzChecked -ArgList $source.ArgList -What $what
+        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally -What $what)) {
             continue
         }
 
@@ -926,8 +1101,8 @@ function Get-AzResourcesTenantRoleIndex {
     foreach ($sub in $Subscriptions) {
         $argList = @('role', 'assignment', 'list', '--all', '--fill-principal-name', 'false', '--subscription', $sub.Id)
 
-        $result = Invoke-AzResourcesAzChecked -ArgList $argList -What "role assignment list --all ($($sub.Name))"
-        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $Tally)) {
+        $result = Invoke-AzResourcesAz -ArgList $argList
+        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $Tally -What "role assignment list --all ($($sub.Name))")) {
             continue
         }
 
@@ -1059,8 +1234,8 @@ function Get-AzResourcesIdentityTile {
         }
 
         foreach ($source in (Get-AzResourcesIdentitySources -Subscription $sub)) {
-            $result = Invoke-AzResourcesAzChecked -ArgList $source.ArgList -What $source.What
-            if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally)) {
+            $result = Invoke-AzResourcesAz -ArgList $source.ArgList
+            if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally -What $source.What)) {
                 continue
             }
 
@@ -1076,9 +1251,11 @@ function Get-AzResourcesIdentityTile {
         }
     }
 
+    $roleGaps = $roleTally.Denied + $roleTally.Failed
+
     $notes = @()
-    if ($roleTally.Denied -gt 0) {
-        $notes += "Roles could not be read in $($roleTally.Denied) subscription(s); identities there may show fewer roles than they hold."
+    if ($roleGaps -gt 0) {
+        $notes += "Roles could not be read in $roleGaps subscription(s); identities may show fewer roles than they hold."
     }
 
     $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label 'managed identities' -Notes $notes
@@ -1163,6 +1340,22 @@ function az-Sync-AzResources {
         return
     }
 
+    if ($context.ExpiredLogin) {
+        Write-Host "$($script:AzResourcesReauthHint) ($($context.ObjectIdError))" -ForegroundColor Yellow
+        return
+    }
+
+    if (-not $context.ObjectId) {
+        Write-Host "Could not resolve your object id, so role assignments are skipped: $($context.ObjectIdError)" -ForegroundColor DarkYellow
+    }
+
+    # Who this sync ran as, stamped on every tile (see the file header).
+    $syncedAs = [ordered]@{
+        userName = $context.UserName
+        userType = $context.UserType
+        objectId = $context.ObjectId
+    }
+
     # Resolve (and GUID-validate) the cache dir once, before any expensive
     # fetch, so a bad tenant id stops the sync with one clear message.
     try {
@@ -1196,6 +1389,7 @@ function az-Sync-AzResources {
     foreach ($name in $tiles) {
         try {
             $tileResult = Invoke-AzResourcesTileFetch -Tile $name -Context $context -Subscriptions $subscriptions
+            $tileResult.syncedAs = $syncedAs
             $path = Get-AzResourcesTilePath -TenantId $context.TenantId -Tile $name
 
             Write-LocalViewerTileCache -Path $path -Tile $name -Items $tileResult -JsonDepth $script:AzResourcesJsonDepth

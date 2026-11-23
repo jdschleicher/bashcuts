@@ -19,7 +19,10 @@
 #
 # Which tenant: the one az is logged into (`az account show` reads the local
 # az profile, no network); when az has no account, the most recently synced
-# tenant cache is used instead.
+# tenant cache is used instead, and the status says which tenant that is.
+# The cache is per tenant, so each tile records the account that synced it;
+# when az is signed in as a different account in the same tenant, the views
+# say whose rows they are showing.
 #
 # Depends on azresources_data.ps1 and localhost_viewer.ps1; loaded by
 # powcuts_home.ps1 after both.
@@ -51,29 +54,42 @@ $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCou
 # Cache read + status line (shared by every view)
 # ---------------------------------------------------------------------------
 
-function Get-AzResourcesViewTenantId {
-    # The tenant az is logged into, read from the local az profile (no network);
-    # else the most recently synced tenant folder; else ''.
+function Get-AzResourcesViewAccount {
+    # The tenant + account to show, as { TenantId; UserName; IsFallback }: the
+    # one az is logged into, read from the local az profile (no network); else
+    # the most recently synced tenant folder (IsFallback, no UserName); else a
+    # blank TenantId.
     $tenantId = ''
+    $userName = ''
 
     if (Get-Command az -ErrorAction SilentlyContinue) {
         # try/catch: with $ErrorActionPreference = 'Stop' (or 7.3+'s
         # $PSNativeCommandUseErrorActionPreference) a signed-out az would throw
         # instead of falling through to the cache-folder fallback.
-        $azTenant = $null
+        $accountJson = $null
         try {
-            $azTenant = az account show --query tenantId --output tsv 2>$null
+            $accountJson = az account show --output json 2>$null
         }
         catch {
-            $azTenant = $null
+            $accountJson = $null
         }
 
-        if ($LASTEXITCODE -eq 0 -and $azTenant) {
-            $tenantId = ([string]$azTenant).Trim()
+        if ($LASTEXITCODE -eq 0 -and $accountJson) {
+            try {
+                $account = ($accountJson -join "`n") | ConvertFrom-Json
+                $tenantId = ([string]$account.tenantId).Trim()
+                $userName = [string]$account.user.name
+            }
+            catch {
+                $tenantId = ''
+                $userName = ''
+            }
         }
     }
 
-    if (-not $tenantId) {
+    $isFallback = -not $tenantId
+
+    if ($isFallback) {
         $cacheRoot = Get-AzResourcesCacheRoot
 
         if (Test-Path -LiteralPath $cacheRoot) {
@@ -87,7 +103,48 @@ function Get-AzResourcesViewTenantId {
         }
     }
 
-    return $tenantId
+    $viewAccount = [PSCustomObject]@{
+        TenantId   = $tenantId
+        UserName   = $userName
+        IsFallback = $isFallback
+    }
+
+    return $viewAccount
+}
+
+
+function Write-AzResourcesViewOwnerNotice {
+    # Say whose rows these are when they may not be the current sign-in's: two
+    # accounts in one tenant (alice / alice-adm) share the tenant's cache
+    # folder, so without this the second would see the first's rows as "me".
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [PSCustomObject] $Account,
+        [AllowNull()] $SyncedAs
+    )
+
+    $syncedName = if ($SyncedAs) {
+        [string]$SyncedAs.userName
+    } else {
+        ''
+    }
+
+    if ($Account.IsFallback) {
+        $who = if ($syncedName) {
+            ", synced as $syncedName"
+        } else {
+            ''
+        }
+
+        Write-Host "${Title}: az isn't signed in - showing the cache for tenant $($Account.TenantId)$who." -ForegroundColor Yellow
+        return
+    }
+
+    $isOtherAccount = $syncedName -and $Account.UserName -and ($syncedName -ne $Account.UserName)
+
+    if ($isOtherAccount) {
+        Write-Host "${Title}: cached for $syncedName, but az is signed in as $($Account.UserName) - 'me' rows are theirs. $($script:AzResourcesViewSyncHint)" -ForegroundColor Yellow
+    }
 }
 
 
@@ -118,14 +175,15 @@ function Write-AzResourcesViewMissing {
 
 
 function Get-AzResourcesViewTilePath {
-    # Path of -Tile's cache file for the current tenant, or '' (after printing
+    # Path of -Tile's cache file for -Account's tenant, or '' (after printing
     # the missing-cache hint) when there's no tenant or its id isn't a GUID.
     param(
         [Parameter(Mandatory)] [string] $Tile,
-        [Parameter(Mandatory)] [string] $Title
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [PSCustomObject] $Account
     )
 
-    $tenantId = Get-AzResourcesViewTenantId
+    $tenantId = $Account.TenantId
     if (-not $tenantId) {
         Write-AzResourcesViewMissing -Title $Title
         return ''
@@ -182,7 +240,9 @@ function Read-AzResourcesViewTile {
         [Parameter(Mandatory)] [string] $Title
     )
 
-    $path = Get-AzResourcesViewTilePath -Tile $Tile -Title $Title
+    $account = Get-AzResourcesViewAccount
+
+    $path = Get-AzResourcesViewTilePath -Tile $Tile -Title $Title -Account $account
     if (-not $path) {
         return
     }
@@ -202,6 +262,8 @@ function Read-AzResourcesViewTile {
     $relative = Get-LocalViewerRelativeTime -When $cachedAt
     $ageLabel = "cached $relative"
     $items = $model.items
+
+    Write-AzResourcesViewOwnerNotice -Title $Title -Account $account -SyncedAs $items.syncedAs
 
     if ($items.state -eq $script:AzResourcesStateNotPermitted) {
         Write-Host "${Title}: not permitted $($script:AzResourcesViewMiddot) $($items.message) ($ageLabel)" -ForegroundColor Yellow
@@ -251,21 +313,37 @@ function Get-AzResourcesScopeDisplayName {
 }
 
 
-function Get-AzResourcesSoonestExpiry {
-    # Earliest end date across an app's credentials, or $null when none have one.
+function Get-AzResourcesCredentialExpiry {
+    # { NextExpiry; ExpiredCount } across an app's credentials. NextExpiry is the
+    # earliest end date still in the future ($null when none), so an old,
+    # already-expired secret left on the app doesn't mask the one about to lapse;
+    # those are counted in ExpiredCount instead.
     param([AllowNull()] $Credentials)
 
+    $now = [datetimeoffset]::UtcNow
     $soonest = $null
+    $expiredCount = 0
 
     foreach ($credential in $Credentials) {
         $end = ConvertTo-AzResourcesDateTimeOffset -Value $credential.endDateTime
 
-        if ($null -ne $end -and ($null -eq $soonest -or $end -lt $soonest)) {
+        if ($null -eq $end) {
+            continue
+        }
+
+        if ($end -lt $now) {
+            $expiredCount++
+        } elseif ($null -eq $soonest -or $end -lt $soonest) {
             $soonest = $end
         }
     }
 
-    return $soonest
+    $expiry = [PSCustomObject]@{
+        NextExpiry   = $soonest
+        ExpiredCount = $expiredCount
+    }
+
+    return $expiry
 }
 
 
@@ -331,6 +409,7 @@ function az-Show-AzGroupMemberships {
             Relationship = [string]$record.relationship
             GroupType    = [string]$record.groupType
             Mail         = [string]$record.mail
+            IsDynamic    = [bool]$record.isDynamic
             Id           = [string]$record.id
             PortalUrl    = [string]$record.portalUrl
         }
@@ -348,9 +427,11 @@ function az-Show-AzAppRegistrations {
 
     .DESCRIPTION
         Reads the apps tile written by az-Sync-AzResources (no network call).
-        NextExpiry is the soonest secret / certificate end date as a
-        [datetimeoffset] ($null when no credential has one); the full list is
-        on each row's CredentialList.
+        NextExpiry is the soonest secret / certificate end date still in the
+        future, as a [datetimeoffset] ($null when none); ExpiredCount counts
+        credentials already past their end date. The full list (with start
+        date, and usage / key type for certificates) is on each row's
+        CredentialList.
 
     .EXAMPLE
         az-Show-AzAppRegistrations | Sort-Object NextExpiry
@@ -360,14 +441,15 @@ function az-Show-AzAppRegistrations {
 
     $rows = foreach ($record in $records) {
         $credentialList = @($record.credentials | Where-Object { $null -ne $_ })
-        $nextExpiry = Get-AzResourcesSoonestExpiry -Credentials $credentialList
+        $expiry = Get-AzResourcesCredentialExpiry -Credentials $credentialList
 
         [PSCustomObject]@{
             PSTypeName      = $script:AzResourcesAppRowType
             Name            = [string]$record.displayName
             Kind            = [string]$record.kind
             CredentialCount = $credentialList.Count
-            NextExpiry      = $nextExpiry
+            NextExpiry      = $expiry.NextExpiry
+            ExpiredCount    = $expiry.ExpiredCount
             AppId           = [string]$record.appId
             ObjectId        = [string]$record.objectId
             CredentialList  = $credentialList
