@@ -62,6 +62,7 @@ $script:AzResourcesExpiringDisplay    = @('App', 'Credential', 'EndDate', 'DaysR
 $script:AzResourcesCredentialKindSep  = ': '                  # "secret: ci-deploy"
 $script:AzResourcesHintEllipsis       = "$([char]0x2026)"     # "abc…" — a secret's 3-char hint
 $script:AzResourcesKeyIdPrefixLength  = 8                     # unnamed, hint-less credential: "keyId 1a2b3c4d"
+$script:AzResourcesUnnamedCredential  = '(unnamed)'           # no name, hint or keyId at all
 
 
 # ---------------------------------------------------------------------------
@@ -347,33 +348,43 @@ function Get-AzResourcesScopeDisplayName {
 
 
 function Get-AzResourcesCredentialExpiry {
-    # { NextExpiry; ExpiredCount } across an app's credentials. NextExpiry is the
-    # earliest end date still in the future ($null when none), so an old,
-    # already-expired secret left on the app doesn't mask the one about to lapse;
-    # those are counted in ExpiredCount instead.
-    param([AllowNull()] $Credentials)
+    # { NextExpiry; ExpiredCount; ExpiringCount } across an app's credentials,
+    # classified by Get-AzResourcesCredentialStatus (the same rules as
+    # appExpiry in azure-viewer/app.js). NextExpiry is the earliest end date
+    # still in the future ($null when none), so an old, already-expired secret
+    # left on the app doesn't mask the one about to lapse.
+    param(
+        [AllowNull()] $Credentials,
+        [int] $WithinDays = $script:AzResourcesExpiryWarnDays
+    )
 
     $now = [datetimeoffset]::UtcNow
     $soonest = $null
     $expiredCount = 0
+    $expiringCount = 0
 
     foreach ($credential in $Credentials) {
         $end = ConvertTo-AzResourcesDateTimeOffset -Value $credential.endDateTime
+        $status = Get-AzResourcesCredentialStatus -End $end -WithinDays $WithinDays -Now $now
 
-        if ($null -eq $end) {
+        if ($status -eq $script:AzResourcesExpiryExpired) {
+            $expiredCount++
             continue
         }
 
-        if ($end -lt $now) {
-            $expiredCount++
-        } elseif ($null -eq $soonest -or $end -lt $soonest) {
+        if ($status -eq $script:AzResourcesExpiryExpiring) {
+            $expiringCount++
+        }
+
+        if ($null -ne $end -and ($null -eq $soonest -or $end -lt $soonest)) {
             $soonest = $end
         }
     }
 
     $expiry = [PSCustomObject]@{
-        NextExpiry   = $soonest
-        ExpiredCount = $expiredCount
+        NextExpiry    = $soonest
+        ExpiredCount  = $expiredCount
+        ExpiringCount = $expiringCount
     }
 
     return $expiry
@@ -423,6 +434,10 @@ function Get-AzResourcesCredentialLabel {
     }
 
     $keyId = [string]$Credential.keyId
+    if (-not $keyId) {
+        return $script:AzResourcesUnnamedCredential
+    }
+
     $prefixLength = [math]::Min($script:AzResourcesKeyIdPrefixLength, $keyId.Length)
     $keyLabel = "keyId $($keyId.Substring(0, $prefixLength))"
     return $keyLabel
@@ -511,7 +526,8 @@ function az-Show-AzAppRegistrations {
         Reads the apps tile written by az-Sync-AzResources (no network call).
         NextExpiry is the soonest secret / certificate end date still in the
         future, as a [datetimeoffset] ($null when none); ExpiredCount counts
-        credentials already past their end date. The full list (with start
+        credentials already past their end date and ExpiringCount those
+        lapsing within the 30-day warning window. The full list (with start
         date, and usage / key type for certificates) is on each row's
         CredentialList.
 
@@ -532,6 +548,7 @@ function az-Show-AzAppRegistrations {
             CredentialCount = $credentialList.Count
             NextExpiry      = $expiry.NextExpiry
             ExpiredCount    = $expiry.ExpiredCount
+            ExpiringCount   = $expiry.ExpiringCount
             AppId           = [string]$record.appId
             ObjectId        = [string]$record.objectId
             CredentialList  = $credentialList

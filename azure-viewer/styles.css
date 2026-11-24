@@ -293,7 +293,8 @@ input:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -318,6 +319,8 @@ input:focus-visible {
   color: var(--stat, var(--text));
 }
 .stat .l { font-size: var(--fs-sm); color: var(--text-dim); }
+.stat .d { font-size: var(--fs-2xs); color: var(--text-dim); }
+.stat .d:empty { display: none; }
 
 /* One accent per tile, shared by its stat number and its tile icon. */
 [data-tile="roles"]      { --tint: var(--accent); }
@@ -340,7 +343,8 @@ input:focus-visible {
   gap: var(--space-7);
 }
 @media (max-width: 51.25em) {
-  .stats { grid-template-columns: repeat(2, 1fr); }
+  .stats { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }
+  .stat.expiring { grid-column: 1 / -1; }
   .grid { grid-template-columns: 1fr; }
 }
 

@@ -52,6 +52,8 @@ var LABEL_UNDER_A_DAY = "<1d";
 var DAY_SUFFIX = "d";
 var TILE_APPS = "apps";
 var STAT_EXPIRING = "expiring";
+var EXPIRED_SUFFIX = " expired";
+var EXPIRING_SUFFIX = " expiring";
 
 // Alert levels for the expiring-credentials stat and the row badge; each maps
 // to one modifier class, so color is never the only signal (the text is).
@@ -235,10 +237,9 @@ function credentialEnd(cred) {
   return when;
 }
 
-// Mirrors Get-AzResourcesCredentialStatus: expired once the end date has
-// passed, expiring within EXPIRY_WARN_DAYS, otherwise (or with no end date) ok.
-function credentialStatus(cred, now) {
-  var end = credentialEnd(cred);
+// Mirrors Get-AzResourcesCredentialStatus: expired once `end` has passed,
+// expiring within EXPIRY_WARN_DAYS, otherwise (or with no end date) ok.
+function credentialStatus(end, now) {
   if (end === null) {
     return EXPIRY_OK;
   }
@@ -261,8 +262,8 @@ function appExpiry(credentials, now) {
   var summary = { expired: 0, expiring: 0, nextExpiry: null };
 
   asArray(credentials).forEach(function (cred) {
-    var status = credentialStatus(cred, now);
     var end = credentialEnd(cred);
+    var status = credentialStatus(end, now);
 
     if (status === EXPIRY_EXPIRED) {
       summary.expired++;
@@ -424,6 +425,7 @@ function setExpiryStat(records) {
   }
 
   var mode = "";
+  var breakdown = "";
 
   if (records === null) {
     setStat(STAT_EXPIRING, MISSING_STAT);
@@ -438,12 +440,21 @@ function setExpiryStat(records) {
 
     setStat(STAT_EXPIRING, String(totals.expired + totals.expiring));
 
+    // Spelled out so "already expired" vs "only expiring" isn't carried by
+    // the crit / warn color alone.
+    breakdown = joinMeta([
+      totals.expired ? totals.expired + EXPIRED_SUFFIX : "",
+      totals.expiring ? totals.expiring + EXPIRING_SUFFIX : ""
+    ]);
+
     if (totals.expired) {
       mode = ALERT_CRIT;
     } else if (totals.expiring) {
       mode = ALERT_WARN;
     }
   }
+
+  stat.querySelector(".d").textContent = breakdown;
 
   ALERT_MODES.forEach(function (m) {
     stat.classList.toggle(m, m === mode);
