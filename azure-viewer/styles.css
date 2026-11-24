@@ -24,7 +24,6 @@
   --good: #197031;
   --warn: #855D00;
   --crit: #D1373A;
-  --crit-text: #B42B2E;  /* --crit darkened to >= 4.5:1 for small badge text */
 
   --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
 
@@ -90,7 +89,6 @@
     --good: #4FBF63;
     --warn: #D9A521;
     --crit: #E5645F;
-    --crit-text: #F07A75;
 
     --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
     color-scheme: dark;
@@ -118,7 +116,6 @@
   --good: #4FBF63;
   --warn: #D9A521;
   --crit: #E5645F;
-  --crit-text: #F07A75;
 
   --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
   color-scheme: dark;
@@ -145,7 +142,6 @@
   --good: #197031;
   --warn: #855D00;
   --crit: #D1373A;
-  --crit-text: #B42B2E;
 
   --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
   color-scheme: light;
@@ -293,8 +289,7 @@ input:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -319,8 +314,6 @@ input:focus-visible {
   color: var(--stat, var(--text));
 }
 .stat .l { font-size: var(--fs-sm); color: var(--text-dim); }
-.stat .d { font-size: var(--fs-2xs); color: var(--text-dim); }
-.stat .d:empty { display: none; }
 
 /* One accent per tile, shared by its stat number and its tile icon. */
 [data-tile="roles"]      { --tint: var(--accent); }
@@ -329,11 +322,15 @@ input:focus-visible {
 [data-tile="identities"] { --tint: var(--task); }
 .stat { --stat: var(--tint); }
 
-/* The expiry stat jumps to the apps tile but isn't an apps count: neutral at
-   zero, then crit / warn once something has lapsed / is about to. */
-.stat.expiring      { --stat: var(--text); }
-.stat.expiring.warn { --stat: var(--warn); border-color: var(--warn); }
-.stat.expiring.crit { --stat: var(--crit); border-color: var(--crit); }
+/* Expired / expiring credentials: the label carries the meaning; the warn tint
+   only reinforces a non-zero count. It shares the apps tile's data-tile (so a
+   click jumps there), so at zero it uses body text rather than the apps tint;
+   .alert comes after it and wins when the count is non-zero. */
+.stat.expiring { --stat: var(--text); }
+.stat.alert {
+  --stat: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
 
 /* ---------- tile grid ---------- */
 .grid {
@@ -343,8 +340,8 @@ input:focus-visible {
   gap: var(--space-7);
 }
 @media (max-width: 51.25em) {
-  .stats { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }
-  .stat.expiring { grid-column: 1 / -1; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .stat.expiring { grid-column: 1 / -1; }   /* the fifth stat spans the row, not a lone half */
   .grid { grid-template-columns: 1fr; }
 }
 
@@ -508,23 +505,19 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   border-color: transparent;
 }
 
-/* Expiry badge on an app row — the text ("Expired", "Expires in 5d") carries
-   the meaning; the tint only reinforces it. */
-.badge {
-  flex: none;
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-xs);
-  border: 1px solid currentColor;
+/* Expiry badges ("Expired", "Expires in 5d"): body text color for contrast in
+   both themes; the warn / crit tint is reinforcement, never the only signal. */
+.chip.expiring,
+.chip.expired {
+  color: var(--text);
 }
-.badge.warn {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
+.chip.expiring {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
 }
-.badge.crit {
-  color: var(--crit-text);
-  background: color-mix(in srgb, var(--crit) 12%, transparent);
+.chip.expired {
+  background: color-mix(in srgb, var(--crit) 14%, transparent);
+  border-color: color-mix(in srgb, var(--crit) 55%, transparent);
 }
 
 .role-list {

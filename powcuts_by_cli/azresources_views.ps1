@@ -8,12 +8,12 @@
 # Format-Table / Export-Csv like any other cmdlet output.
 #
 # Public functions:
-#   az-Show-AzRoleAssignments     - RBAC roles I hold (directly or via a group)
-#   az-Show-AzGroupMemberships    - Entra groups I'm a member / owner of
-#   az-Show-AzAppRegistrations    - apps + service principals I own, with creds
-#   az-Show-AzExpiringCredentials - secrets / certs on those apps that have
-#                                   expired or expire within -WithinDays
-#   az-Show-AzManagedIdentities   - managed identities and the roles they hold
+#   az-Show-AzRoleAssignments    - RBAC roles I hold (directly or via a group)
+#   az-Show-AzGroupMemberships   - Entra groups I'm a member / owner of
+#   az-Show-AzAppRegistrations   - apps + service principals I own, with creds
+#   az-Show-AzManagedIdentities  - managed identities and the roles they hold
+#   az-Show-AzExpiringCredentials - secrets / certs on owned apps that are
+#                                   expired or expire within N days (default 30)
 #
 # Each row type registers a short default display set (<= 4 columns, so the
 # console renders a table); every other field stays on the object for
@@ -40,29 +40,31 @@ $script:AzResourcesRoleTitle     = 'Role assignments'
 $script:AzResourcesGroupTitle    = 'Group memberships'
 $script:AzResourcesAppTitle      = 'App registrations'
 $script:AzResourcesIdentityTitle = 'Managed identities'
+$script:AzResourcesExpiringTitle = 'Expiring credentials'
 
 $script:AzResourcesRoleRowType     = 'Bashcuts.AzResources.RoleAssignment'
 $script:AzResourcesGroupRowType    = 'Bashcuts.AzResources.GroupMembership'
 $script:AzResourcesAppRowType      = 'Bashcuts.AzResources.AppRegistration'
 $script:AzResourcesIdentityRowType = 'Bashcuts.AzResources.ManagedIdentity'
+$script:AzResourcesExpiringRowType = 'Bashcuts.AzResources.ExpiringCredential'
 
 $script:AzResourcesRoleDisplay     = @('Role', 'Principal', 'ScopeType', 'ScopeName')
 $script:AzResourcesGroupDisplay    = @('Name', 'Relationship', 'GroupType', 'Mail')
 $script:AzResourcesAppDisplay      = @('Name', 'Kind', 'CredentialCount', 'NextExpiry')
 $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCount')
+$script:AzResourcesExpiringDisplay = @('App', 'Credential', 'EndDate', 'DaysRemaining')
 
-# Credential expiry. The warning window is mirrored by EXPIRY_WARN_DAYS in
-# azure-viewer/app.js so the dashboard and the terminal flag the same rows.
-$script:AzResourcesExpiryWarnDays     = 30
-$script:AzResourcesExpiryExpired      = 'expired'
-$script:AzResourcesExpiryExpiring     = 'expiring'
-$script:AzResourcesExpiryOk           = 'ok'
-$script:AzResourcesExpiringRowType    = 'Bashcuts.AzResources.ExpiringCredential'
-$script:AzResourcesExpiringDisplay    = @('App', 'Credential', 'EndDate', 'DaysRemaining')
-$script:AzResourcesCredentialKindSep  = ': '                  # "secret: ci-deploy"
-$script:AzResourcesHintEllipsis       = "$([char]0x2026)"     # "abc…" — a secret's 3-char hint
-$script:AzResourcesKeyIdPrefixLength  = 8                     # unnamed, hint-less credential: "keyId 1a2b3c4d"
-$script:AzResourcesUnnamedCredential  = '(unnamed)'           # no name, hint or keyId at all
+# Credential expiry. The window is the default for az-Show-AzExpiringCredentials
+# -WithinDays; keep it in step with EXPIRY_WINDOW_DAYS in azure-viewer/app.js so
+# the terminal and the dashboard flag the same credentials.
+$script:AzResourcesExpiryWindowDays   = 30
+$script:AzResourcesCredentialExpired  = 'expired'
+$script:AzResourcesCredentialExpiring = 'expiring'
+$script:AzResourcesCredentialOk       = 'ok'
+$script:AzResourcesCredentialLabelSep = ': '                 # "secret: prod-key"
+$script:AzResourcesViewEllipsis       = "$([char]0x2026)"   # "abc…" after a secret's 3-char hint
+$script:AzResourcesUnnamedCredential  = '(unnamed)'
+$script:AzResourcesCredentialCert     = 'certificate'
 
 
 # ---------------------------------------------------------------------------
@@ -347,100 +349,141 @@ function Get-AzResourcesScopeDisplayName {
 }
 
 
-function Get-AzResourcesCredentialExpiry {
-    # { NextExpiry; ExpiredCount; ExpiringCount } across an app's credentials,
-    # classified by Get-AzResourcesCredentialStatus (the same rules as
-    # appExpiry in azure-viewer/app.js). NextExpiry is the earliest end date
-    # still in the future ($null when none), so an old, already-expired secret
-    # left on the app doesn't mask the one about to lapse.
+function Get-AzResourcesCredentialStatus {
+    # Classify one credential against -WithinDays: { Status; EndDate;
+    # DaysRemaining }. Status is 'expired' (end date passed), 'expiring' (ends
+    # within the window) or 'ok'. A credential with no (or an unparseable) end
+    # date never expires, so it is 'ok' with a $null EndDate / DaysRemaining.
+    # DaysRemaining is whole days, negative once expired.
     param(
-        [AllowNull()] $Credentials,
-        [int] $WithinDays = $script:AzResourcesExpiryWarnDays
+        [AllowNull()] $Credential,
+        [Parameter(Mandatory)] [int] $WithinDays,
+        [Parameter(Mandatory)] [datetimeoffset] $Now
     )
+
+    $end = $null
+    if ($null -ne $Credential) {
+        $end = ConvertTo-AzResourcesDateTimeOffset -Value $Credential.endDateTime
+    }
+
+    $daysRemaining = $null
+    $status = $script:AzResourcesCredentialOk
+
+    if ($null -ne $end) {
+        $daysRemaining = [int][math]::Floor(($end - $Now).TotalDays)
+
+        if ($end -lt $Now) {
+            $status = $script:AzResourcesCredentialExpired
+        } elseif ($end -le $Now.AddDays($WithinDays)) {
+            $status = $script:AzResourcesCredentialExpiring
+        }
+    }
+
+    $credentialStatus = [PSCustomObject]@{
+        Status        = $status
+        EndDate       = $end
+        DaysRemaining = $daysRemaining
+    }
+
+    return $credentialStatus
+}
+
+
+function Get-AzResourcesCredentialLabel {
+    # What to call a credential in a list: its display name, else (for a
+    # secret) the hint Graph returns, else its key id.
+    param([Parameter(Mandatory)] $Credential)
+
+    $label = if ($Credential.name) {
+        [string]$Credential.name
+    } elseif ($Credential.hint) {
+        "$($Credential.hint)$($script:AzResourcesViewEllipsis)"
+    } elseif ($Credential.keyId) {
+        [string]$Credential.keyId
+    } else {
+        $script:AzResourcesUnnamedCredential
+    }
+
+    return $label
+}
+
+
+function Get-AzResourcesDistinctCredentials {
+    # One entry per real credential. Graph stores a SAML signing certificate as
+    # several entries (a Sign key, a Verify key and a password credential) that
+    # share one customKeyIdentifier and end date; counting each would report one
+    # certificate to rotate as three. Entries are grouped by that thumbprint,
+    # else by key id, and a group keeps its certificate entry.
+    param([AllowNull()] $Credentials)
+
+    $byKey = [ordered]@{}
+    $index = 0
+
+    foreach ($credential in @($Credentials | Where-Object { $null -ne $_ })) {
+        $index++
+
+        $key = if ($credential.customKeyId) {
+            "thumbprint:$($credential.customKeyId)"
+        } elseif ($credential.keyId) {
+            "key:$($credential.keyId)"
+        } else {
+            "entry:$index"
+        }
+
+        if (-not $byKey.Contains($key)) {
+            $byKey[$key] = $credential
+            continue
+        }
+
+        $isUpgrade = ($byKey[$key].kind -ne $script:AzResourcesCredentialCert) -and ($credential.kind -eq $script:AzResourcesCredentialCert)
+
+        if ($isUpgrade) {
+            $byKey[$key] = $credential
+        }
+    }
+
+    $distinct = New-Object System.Collections.Generic.List[object]
+
+    foreach ($credential in $byKey.Values) {
+        $distinct.Add($credential)
+    }
+
+    return ,$distinct
+}
+
+
+function Get-AzResourcesCredentialExpiry {
+    # { NextExpiry; ExpiredCount } across an app's credentials. NextExpiry is the
+    # earliest end date still in the future ($null when none), so an old,
+    # already-expired secret left on the app doesn't mask the one about to lapse;
+    # those are counted in ExpiredCount instead.
+    param([AllowNull()] $Credentials)
 
     $now = [datetimeoffset]::UtcNow
     $soonest = $null
     $expiredCount = 0
-    $expiringCount = 0
 
     foreach ($credential in $Credentials) {
-        $end = ConvertTo-AzResourcesDateTimeOffset -Value $credential.endDateTime
-        $status = Get-AzResourcesCredentialStatus -End $end -WithinDays $WithinDays -Now $now
+        $classified = Get-AzResourcesCredentialStatus -Credential $credential -WithinDays $script:AzResourcesExpiryWindowDays -Now $now
+        $end = $classified.EndDate
 
-        if ($status -eq $script:AzResourcesExpiryExpired) {
-            $expiredCount++
+        if ($null -eq $end) {
             continue
         }
 
-        if ($status -eq $script:AzResourcesExpiryExpiring) {
-            $expiringCount++
-        }
-
-        if ($null -ne $end -and ($null -eq $soonest -or $end -lt $soonest)) {
+        if ($classified.Status -eq $script:AzResourcesCredentialExpired) {
+            $expiredCount++
+        } elseif ($null -eq $soonest -or $end -lt $soonest) {
             $soonest = $end
         }
     }
 
     $expiry = [PSCustomObject]@{
-        NextExpiry    = $soonest
-        ExpiredCount  = $expiredCount
-        ExpiringCount = $expiringCount
+        NextExpiry   = $soonest
+        ExpiredCount = $expiredCount
     }
 
     return $expiry
-}
-
-
-function Get-AzResourcesCredentialStatus {
-    # 'expired' once -End has passed, 'expiring' when it falls within
-    # -WithinDays of -Now, else 'ok'. A credential with no end date never
-    # lapses, so it is 'ok' rather than an error.
-    param(
-        [AllowNull()] $End,
-        [Parameter(Mandatory)] [int] $WithinDays,
-        [Parameter(Mandatory)] [datetimeoffset] $Now
-    )
-
-    if ($null -eq $End) {
-        return $script:AzResourcesExpiryOk
-    }
-
-    if ($End -lt $Now) {
-        return $script:AzResourcesExpiryExpired
-    }
-
-    if ($End -le $Now.AddDays($WithinDays)) {
-        return $script:AzResourcesExpiryExpiring
-    }
-
-    return $script:AzResourcesExpiryOk
-}
-
-
-function Get-AzResourcesCredentialLabel {
-    # A human label for one credential: its display name, else the secret's
-    # hint ("abc…"), else a short keyId prefix — never blank.
-    param([Parameter(Mandatory)] $Credential)
-
-    $name = [string]$Credential.name
-    if ($name) {
-        return $name
-    }
-
-    $hint = [string]$Credential.hint
-    if ($hint) {
-        $hinted = "$hint$($script:AzResourcesHintEllipsis)"
-        return $hinted
-    }
-
-    $keyId = [string]$Credential.keyId
-    if (-not $keyId) {
-        return $script:AzResourcesUnnamedCredential
-    }
-
-    $prefixLength = [math]::Min($script:AzResourcesKeyIdPrefixLength, $keyId.Length)
-    $keyLabel = "keyId $($keyId.Substring(0, $prefixLength))"
-    return $keyLabel
 }
 
 
@@ -526,8 +569,7 @@ function az-Show-AzAppRegistrations {
         Reads the apps tile written by az-Sync-AzResources (no network call).
         NextExpiry is the soonest secret / certificate end date still in the
         future, as a [datetimeoffset] ($null when none); ExpiredCount counts
-        credentials already past their end date and ExpiringCount those
-        lapsing within the 30-day warning window. The full list (with start
+        credentials already past their end date. The full list (with start
         date, and usage / key type for certificates) is on each row's
         CredentialList.
 
@@ -539,16 +581,16 @@ function az-Show-AzAppRegistrations {
 
     $rows = foreach ($record in $records) {
         $credentialList = @($record.credentials | Where-Object { $null -ne $_ })
-        $expiry = Get-AzResourcesCredentialExpiry -Credentials $credentialList
+        $distinctCredentials = Get-AzResourcesDistinctCredentials -Credentials $credentialList
+        $expiry = Get-AzResourcesCredentialExpiry -Credentials $distinctCredentials
 
         [PSCustomObject]@{
             PSTypeName      = $script:AzResourcesAppRowType
             Name            = [string]$record.displayName
             Kind            = [string]$record.kind
-            CredentialCount = $credentialList.Count
+            CredentialCount = $distinctCredentials.Count
             NextExpiry      = $expiry.NextExpiry
             ExpiredCount    = $expiry.ExpiredCount
-            ExpiringCount   = $expiry.ExpiringCount
             AppId           = [string]$record.appId
             ObjectId        = [string]$record.objectId
             CredentialList  = $credentialList
@@ -557,76 +599,6 @@ function az-Show-AzAppRegistrations {
     }
 
     $sorted = $rows | Sort-Object Name, Kind
-    return $sorted
-}
-
-
-function az-Show-AzExpiringCredentials {
-    <#
-    .SYNOPSIS
-        List expired and soon-to-expire secrets / certificates on apps you own, from the local cache.
-
-    .DESCRIPTION
-        Reads the apps tile written by az-Sync-AzResources (no network call)
-        and emits one row per credential that has already expired or expires
-        within -WithinDays (default 30), soonest first — so expired ones lead.
-        DaysRemaining is negative once a credential has expired. Credentials
-        with no end date never expire and are never listed.
-
-    .PARAMETER WithinDays
-        Warning window in days. 0 lists only credentials already expired.
-
-    .EXAMPLE
-        az-Show-AzExpiringCredentials
-
-    .EXAMPLE
-        az-Show-AzExpiringCredentials -WithinDays 90 | Where-Object CredentialKind -eq 'certificate'
-    #>
-    param(
-        [ValidateRange(0, 3650)]   # attribute args must be literals; 3650 = ten years
-        [int] $WithinDays = $script:AzResourcesExpiryWarnDays
-    )
-
-    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileApps -Title $script:AzResourcesAppTitle
-    Set-AzResourcesViewDisplay -TypeName $script:AzResourcesExpiringRowType -Properties $script:AzResourcesExpiringDisplay
-
-    $now = [datetimeoffset]::UtcNow
-    $rows = New-Object System.Collections.Generic.List[object]
-
-    foreach ($record in $records) {
-        $credentialList = @($record.credentials | Where-Object { $null -ne $_ })
-
-        foreach ($credential in $credentialList) {
-            $end = ConvertTo-AzResourcesDateTimeOffset -Value $credential.endDateTime
-            $status = Get-AzResourcesCredentialStatus -End $end -WithinDays $WithinDays -Now $now
-
-            if ($status -eq $script:AzResourcesExpiryOk) {
-                continue
-            }
-
-            $kind = [string]$credential.kind
-            $label = Get-AzResourcesCredentialLabel -Credential $credential
-            $daysRemaining = [int][math]::Floor(($end - $now).TotalDays)
-
-            $rows.Add([PSCustomObject]@{
-                PSTypeName     = $script:AzResourcesExpiringRowType
-                App            = [string]$record.displayName
-                Credential     = "$kind$($script:AzResourcesCredentialKindSep)$label"
-                EndDate        = $end
-                DaysRemaining  = $daysRemaining
-                Status         = $status
-                CredentialKind = $kind
-                CredentialName = [string]$credential.name
-                Hint           = [string]$credential.hint
-                KeyId          = [string]$credential.keyId
-                AppKind        = [string]$record.kind
-                AppId          = [string]$record.appId
-                PortalUrl      = [string]$record.portalUrl
-            })
-        }
-    }
-
-    $sorted = $rows | Sort-Object EndDate, App
     return $sorted
 }
 
@@ -670,5 +642,87 @@ function az-Show-AzManagedIdentities {
     }
 
     $sorted = $rows | Sort-Object SubscriptionName, ResourceGroup, Name
+    return $sorted
+}
+
+
+function az-Show-AzExpiringCredentials {
+    <#
+    .SYNOPSIS
+        List secrets and certificates on apps you own that are expired or expire soon, from the local cache.
+
+    .DESCRIPTION
+        Reads the apps tile written by az-Sync-AzResources (no network call) and
+        lists every secret / certificate that has already expired or expires
+        within -WithinDays days (default 30), soonest first. A credential with no
+        end date never expires, so it is never listed. Rows are objects: App,
+        Credential ("secret: <name>"), EndDate, DaysRemaining (negative once
+        expired), Status, plus CredentialKind, CredentialName, AppKind, AppId and
+        PortalUrl. A SAML signing certificate (several Graph entries sharing one
+        thumbprint) is listed once. Only service principals you own are read, so
+        SAML certificates on an enterprise app you don't own aren't listed.
+
+    .PARAMETER WithinDays
+        How far ahead counts as "expiring". Default 30; 0 lists only
+        credentials that have already expired.
+
+    .EXAMPLE
+        az-Show-AzExpiringCredentials
+
+    .EXAMPLE
+        az-Show-AzExpiringCredentials -WithinDays 90 | Where-Object Status -eq 'expired'
+    #>
+    param(
+        [ValidateRange(0, 3650)]   # up to ten years ahead
+        [int] $WithinDays = $script:AzResourcesExpiryWindowDays
+    )
+
+    $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileApps -Title $script:AzResourcesAppTitle
+    Set-AzResourcesViewDisplay -TypeName $script:AzResourcesExpiringRowType -Properties $script:AzResourcesExpiringDisplay
+
+    $now = [datetimeoffset]::UtcNow
+    $rows = New-Object System.Collections.Generic.List[object]
+
+    foreach ($record in $records) {
+        foreach ($credential in (Get-AzResourcesDistinctCredentials -Credentials $record.credentials)) {
+            $classified = Get-AzResourcesCredentialStatus -Credential $credential -WithinDays $WithinDays -Now $now
+
+            if ($classified.Status -eq $script:AzResourcesCredentialOk) {
+                continue
+            }
+
+            $credentialKind = [string]$credential.kind
+            $credentialName = Get-AzResourcesCredentialLabel -Credential $credential
+
+            $rows.Add([PSCustomObject]@{
+                PSTypeName     = $script:AzResourcesExpiringRowType
+                App            = [string]$record.displayName
+                Credential     = "$credentialKind$($script:AzResourcesCredentialLabelSep)$credentialName"
+                EndDate        = $classified.EndDate
+                DaysRemaining  = $classified.DaysRemaining
+                Status         = $classified.Status
+                CredentialKind = $credentialKind
+                CredentialName = $credentialName
+                AppKind        = [string]$record.kind
+                AppId          = [string]$record.appId
+                PortalUrl      = [string]$record.portalUrl
+            })
+        }
+    }
+
+    # Read-AzResourcesViewTile returns nothing for a tile with no apps as well as
+    # for a missing one, so the summary prints only when there is at least one
+    # app; the status line above already reports a zero count.
+    if ($null -ne $records) {
+        $summaryColor = if ($rows.Count -gt 0) {
+            'Yellow'
+        } else {
+            'Green'
+        }
+
+        Write-Host "$($script:AzResourcesExpiringTitle): $($rows.Count) expired or expiring within $WithinDays day(s)." -ForegroundColor $summaryColor
+    }
+
+    $sorted = $rows | Sort-Object EndDate, App
     return $sorted
 }
