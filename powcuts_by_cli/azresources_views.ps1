@@ -63,6 +63,8 @@ $script:AzResourcesCredentialExpiring = 'expiring'
 $script:AzResourcesCredentialOk       = 'ok'
 $script:AzResourcesCredentialLabelSep = ': '                 # "secret: prod-key"
 $script:AzResourcesViewEllipsis       = "$([char]0x2026)"   # "abc…" after a secret's 3-char hint
+$script:AzResourcesUnnamedCredential  = '(unnamed)'
+$script:AzResourcesCredentialCert     = 'certificate'
 
 
 # ---------------------------------------------------------------------------
@@ -396,11 +398,57 @@ function Get-AzResourcesCredentialLabel {
         [string]$Credential.name
     } elseif ($Credential.hint) {
         "$($Credential.hint)$($script:AzResourcesViewEllipsis)"
-    } else {
+    } elseif ($Credential.keyId) {
         [string]$Credential.keyId
+    } else {
+        $script:AzResourcesUnnamedCredential
     }
 
     return $label
+}
+
+
+function Get-AzResourcesDistinctCredentials {
+    # One entry per real credential. Graph stores a SAML signing certificate as
+    # several entries (a Sign key, a Verify key and a password credential) that
+    # share one customKeyIdentifier and end date; counting each would report one
+    # certificate to rotate as three. Entries are grouped by that thumbprint,
+    # else by key id, and a group keeps its certificate entry.
+    param([AllowNull()] $Credentials)
+
+    $byKey = [ordered]@{}
+    $index = 0
+
+    foreach ($credential in @($Credentials | Where-Object { $null -ne $_ })) {
+        $index++
+
+        $key = if ($credential.customKeyId) {
+            "thumbprint:$($credential.customKeyId)"
+        } elseif ($credential.keyId) {
+            "key:$($credential.keyId)"
+        } else {
+            "entry:$index"
+        }
+
+        if (-not $byKey.Contains($key)) {
+            $byKey[$key] = $credential
+            continue
+        }
+
+        $isUpgrade = ($byKey[$key].kind -ne $script:AzResourcesCredentialCert) -and ($credential.kind -eq $script:AzResourcesCredentialCert)
+
+        if ($isUpgrade) {
+            $byKey[$key] = $credential
+        }
+    }
+
+    $distinct = New-Object System.Collections.Generic.List[object]
+
+    foreach ($credential in $byKey.Values) {
+        $distinct.Add($credential)
+    }
+
+    return ,$distinct
 }
 
 
@@ -533,13 +581,14 @@ function az-Show-AzAppRegistrations {
 
     $rows = foreach ($record in $records) {
         $credentialList = @($record.credentials | Where-Object { $null -ne $_ })
-        $expiry = Get-AzResourcesCredentialExpiry -Credentials $credentialList
+        $distinctCredentials = Get-AzResourcesDistinctCredentials -Credentials $credentialList
+        $expiry = Get-AzResourcesCredentialExpiry -Credentials $distinctCredentials
 
         [PSCustomObject]@{
             PSTypeName      = $script:AzResourcesAppRowType
             Name            = [string]$record.displayName
             Kind            = [string]$record.kind
-            CredentialCount = $credentialList.Count
+            CredentialCount = $distinctCredentials.Count
             NextExpiry      = $expiry.NextExpiry
             ExpiredCount    = $expiry.ExpiredCount
             AppId           = [string]$record.appId
@@ -609,10 +658,13 @@ function az-Show-AzExpiringCredentials {
         end date never expires, so it is never listed. Rows are objects: App,
         Credential ("secret: <name>"), EndDate, DaysRemaining (negative once
         expired), Status, plus CredentialKind, CredentialName, AppKind, AppId and
-        PortalUrl.
+        PortalUrl. A SAML signing certificate (several Graph entries sharing one
+        thumbprint) is listed once. Only service principals you own are read, so
+        SAML certificates on an enterprise app you don't own aren't listed.
 
     .PARAMETER WithinDays
-        How far ahead counts as "expiring". Default 30.
+        How far ahead counts as "expiring". Default 30; 0 lists only
+        credentials that have already expired.
 
     .EXAMPLE
         az-Show-AzExpiringCredentials
@@ -632,7 +684,7 @@ function az-Show-AzExpiringCredentials {
     $rows = New-Object System.Collections.Generic.List[object]
 
     foreach ($record in $records) {
-        foreach ($credential in @($record.credentials | Where-Object { $null -ne $_ })) {
+        foreach ($credential in (Get-AzResourcesDistinctCredentials -Credentials $record.credentials)) {
             $classified = Get-AzResourcesCredentialStatus -Credential $credential -WithinDays $WithinDays -Now $now
 
             if ($classified.Status -eq $script:AzResourcesCredentialOk) {
@@ -658,6 +710,9 @@ function az-Show-AzExpiringCredentials {
         }
     }
 
+    # Read-AzResourcesViewTile returns nothing for a tile with no apps as well as
+    # for a missing one, so the summary prints only when there is at least one
+    # app; the status line above already reports a zero count.
     if ($null -ne $records) {
         $summaryColor = if ($rows.Count -gt 0) {
             'Yellow'

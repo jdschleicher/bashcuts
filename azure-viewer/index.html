@@ -44,13 +44,14 @@
          blank in markup so they can never drift from the lists they summarize.
          data-tile binds a stat to its tile; clicking opens and scrolls to it.
          The data-stat="expiring" stat counts expired + expiring credentials
-         from the apps tile, so it jumps to that tile. -->
+         from the apps tile, so it jumps to that tile; app.js fills in its
+         label from EXPIRY_WINDOW_DAYS so the window is stated in one place. -->
     <section class="stats" aria-label="Summary counts">
       <button class="stat roles" type="button" data-tile="roles"><span class="n"></span><span class="l">Role assignments</span></button>
       <button class="stat groups" type="button" data-tile="groups"><span class="n"></span><span class="l">Groups</span></button>
       <button class="stat apps" type="button" data-tile="apps"><span class="n"></span><span class="l">Apps &amp; service principals</span></button>
       <button class="stat identities" type="button" data-tile="identities"><span class="n"></span><span class="l">Managed identities</span></button>
-      <button class="stat expiring" type="button" data-tile="apps" data-stat="expiring"><span class="n"></span><span class="l">Credentials expired or expiring in 30 days</span></button>
+      <button class="stat expiring" type="button" data-tile="apps" data-stat="expiring"><span class="n"></span><span class="l">Credentials expired or expiring soon</span></button>
     </section>
 
     <!-- One static shell per tile; app.js renders the rows into .body from the

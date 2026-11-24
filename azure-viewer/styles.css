@@ -323,7 +323,10 @@ input:focus-visible {
 .stat { --stat: var(--tint); }
 
 /* Expired / expiring credentials: the label carries the meaning; the warn tint
-   only reinforces a non-zero count. */
+   only reinforces a non-zero count. It shares the apps tile's data-tile (so a
+   click jumps there), so at zero it uses body text rather than the apps tint;
+   .alert comes after it and wins when the count is non-zero. */
+.stat.expiring { --stat: var(--text); }
 .stat.alert {
   --stat: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);
@@ -338,6 +341,7 @@ input:focus-visible {
 }
 @media (max-width: 51.25em) {
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .stat.expiring { grid-column: 1 / -1; }   /* the fifth stat spans the row, not a lone half */
   .grid { grid-template-columns: 1fr; }
 }
 

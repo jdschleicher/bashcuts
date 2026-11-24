@@ -953,7 +953,9 @@ function ConvertTo-AzResourcesCredentials {
     # pair is two entries, not a duplicate) and key type. The hint is the first
     # three characters of the secret value, which Graph returns so the portal
     # can tell unnamed secrets apart; it is kept for the same reason (#270) and
-    # is the only part of a secret value that is ever cached. Only these fields
+    # is the only part of a secret value that is ever cached. customKeyIdentifier
+    # (a certificate thumbprint, not secret) ties together the several entries
+    # Graph stores for one SAML signing certificate. Only these fields
     # are copied, so secretText or key material can never reach the cache even
     # if az starts returning it. Older az builds name the dates startDate /
     # endDate; Graph-based builds use startDateTime / endDateTime.
@@ -989,6 +991,7 @@ function ConvertTo-AzResourcesCredentials {
                 name          = [string]$cred.displayName
                 keyId         = [string]$cred.keyId
                 hint          = [string]$cred.hint
+                customKeyId   = [string]$cred.customKeyIdentifier
                 startDateTime = ConvertTo-AzResourcesIsoDate -Value $rawStart
                 endDateTime   = ConvertTo-AzResourcesIsoDate -Value $rawEnd
                 usage         = [string]$cred.usage
