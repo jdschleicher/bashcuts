@@ -952,8 +952,10 @@ function ConvertTo-AzResourcesCredentials {
     # certificate's usage (Sign / Verify — a SAML signing pair is two entries,
     # not a duplicate) and key type. Only these fields are copied, so
     # secretText or key material can never reach the cache even if az starts
-    # returning it. Older az builds name the dates startDate / endDate;
-    # Graph-based builds use startDateTime / endDateTime.
+    # returning it. A secret's `hint` is Graph's read-only first three
+    # characters of the value — the same prefix the portal lists — kept so an
+    # unnamed secret can still be told apart. Older az builds name the dates
+    # startDate / endDate; Graph-based builds use startDateTime / endDateTime.
     param([Parameter(Mandatory)] $Raw)
 
     $credentials = New-Object System.Collections.Generic.List[object]
@@ -985,6 +987,7 @@ function ConvertTo-AzResourcesCredentials {
                 kind          = $source.Kind
                 name          = [string]$cred.displayName
                 keyId         = [string]$cred.keyId
+                hint          = [string]$cred.hint
                 startDateTime = ConvertTo-AzResourcesIsoDate -Value $rawStart
                 endDateTime   = ConvertTo-AzResourcesIsoDate -Value $rawEnd
                 usage         = [string]$cred.usage

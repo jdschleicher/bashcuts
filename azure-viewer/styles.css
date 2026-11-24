@@ -24,6 +24,7 @@
   --good: #197031;
   --warn: #855D00;
   --crit: #D1373A;
+  --crit-text: #B42B2E;  /* --crit darkened to >= 4.5:1 for small badge text */
 
   --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
 
@@ -89,6 +90,7 @@
     --good: #4FBF63;
     --warn: #D9A521;
     --crit: #E5645F;
+    --crit-text: #F07A75;
 
     --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
     color-scheme: dark;
@@ -116,6 +118,7 @@
   --good: #4FBF63;
   --warn: #D9A521;
   --crit: #E5645F;
+  --crit-text: #F07A75;
 
   --shadow: 0 1px 2px rgba(0,0,0,.30), 0 8px 24px rgba(0,0,0,.30);
   color-scheme: dark;
@@ -142,6 +145,7 @@
   --good: #197031;
   --warn: #855D00;
   --crit: #D1373A;
+  --crit-text: #B42B2E;
 
   --shadow: 0 1px 2px rgba(19,34,54,.06), 0 6px 20px rgba(19,34,54,.06);
   color-scheme: light;
@@ -289,7 +293,7 @@ input:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -321,6 +325,12 @@ input:focus-visible {
 [data-tile="apps"]       { --tint: var(--epic); }
 [data-tile="identities"] { --tint: var(--task); }
 .stat { --stat: var(--tint); }
+
+/* The expiry stat jumps to the apps tile but isn't an apps count: neutral at
+   zero, then crit / warn once something has lapsed / is about to. */
+.stat.expiring      { --stat: var(--text); }
+.stat.expiring.warn { --stat: var(--warn); border-color: var(--warn); }
+.stat.expiring.crit { --stat: var(--crit); border-color: var(--crit); }
 
 /* ---------- tile grid ---------- */
 .grid {
@@ -492,6 +502,25 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   color: var(--accent);
   background: var(--accent-weak);
   border-color: transparent;
+}
+
+/* Expiry badge on an app row — the text ("Expired", "Expires in 5d") carries
+   the meaning; the tint only reinforces it. */
+.badge {
+  flex: none;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+}
+.badge.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.badge.crit {
+  color: var(--crit-text);
+  background: color-mix(in srgb, var(--crit) 12%, transparent);
 }
 
 .role-list {
