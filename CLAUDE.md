@@ -200,7 +200,7 @@ o-sfdx   o-git   o-gh   o-az   o-cci
 │   ├── localhost_viewer.ps1            # Shared 127.0.0.1 viewer plumbing (listener, CSP headers, static assets, tile cache)
 │   ├── daily_viewer.ps1                # Daily viewer backend — tiles + routes on top of localhost_viewer.ps1
 │   ├── azresources_data.ps1            # Azure / Entra footprint fetchers + tenant-keyed tile cache, az-Sync-AzResources
-│   ├── azresources_views.ps1           # az-Show-Az{RoleAssignments,GroupMemberships,AppRegistrations,ManagedIdentities} cache views
+│   ├── azresources_views.ps1           # az-Show-Az{RoleAssignments,GroupMemberships,AppRegistrations,ManagedIdentities,ExpiringCredentials} cache views
 │   ├── azresources_viewer.ps1          # az-Start-AzResourceViewer — localhost server for azure-viewer/ (port 8771)
 │   ├── pester.ps1                      # Pester test helpers
 │   └── jira_automations.ps1

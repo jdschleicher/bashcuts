@@ -46,6 +46,28 @@ var SECONDS_PER_MINUTE = 60;
 var MINUTES_PER_HOUR = 60;
 var HOURS_PER_DAY = 24;
 
+// Credential expiry — keep EXPIRY_WINDOW_DAYS in step with
+// $script:AzResourcesExpiryWindowDays (azresources_views.ps1) so the dashboard
+// and az-Show-AzExpiringCredentials flag the same credentials. A credential
+// with no end date never expires, so it is always "ok".
+var EXPIRY_WINDOW_DAYS = 30;
+var MS_PER_SECOND = 1000;
+var MS_PER_DAY = MS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
+var CRED_EXPIRED = "expired";
+var CRED_EXPIRING = "expiring";
+var CRED_OK = "ok";
+var EXPIRY_STAT = '.stat[data-stat="expiring"]';
+var EXPIRY_STAT_LABEL_PREFIX = "Credentials expired or expiring in ";
+var EXPIRY_STAT_LABEL_SUFFIX = " days";
+var LABEL_EXPIRED = "Expired";
+var LABEL_EXPIRED_COUNT_SUFFIX = " expired";
+var LABEL_EXPIRES_TODAY = "Expires today";
+var LABEL_EXPIRES_IN_PREFIX = "Expires in ";
+var LABEL_EXPIRING_COUNT_SUFFIX = " expiring";
+var LABEL_SOONEST_IN_PREFIX = "soonest in ";
+var LABEL_SOONEST_TODAY = "soonest today";
+var CRED_KIND_CERTIFICATE = "certificate";
+
 var SCOPE_TYPE_LABELS = {
   managementGroup: "Mgmt group",
   root: "Tenant root",
@@ -200,17 +222,123 @@ function dateLabel(iso) {
   return when.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function soonestExpiry(credentials) {
-  var soonest = null;
+// One credential against the expiry window: { status, end, days }. days is
+// whole days left (negative once expired); end / days are null with no end date.
+function credentialStatus(cred, now) {
+  var end = new Date(cred && cred.endDateTime);
+  if (isNaN(end.getTime())) {
+    return { status: CRED_OK, end: null, days: null };
+  }
 
-  asArray(credentials).forEach(function (cred) {
-    var when = new Date(cred && cred.endDateTime);
-    if (!isNaN(when.getTime()) && (soonest === null || when < soonest)) {
-      soonest = when;
+  var msLeft = end.getTime() - now.getTime();
+  var days = Math.floor(msLeft / MS_PER_DAY);
+  var status = CRED_OK;
+
+  if (msLeft < 0) {
+    status = CRED_EXPIRED;
+  } else if (msLeft <= EXPIRY_WINDOW_DAYS * MS_PER_DAY) {
+    status = CRED_EXPIRING;
+  }
+
+  return { status: status, end: end, days: days };
+}
+
+// One entry per real credential. Graph stores a SAML signing certificate as
+// several entries (a Sign key, a Verify key and a password credential) sharing
+// one customKeyId thumbprint; counting each would report one certificate as
+// three. Grouped by thumbprint, else key id; a group keeps its certificate.
+// Mirrors Get-AzResourcesDistinctCredentials (azresources_views.ps1).
+function distinctCredentials(credentials) {
+  var byKey = {};
+  var order = [];
+
+  asArray(credentials).forEach(function (cred, index) {
+    if (!cred) {
+      return;
+    }
+
+    var key = cred.customKeyId ? "thumbprint:" + cred.customKeyId : (cred.keyId ? "key:" + cred.keyId : "entry:" + index);
+
+    if (!byKey[key]) {
+      byKey[key] = cred;
+      order.push(key);
+    } else if (byKey[key].kind !== CRED_KIND_CERTIFICATE && cred.kind === CRED_KIND_CERTIFICATE) {
+      byKey[key] = cred;
     }
   });
 
-  return soonest;
+  return order.map(function (key) { return byKey[key]; });
+}
+
+// An app's credentials rolled up: how many are expired / expiring, the soonest
+// end date still ahead (an old expired secret mustn't mask the one about to
+// lapse), and the days left on the soonest expiring one.
+function appExpiry(credentials, now) {
+  var summary = { expired: 0, expiring: 0, nextEnd: null, expiringDays: null };
+
+  distinctCredentials(credentials).forEach(function (cred) {
+    var c = credentialStatus(cred, now);
+
+    if (c.status === CRED_EXPIRED) {
+      summary.expired++;
+      return;
+    }
+
+    if (c.end && (summary.nextEnd === null || c.end < summary.nextEnd)) {
+      summary.nextEnd = c.end;
+    }
+
+    if (c.status === CRED_EXPIRING) {
+      summary.expiring++;
+
+      if (summary.expiringDays === null || c.days < summary.expiringDays) {
+        summary.expiringDays = c.days;
+      }
+    }
+  });
+
+  return summary;
+}
+
+// "1 day" / "5 days" — spelled out so screen readers and the uppercase chip
+// style don't turn it into "5D".
+function daysLabel(days) {
+  return days === 1 ? "1 day" : days + " days";
+}
+
+// Expiry badges: the words carry the meaning ("Expired", "Expires in 5 days"), and
+// color only reinforces them, so they read without color and in both themes.
+function expiryBadges(expiry) {
+  var badges = [];
+
+  if (expiry.expired) {
+    var expiredText = expiry.expired === 1 ? LABEL_EXPIRED : expiry.expired + LABEL_EXPIRED_COUNT_SUFFIX;
+    badges.push(el("span", { "class": "chip expired", text: expiredText }));
+  }
+
+  if (expiry.expiring) {
+    var isToday = expiry.expiringDays <= 0;
+    var expiringText;
+
+    if (expiry.expiring === 1) {
+      expiringText = isToday ? LABEL_EXPIRES_TODAY : LABEL_EXPIRES_IN_PREFIX + daysLabel(expiry.expiringDays);
+    } else {
+      // Several expiring: say how many, so the rows add up to the summary stat.
+      var soonest = isToday ? LABEL_SOONEST_TODAY : LABEL_SOONEST_IN_PREFIX + daysLabel(expiry.expiringDays);
+      expiringText = expiry.expiring + LABEL_EXPIRING_COUNT_SUFFIX + META_SEP + soonest;
+    }
+    badges.push(el("span", { "class": "chip expiring", text: expiringText }));
+  }
+
+  return badges;
+}
+
+// Expired + expiring credentials across every app, for the summary strip.
+function countFlaggedCredentials(records, now) {
+  return records.reduce(function (total, a) {
+    var expiry = appExpiry(a.credentials, now);
+    return total + expiry.expired + expiry.expiring;
+  }, 0);
 }
 
 
@@ -249,17 +377,19 @@ function groupRow(g) {
   return el("li", { "class": "row" }, [head, meta]);
 }
 
-function appRow(a) {
-  var credentials = asArray(a.credentials);
-  var soonest = soonestExpiry(credentials);
+// now: one timestamp per render pass, shared with the summary stat so a
+// credential on a boundary can't be "expiring" in the row but not the stat.
+function appRow(a, now) {
+  var credentials = distinctCredentials(a.credentials);
+  var expiry = appExpiry(credentials, now);
 
   var credentialText = credentials.length === 1 ? "1 credential" : credentials.length + " credentials";
-  var expiryText = soonest ? "next expiry " + dateLabel(soonest.toISOString()) : "";
+  var expiryText = expiry.nextEnd ? "next expiry " + dateLabel(expiry.nextEnd.toISOString()) : "";
 
   var head = el("div", { "class": "row-head" }, [
     el("span", { "class": "row-title" }, [portalLink(a.displayName, a.portalUrl)]),
     chip(labelFor(APP_KIND_LABELS, a.kind))
-  ]);
+  ].concat(expiryBadges(expiry)));
 
   var meta = el("div", { "class": "row-meta" }, [joinMeta([credentialText, expiryText])]);
 
@@ -298,7 +428,7 @@ function identityRow(i) {
 var TILES = {
   roles:      { name: "role assignments",            emptyNote: "No role assignments in the cache.",           row: roleRow },
   groups:     { name: "Entra groups",                emptyNote: "No group memberships in the cache.",          row: groupRow },
-  apps:       { name: "apps and service principals", emptyNote: "You don't own any apps in this tenant.",      row: appRow },
+  apps:       { name: "apps and service principals", emptyNote: "You don't own any apps in this tenant.",      row: appRow, summary: setExpiryStat },
   identities: { name: "managed identities",          emptyNote: "No managed identities in readable subscriptions.", row: identityRow }
 };
 
@@ -317,10 +447,33 @@ function tile(key) {
   return document.getElementById("tile-" + key);
 }
 
+// :not([data-stat]) — the apps tile also feeds the expiry stat, which shares
+// its data-tile so clicking it jumps to the apps tile.
 function setStat(key, text) {
-  var stat = document.querySelector('.stat[data-tile="' + key + '"] .n');
+  var stat = document.querySelector('.stat[data-tile="' + key + '"]:not([data-stat]) .n');
   if (stat) {
     stat.textContent = text;
+  }
+}
+
+// The summary strip's expired + expiring count, derived from the apps records
+// (null while they're unavailable). .alert highlights a non-zero count.
+function setExpiryStat(records, now) {
+  var stat = document.querySelector(EXPIRY_STAT);
+  if (!stat) {
+    return;
+  }
+
+  var flagged = records ? countFlaggedCredentials(records, now) : null;
+
+  stat.querySelector(".l").textContent = EXPIRY_STAT_LABEL_PREFIX + EXPIRY_WINDOW_DAYS + EXPIRY_STAT_LABEL_SUFFIX;
+  stat.querySelector(".n").textContent = flagged === null ? MISSING_STAT : String(flagged);
+  stat.classList.toggle("alert", flagged > 0);
+}
+
+function renderSummary(spec, records, now) {
+  if (spec.summary) {
+    spec.summary(records, now);
   }
 }
 
@@ -344,9 +497,11 @@ function renderTile(key) {
   var t = tile(key);
   var body = t.querySelector(".body");
   var count = t.querySelector(".count");
+  var now = new Date();
 
   body.replaceChildren();
   count.textContent = "";
+  renderSummary(spec, null, now);
 
   if (state.refreshError) {
     renderNote(body, REFRESH_FAILED_PREFIX + state.refreshError, "notice");
@@ -394,13 +549,14 @@ function renderTile(key) {
   var records = asArray(items.records);
   count.textContent = String(records.length);
   setStat(key, String(records.length));
+  renderSummary(spec, records, now);
 
   if (!records.length) {
     renderNote(body, spec.emptyNote);
     return;
   }
 
-  body.appendChild(el("ul", { "class": "rows" }, records.map(spec.row)));
+  body.appendChild(el("ul", { "class": "rows" }, records.map(function (record) { return spec.row(record, now); })));
   renderNote(body, NOMATCH_TEXT, "nomatch");
 }
 

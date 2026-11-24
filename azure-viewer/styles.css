@@ -289,7 +289,7 @@ input:focus-visible {
 /* ---------- summary stat strip ---------- */
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
@@ -322,6 +322,16 @@ input:focus-visible {
 [data-tile="identities"] { --tint: var(--task); }
 .stat { --stat: var(--tint); }
 
+/* Expired / expiring credentials: the label carries the meaning; the warn tint
+   only reinforces a non-zero count. It shares the apps tile's data-tile (so a
+   click jumps there), so at zero it uses body text rather than the apps tint;
+   .alert comes after it and wins when the count is non-zero. */
+.stat.expiring { --stat: var(--text); }
+.stat.alert {
+  --stat: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
 /* ---------- tile grid ---------- */
 .grid {
   display: grid;
@@ -331,6 +341,7 @@ input:focus-visible {
 }
 @media (max-width: 51.25em) {
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .stat.expiring { grid-column: 1 / -1; }   /* the fifth stat spans the row, not a lone half */
   .grid { grid-template-columns: 1fr; }
 }
 
@@ -492,6 +503,21 @@ details[open] > summary > .chev { transform: rotate(90deg); }
   color: var(--accent);
   background: var(--accent-weak);
   border-color: transparent;
+}
+
+/* Expiry badges ("Expired", "Expires in 5d"): body text color for contrast in
+   both themes; the warn / crit tint is reinforcement, never the only signal. */
+.chip.expiring,
+.chip.expired {
+  color: var(--text);
+}
+.chip.expiring {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+.chip.expired {
+  background: color-mix(in srgb, var(--crit) 14%, transparent);
+  border-color: color-mix(in srgb, var(--crit) 55%, transparent);
 }
 
 .role-list {
