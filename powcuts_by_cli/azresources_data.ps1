@@ -119,6 +119,13 @@ $script:AzResourcesAppScopeOwned = 'owned'
 $script:AzResourcesAppScopeAll   = 'all'
 $script:AzResourcesAppScopes     = @($script:AzResourcesAppScopeOwned, $script:AzResourcesAppScopeAll)
 
+$script:AzResourcesAppLabelOwned        = 'owned applications'
+$script:AzResourcesAppLabelAll          = 'applications'
+$script:AzResourcesAppUserOnlyLabelOwned = 'Owned applications'
+$script:AzResourcesAppUserOnlyLabelAll   = 'Tenant-wide application lists'
+$script:AzResourcesAppOwnerUnknownNote  = "Couldn't read which apps you own, so ownership is unknown on the tenant-wide rows; their credentials still count toward expiry warnings."
+$script:AzResourcesAppTenantDeniedNote  = "Your account can't list every app in this tenant (guest accounts and tenants that restrict default user permissions block it), so only the apps you own are shown."
+
 $script:AzResourcesIdentityUserAssigned   = 'userAssigned'
 $script:AzResourcesIdentitySystemAssigned = 'systemAssigned'
 $script:AzResourcesSystemAssignedMarker   = 'SystemAssigned'
@@ -1219,31 +1226,73 @@ function Get-AzResourcesGroupTile {
 }
 
 
+function New-AzResourcesAppSource {
+    param(
+        [Parameter(Mandatory)] [string[]] $ArgList,
+        [Parameter(Mandatory)] [string] $Kind,
+        [Parameter(Mandatory)] [bool] $IsOwned
+    )
+
+    $source = @{
+        ArgList = $ArgList
+        Kind    = $Kind
+        IsOwned = $IsOwned
+    }
+
+    return $source
+}
+
+
 function Get-AzResourcesAppSources {
     # The az calls behind the apps tile. The owned lists (--show-mine) always
     # run: they are what isOwner is derived from. The 'all' scope adds the
     # tenant-wide lists; tenant-wide service principals are limited to apps
-    # this tenant registered (appOwnerOrganizationId), so the thousands of
-    # Microsoft first-party enterprise apps every tenant carries stay out.
-    # Owned sources come first so a record found by both keeps isOwner.
+    # this tenant registered (appOwnerOrganizationId), which keeps out the
+    # thousands of Microsoft first-party enterprise apps every tenant carries
+    # (and other tenants' multi-tenant apps, unless you own them — the owned
+    # list still brings those in). Owned sources come first so a record found
+    # by both keeps isOwner. The tenant id is GUID-checked before it goes into
+    # the OData filter on az.cmd's command line.
     param(
         [Parameter(Mandatory)] [string] $Scope,
         [Parameter(Mandatory)] [string] $TenantId
     )
 
+    $appKind = $script:AzResourcesKindAppRegistration
+    $spKind = $script:AzResourcesKindServicePrincipal
+
     $sources = New-Object System.Collections.Generic.List[object]
 
-    $sources.Add(@{ ArgList = @('ad', 'app', 'list', '--show-mine'); Kind = $script:AzResourcesKindAppRegistration; IsOwned = $true })
-    $sources.Add(@{ ArgList = @('ad', 'sp', 'list', '--show-mine');  Kind = $script:AzResourcesKindServicePrincipal; IsOwned = $true })
+    $sources.Add((New-AzResourcesAppSource -ArgList @('ad', 'app', 'list', '--show-mine') -Kind $appKind -IsOwned $true))
+    $sources.Add((New-AzResourcesAppSource -ArgList @('ad', 'sp', 'list', '--show-mine') -Kind $spKind -IsOwned $true))
 
     if ($Scope -eq $script:AzResourcesAppScopeAll) {
+        if (-not (Test-AzResourcesGuid -Value $TenantId)) {
+            throw "tenant id '$TenantId' is not a GUID; cannot build the service principal filter."
+        }
+
         $tenantSpFilter = "appOwnerOrganizationId eq $TenantId"
 
-        $sources.Add(@{ ArgList = @('ad', 'app', 'list', '--all'); Kind = $script:AzResourcesKindAppRegistration; IsOwned = $false })
-        $sources.Add(@{ ArgList = @('ad', 'sp', 'list', '--all', '--filter', $tenantSpFilter); Kind = $script:AzResourcesKindServicePrincipal; IsOwned = $false })
+        $sources.Add((New-AzResourcesAppSource -ArgList @('ad', 'app', 'list', '--all') -Kind $appKind -IsOwned $false))
+        $sources.Add((New-AzResourcesAppSource -ArgList @('ad', 'sp', 'list', '--all', '--filter', $tenantSpFilter) -Kind $spKind -IsOwned $false))
     }
 
     return $sources
+}
+
+
+function Get-AzResourcesTenantAppOwner {
+    # isOwner for a row that only a tenant-wide list returned: $false when
+    # every owned list was read (so it really isn't yours), else $null —
+    # unknown, which the views treat as owned so expiry warnings on apps you
+    # do own never silently disappear.
+    param([Parameter(Mandatory)] [bool] $OwnedListsComplete)
+
+    if ($OwnedListsComplete) {
+        return $false
+    }
+
+    return $null
 }
 
 
@@ -1253,14 +1302,31 @@ function Get-AzResourcesAppTile {
     # secrets / certificates and their expiry dates. isOwner marks the ones
     # --show-mine returned; the result's scope says which mode ran, so the
     # views can label the data and a viewer refresh can repeat the same mode.
+    # When every tenant-wide list is denied (guests, locked-down tenants) the
+    # tile is recorded as 'owned', since that is all it holds.
     param(
         [Parameter(Mandatory)] [PSCustomObject] $Context,
+        # Keep in sync with $script:AzResourcesAppScopes.
         [ValidateSet('owned', 'all')]
         [string] $Scope = $script:AzResourcesAppScopeOwned
     )
 
+    $isAllScope = ($Scope -eq $script:AzResourcesAppScopeAll)
+
+    $label = if ($isAllScope) {
+        $script:AzResourcesAppLabelAll
+    } else {
+        $script:AzResourcesAppLabelOwned
+    }
+
     if (-not $Context.IsUser) {
-        $userOnly = Get-AzResourcesUserOnlyTileResult -Label 'Owned applications'
+        $userOnlyLabel = if ($isAllScope) {
+            $script:AzResourcesAppUserOnlyLabelAll
+        } else {
+            $script:AzResourcesAppUserOnlyLabelOwned
+        }
+
+        $userOnly = Get-AzResourcesUserOnlyTileResult -Label $userOnlyLabel
         $userOnly.scope = $Scope
         return $userOnly
     }
@@ -1268,14 +1334,32 @@ function Get-AzResourcesAppTile {
     $records = New-Object System.Collections.Generic.List[object]
     $seenObjectIds = New-Object 'System.Collections.Generic.HashSet[string]'
     $tally = New-AzResourcesCallTally
+    $ownedListsComplete = $true
+    $tenantListsRead = 0
 
     $sources = Get-AzResourcesAppSources -Scope $Scope -TenantId $Context.TenantId
 
     foreach ($source in $sources) {
         $what = $source.ArgList -join ' '
         $result = Invoke-AzResourcesAzChecked -ArgList $source.ArgList -What $what
-        if (-not (Test-AzResourcesCallPermitted -Result $result -Tally $tally -What $what)) {
+        $isPermitted = Test-AzResourcesCallPermitted -Result $result -Tally $tally -What $what
+
+        if ($source.IsOwned -and -not $isPermitted) {
+            $ownedListsComplete = $false
+        }
+
+        if (-not $isPermitted) {
             continue
+        }
+
+        if (-not $source.IsOwned) {
+            $tenantListsRead++
+        }
+
+        $isOwner = if ($source.IsOwned) {
+            $true
+        } else {
+            Get-AzResourcesTenantAppOwner -OwnedListsComplete $ownedListsComplete
         }
 
         foreach ($raw in $result.Data) {
@@ -1286,8 +1370,18 @@ function Get-AzResourcesAppTile {
             $appId = [string]$raw.appId
             $objectId = [string]$raw.id
 
-            if (-not $seenObjectIds.Add($objectId)) {
+            if ($objectId -and -not $seenObjectIds.Add($objectId)) {
                 continue
+            }
+
+            $credentials = ConvertTo-AzResourcesCredentials -Raw $raw
+
+            # A secret's 3-character hint is only kept for apps that may be
+            # yours: the views never show it for anyone else's.
+            if ($isOwner -eq $false) {
+                foreach ($credential in $credentials) {
+                    $credential.hint = ''
+                }
             }
 
             $records.Add([ordered]@{
@@ -1295,21 +1389,25 @@ function Get-AzResourcesAppTile {
                 appId       = $appId
                 objectId    = $objectId
                 kind        = $source.Kind
-                isOwner     = $source.IsOwned
-                credentials = ConvertTo-AzResourcesCredentials -Raw $raw
+                isOwner     = $isOwner
+                credentials = $credentials
                 portalUrl   = Get-AzResourcesPortalUrl -Kind $source.Kind -TenantId $Context.TenantId -ObjectId $objectId -AppId $appId
             })
         }
     }
 
-    $label = if ($Scope -eq $script:AzResourcesAppScopeAll) {
-        'applications'
-    } else {
-        'owned applications'
+    $notes = New-Object System.Collections.Generic.List[string]
+    $recordedScope = $Scope
+
+    if ($isAllScope -and $tenantListsRead -eq 0) {
+        $recordedScope = $script:AzResourcesAppScopeOwned
+        $notes.Add($script:AzResourcesAppTenantDeniedNote)
+    } elseif ($isAllScope -and -not $ownedListsComplete) {
+        $notes.Add($script:AzResourcesAppOwnerUnknownNote)
     }
 
-    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label $label
-    $tileResult.scope = $Scope
+    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label $label -Notes $notes
+    $tileResult.scope = $recordedScope
     return $tileResult
 }
 
@@ -1498,6 +1596,8 @@ function Invoke-AzResourcesTileFetch {
         [Parameter(Mandatory)] [string] $Tile,
         [Parameter(Mandatory)] [PSCustomObject] $Context,
         [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions,
+        # Keep in sync with $script:AzResourcesAppScopes.
+        [ValidateSet('owned', 'all')]
         [string] $AppScope = $script:AzResourcesAppScopeOwned
     )
 
@@ -1541,6 +1641,8 @@ function Update-AzResourcesTile {
         [Parameter(Mandatory)] [string] $Tile,
         [Parameter(Mandatory)] [PSCustomObject] $Context,
         [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions,
+        # Keep in sync with $script:AzResourcesAppScopes.
+        [ValidateSet('owned', 'all')]
         [string] $AppScope = $script:AzResourcesAppScopeOwned
     )
 
@@ -1620,8 +1722,13 @@ function az-Sync-AzResources {
     .PARAMETER AllApps
         Sync the apps tile in "all in tenant" mode: every app registration you
         can read, plus every service principal for an app registered in this
-        tenant (Microsoft first-party apps are left out), each marked with
-        whether you own it. This can be slow in a large tenant. The mode is
+        tenant, each marked with whether you own it. Service principals for
+        apps registered in other tenants (Microsoft first-party, multi-tenant
+        SaaS) are left out unless you own them. Guest accounts and tenants that
+        restrict default user permissions can't list the whole tenant; the tile
+        then says so and shows only the apps you own. This can be slow in a
+        large tenant, and the local cache then holds credential names and end
+        dates for every listed app (never secret values). The mode is
         recorded in the cache, so the Resource Viewer's per-tile refresh keeps
         it; a later sync without -AllApps goes back to owned-only. Credential
         expiry warnings still cover only the apps you own.
@@ -1685,6 +1792,10 @@ function az-Sync-AzResources {
         $script:AzResourcesAppScopeAll
     } else {
         $script:AzResourcesAppScopeOwned
+    }
+
+    if ($AllApps -and $tiles -notcontains $script:AzResourcesTileApps) {
+        Write-Host "-AllApps only affects the apps tile; ignored for -Tile $Tile." -ForegroundColor DarkYellow
     }
 
     $failed = 0

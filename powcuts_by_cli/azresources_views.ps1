@@ -195,24 +195,41 @@ function Read-AzResourcesTileModel {
 }
 
 
-function Get-AzResourcesCachedAppScope {
-    # The scope ('owned' / 'all') the apps tile was last synced in for
-    # -TenantId, so a Resource Viewer refresh repeats it. A missing, unreadable
-    # or pre-scope cache is 'owned' — the only mode that existed before.
-    param([Parameter(Mandatory)] [string] $TenantId)
+function Resolve-AzResourcesAppScope {
+    # The apps tile's scope ('owned' / 'all') from its cached items. A missing,
+    # unknown or pre-scope value is 'owned' — the only mode that existed
+    # before. The one reading of items.scope, shared by the status line and
+    # the viewer refresh (and matched by appScope() in azure-viewer/app.js).
+    param([AllowNull()] $Items)
 
     $scope = $script:AzResourcesAppScopeOwned
 
-    $model = Read-AzResourcesTileModel -TenantId $TenantId -Tile $script:AzResourcesTileApps
     $cachedScope = ''
-    if ($null -ne $model -and $null -ne $model.items) {
-        $cachedScope = [string]$model.items.scope
+    if ($null -ne $Items) {
+        $cachedScope = [string]$Items.scope
     }
 
     if ($script:AzResourcesAppScopes -contains $cachedScope) {
         $scope = $cachedScope
     }
 
+    return $scope
+}
+
+
+function Get-AzResourcesCachedAppScope {
+    # The scope the apps tile was last synced in for -TenantId, so a Resource
+    # Viewer refresh repeats it.
+    param([Parameter(Mandatory)] [string] $TenantId)
+
+    $model = Read-AzResourcesTileModel -TenantId $TenantId -Tile $script:AzResourcesTileApps
+
+    $items = $null
+    if ($null -ne $model) {
+        $items = $model.items
+    }
+
+    $scope = Resolve-AzResourcesAppScope -Items $items
     return $scope
 }
 
@@ -357,9 +374,10 @@ function Read-AzResourcesViewTile {
     $records = @($items.records | Where-Object { $null -ne $_ })
 
     $scopeLabel = ''
-    $cachedScope = [string]$items.scope
-    if ($cachedScope -and $script:AzResourcesAppScopeLabels.ContainsKey($cachedScope)) {
-        $scopeLabel = $script:AzResourcesAppScopeLabels[$cachedScope]
+
+    if ($Tile -eq $script:AzResourcesTileApps) {
+        $appScope = Resolve-AzResourcesAppScope -Items $items
+        $scopeLabel = $script:AzResourcesAppScopeLabels[$appScope]
     }
 
     Write-AzResourcesViewStatus -Title $Title -Count $records.Count -AgeLabel $ageLabel `

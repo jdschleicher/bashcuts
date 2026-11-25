@@ -85,8 +85,11 @@ var IDENTITY_TYPE_LABELS = { userAssigned: "User-assigned", systemAssigned: "Sys
 // predates the field and was owned-only.
 var APP_SCOPE_OWNED = "owned";
 var APP_SCOPE_ALL = "all";
-var APP_SCOPE_LABELS = { owned: "Owned", all: "All in tenant" };
-var LABEL_OWNER = "Owner";
+var APP_SCOPE_LABELS = {};
+APP_SCOPE_LABELS[APP_SCOPE_OWNED] = "Owned";
+APP_SCOPE_LABELS[APP_SCOPE_ALL] = "All in tenant";
+var SCOPE_LABEL_SR_PREFIX = "Scope: ";
+var EXPIRY_STAT_OWNED_SUFFIX = " (apps you own)";
 var APPS_EMPTY_OWNED = "No app registrations or service principals list you as an Owner. " +
   "Apps created by others won't appear unless you're added as an owner; " +
   "run az-Sync-AzResources -AllApps to list every app you can read.";
@@ -350,8 +353,15 @@ function isOwnedApp(a) {
   return a.isOwner !== false;
 }
 
+// Mirrors Resolve-AzResourcesAppScope (azresources_views.ps1): an unknown or
+// missing scope is "owned".
 function appScope(items) {
-  return items && APP_SCOPE_LABELS[items.scope] ? items.scope : APP_SCOPE_OWNED;
+  var isKnown = !!items && Object.prototype.hasOwnProperty.call(APP_SCOPE_LABELS, items.scope);
+  return isKnown ? items.scope : APP_SCOPE_OWNED;
+}
+
+function isAllAppsScope(items) {
+  return appScope(items) === APP_SCOPE_ALL;
 }
 
 // Expired + expiring credentials across the apps you own, for the summary
@@ -409,12 +419,12 @@ function appRow(a, now, items) {
   var isOwned = isOwnedApp(a);
 
   var credentialText = credentials.length === 1 ? "1 credential" : credentials.length + " credentials";
-  var expiryText = expiry.nextEnd ? "next expiry " + dateLabel(expiry.nextEnd.toISOString()) : "";
+  var expiryText = isOwned && expiry.nextEnd ? "next expiry " + dateLabel(expiry.nextEnd.toISOString()) : "";
 
   var chips = [chip(labelFor(APP_KIND_LABELS, a.kind))];
 
-  if (appScope(items) === APP_SCOPE_ALL && isOwned) {
-    chips.push(chip(LABEL_OWNER, true));
+  if (isAllAppsScope(items) && isOwned) {
+    chips.push(chip(RELATIONSHIP_LABELS.owner, true));
   }
 
   if (isOwned) {
@@ -460,15 +470,15 @@ function identityRow(i) {
 }
 
 function appsEmptyNote(items) {
-  return appScope(items) === APP_SCOPE_ALL ? APPS_EMPTY_ALL : APPS_EMPTY_OWNED;
+  return isAllAppsScope(items) ? APPS_EMPTY_ALL : APPS_EMPTY_OWNED;
 }
 
 function appsScopeLabel(items) {
   return APP_SCOPE_LABELS[appScope(items)];
 }
 
-// emptyNote is a string, or a function of the tile's items; scopeLabel (apps
-// only) names the sync mode in the tile header.
+// emptyNote is a string, or a function of the tile's items (see
+// resolveEmptyNote); scopeLabel (apps only) names the sync mode in the header.
 var TILES = {
   roles:      { name: "role assignments",            emptyNote: "No role assignments in the cache.",           row: roleRow },
   groups:     { name: "Entra groups",                emptyNote: "No group memberships in the cache.",          row: groupRow },
@@ -501,8 +511,9 @@ function setStat(key, text) {
 }
 
 // The summary strip's expired + expiring count, derived from the apps records
-// (null while they're unavailable). .alert highlights a non-zero count.
-function setExpiryStat(records, now) {
+// (null while they're unavailable). .alert highlights a non-zero count. After
+// an all-in-tenant sync the label says it covers only the apps you own.
+function setExpiryStat(records, now, items) {
   var stat = document.querySelector(EXPIRY_STAT);
   if (!stat) {
     return;
@@ -510,14 +521,15 @@ function setExpiryStat(records, now) {
 
   var flagged = records ? countFlaggedCredentials(records, now) : null;
 
-  stat.querySelector(".l").textContent = EXPIRY_STAT_LABEL_PREFIX + EXPIRY_WINDOW_DAYS + EXPIRY_STAT_LABEL_SUFFIX;
+  var ownedSuffix = isAllAppsScope(items) ? EXPIRY_STAT_OWNED_SUFFIX : "";
+  stat.querySelector(".l").textContent = EXPIRY_STAT_LABEL_PREFIX + EXPIRY_WINDOW_DAYS + EXPIRY_STAT_LABEL_SUFFIX + ownedSuffix;
   stat.querySelector(".n").textContent = flagged === null ? MISSING_STAT : String(flagged);
   stat.classList.toggle("alert", flagged > 0);
 }
 
-function renderSummary(spec, records, now) {
+function renderSummary(spec, records, now, items) {
   if (spec.summary) {
-    spec.summary(records, now);
+    spec.summary(records, now, items);
   }
 }
 
@@ -531,12 +543,25 @@ function setStaleLabel(key, text, mode) {
   stale.querySelector(".stale-label").textContent = text;
 }
 
-// The header's sync-mode label, for tiles that have one (empty hides it).
+// The header's sync-mode label, for tiles that have one (empty hides it). The
+// visually hidden prefix tells a screen reader what "Owned" refers to.
 function setScopeLabel(spec, t, items) {
   var label = t.querySelector(".scope-label");
-  if (label) {
-    label.textContent = spec.scopeLabel && items ? spec.scopeLabel(items) : "";
+  if (!label) {
+    return;
   }
+
+  var text = spec.scopeLabel && items ? spec.scopeLabel(items) : "";
+
+  if (text) {
+    label.replaceChildren(el("span", { "class": "sr-only", text: SCOPE_LABEL_SR_PREFIX }), document.createTextNode(text));
+  } else {
+    label.replaceChildren();
+  }
+}
+
+function resolveEmptyNote(spec, items) {
+  return typeof spec.emptyNote === "function" ? spec.emptyNote(items) : spec.emptyNote;
 }
 
 function renderNote(body, text, className) {
@@ -603,10 +628,10 @@ function renderTile(key) {
   var records = asArray(items.records);
   count.textContent = String(records.length);
   setStat(key, String(records.length));
-  renderSummary(spec, records, now);
+  renderSummary(spec, records, now, items);
 
   if (!records.length) {
-    renderNote(body, typeof spec.emptyNote === "function" ? spec.emptyNote(items) : spec.emptyNote);
+    renderNote(body, resolveEmptyNote(spec, items));
     return;
   }
 

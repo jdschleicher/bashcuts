@@ -167,7 +167,17 @@ function Invoke-AzResourcesViewerRefresh {
 
         # Repeat the apps tile's last-synced mode, so refreshing an -AllApps
         # cache doesn't quietly narrow it back to owned-only.
-        $appScope = Get-AzResourcesCachedAppScope -TenantId $TenantId
+        $appScope = $script:AzResourcesAppScopeOwned
+
+        if ($Tile -eq $script:AzResourcesTileApps) {
+            $appScope = Get-AzResourcesCachedAppScope -TenantId $TenantId
+        }
+
+        # The server answers one request at a time, so a tenant-wide crawl
+        # holds every other tile until it finishes; say so in the console.
+        if ($appScope -eq $script:AzResourcesAppScopeAll) {
+            Write-Host "$($script:AzResourcesViewerDisplayName): refreshing apps in all-in-tenant mode - this can take a few minutes in a large tenant, and other tiles wait for it." -ForegroundColor DarkYellow
+        }
 
         $null = Update-AzResourcesTile -Tile $Tile -Context $context -Subscriptions $subscriptions -AppScope $appScope
     }
