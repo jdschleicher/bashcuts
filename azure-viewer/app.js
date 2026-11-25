@@ -80,6 +80,18 @@ var RELATIONSHIP_LABELS = { member: "Member", owner: "Owner" };
 var APP_KIND_LABELS = { appRegistration: "App registration", servicePrincipal: "Service principal" };
 var IDENTITY_TYPE_LABELS = { userAssigned: "User-assigned", systemAssigned: "System-assigned" };
 
+// Apps tile scope (items.scope, written by az-Sync-AzResources): "owned" is the
+// --show-mine default, "all" is a -AllApps sync. A cache without a scope
+// predates the field and was owned-only.
+var APP_SCOPE_OWNED = "owned";
+var APP_SCOPE_ALL = "all";
+var APP_SCOPE_LABELS = { owned: "Owned", all: "All in tenant" };
+var LABEL_OWNER = "Owner";
+var APPS_EMPTY_OWNED = "No app registrations or service principals list you as an Owner. " +
+  "Apps created by others won't appear unless you're added as an owner; " +
+  "run az-Sync-AzResources -AllApps to list every app you can read.";
+var APPS_EMPTY_ALL = "No app registrations or service principals in this tenant are readable by your account.";
+
 var LABEL_DIRECT = "Direct";
 var LABEL_VIA_GROUP = "Via group";
 var LABEL_REFRESHING = "refreshing…";
@@ -333,9 +345,19 @@ function expiryBadges(expiry) {
   return badges;
 }
 
-// Expired + expiring credentials across every app, for the summary strip.
+// Records cached before isOwner existed came from --show-mine, so they're owned.
+function isOwnedApp(a) {
+  return a.isOwner !== false;
+}
+
+function appScope(items) {
+  return items && APP_SCOPE_LABELS[items.scope] ? items.scope : APP_SCOPE_OWNED;
+}
+
+// Expired + expiring credentials across the apps you own, for the summary
+// strip — an all-in-tenant sync mustn't flood it with other teams' secrets.
 function countFlaggedCredentials(records, now) {
-  return records.reduce(function (total, a) {
+  return records.filter(isOwnedApp).reduce(function (total, a) {
     var expiry = appExpiry(a.credentials, now);
     return total + expiry.expired + expiry.expiring;
   }, 0);
@@ -379,17 +401,29 @@ function groupRow(g) {
 
 // now: one timestamp per render pass, shared with the summary stat so a
 // credential on a boundary can't be "expiring" in the row but not the stat.
-function appRow(a, now) {
+// Expiry badges sit on owned apps only, so the rows add up to that stat; in an
+// all-in-tenant sync an Owner chip marks which apps are yours.
+function appRow(a, now, items) {
   var credentials = distinctCredentials(a.credentials);
   var expiry = appExpiry(credentials, now);
+  var isOwned = isOwnedApp(a);
 
   var credentialText = credentials.length === 1 ? "1 credential" : credentials.length + " credentials";
   var expiryText = expiry.nextEnd ? "next expiry " + dateLabel(expiry.nextEnd.toISOString()) : "";
 
+  var chips = [chip(labelFor(APP_KIND_LABELS, a.kind))];
+
+  if (appScope(items) === APP_SCOPE_ALL && isOwned) {
+    chips.push(chip(LABEL_OWNER, true));
+  }
+
+  if (isOwned) {
+    chips = chips.concat(expiryBadges(expiry));
+  }
+
   var head = el("div", { "class": "row-head" }, [
-    el("span", { "class": "row-title" }, [portalLink(a.displayName, a.portalUrl)]),
-    chip(labelFor(APP_KIND_LABELS, a.kind))
-  ].concat(expiryBadges(expiry)));
+    el("span", { "class": "row-title" }, [portalLink(a.displayName, a.portalUrl)])
+  ].concat(chips));
 
   var meta = el("div", { "class": "row-meta" }, [joinMeta([credentialText, expiryText])]);
 
@@ -425,10 +459,20 @@ function identityRow(i) {
   return el("li", { "class": "row" }, [head, meta, roleList]);
 }
 
+function appsEmptyNote(items) {
+  return appScope(items) === APP_SCOPE_ALL ? APPS_EMPTY_ALL : APPS_EMPTY_OWNED;
+}
+
+function appsScopeLabel(items) {
+  return APP_SCOPE_LABELS[appScope(items)];
+}
+
+// emptyNote is a string, or a function of the tile's items; scopeLabel (apps
+// only) names the sync mode in the tile header.
 var TILES = {
   roles:      { name: "role assignments",            emptyNote: "No role assignments in the cache.",           row: roleRow },
   groups:     { name: "Entra groups",                emptyNote: "No group memberships in the cache.",          row: groupRow },
-  apps:       { name: "apps and service principals", emptyNote: "You don't own any apps in this tenant.",      row: appRow, summary: setExpiryStat },
+  apps:       { name: "apps and service principals", emptyNote: appsEmptyNote,                                 row: appRow, summary: setExpiryStat, scopeLabel: appsScopeLabel },
   identities: { name: "managed identities",          emptyNote: "No managed identities in readable subscriptions.", row: identityRow }
 };
 
@@ -487,6 +531,14 @@ function setStaleLabel(key, text, mode) {
   stale.querySelector(".stale-label").textContent = text;
 }
 
+// The header's sync-mode label, for tiles that have one (empty hides it).
+function setScopeLabel(spec, t, items) {
+  var label = t.querySelector(".scope-label");
+  if (label) {
+    label.textContent = spec.scopeLabel && items ? spec.scopeLabel(items) : "";
+  }
+}
+
 function renderNote(body, text, className) {
   body.appendChild(el("p", { "class": className || "empty-note", text: text }));
 }
@@ -501,6 +553,7 @@ function renderTile(key) {
 
   body.replaceChildren();
   count.textContent = "";
+  setScopeLabel(spec, t, null);
   renderSummary(spec, null, now);
 
   if (state.refreshError) {
@@ -530,6 +583,7 @@ function renderTile(key) {
 
   var model = state.model;
   var items = model.items;
+  setScopeLabel(spec, t, items);
   if (state.refreshError) {
     setStaleLabel(key, LABEL_REFRESH_FAILED, "warn");
   } else {
@@ -552,11 +606,11 @@ function renderTile(key) {
   renderSummary(spec, records, now);
 
   if (!records.length) {
-    renderNote(body, spec.emptyNote);
+    renderNote(body, typeof spec.emptyNote === "function" ? spec.emptyNote(items) : spec.emptyNote);
     return;
   }
 
-  body.appendChild(el("ul", { "class": "rows" }, records.map(function (record) { return spec.row(record, now); })));
+  body.appendChild(el("ul", { "class": "rows" }, records.map(function (record) { return spec.row(record, now, items); })));
   renderNote(body, NOMATCH_TEXT, "nomatch");
 }
 

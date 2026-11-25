@@ -7,7 +7,9 @@
 #
 #   roles      - RBAC assignments I hold, directly or through a group
 #   groups     - Entra groups I'm a (transitive) member or owner of
-#   apps       - app registrations + service principals I own, with creds
+#   apps       - app registrations + service principals I own, with creds;
+#                with -AllApps, every one in the tenant I can read (isOwner
+#                marks mine; items.scope records which mode synced the tile)
 #   identities - user- and system-assigned managed identities in every
 #                subscription I can read, plus the roles each one holds
 #                anywhere in the tenant
@@ -31,7 +33,7 @@
 # links are only followed to https://graph.microsoft.com.
 #
 # Public functions:
-#   az-Sync-AzResources [-Tile <name>]  - refresh every tile, or just one
+#   az-Sync-AzResources [-Tile <name>] [-AllApps]  - refresh every tile, or just one
 #
 # Depends on Invoke-AzDevOpsAzJson (azdevops_db.ps1) and
 # Write-LocalViewerTileCache (localhost_viewer.ps1); loaded by powcuts_home.ps1
@@ -110,6 +112,12 @@ $script:AzResourcesKindAppRegistration   = 'appRegistration'
 $script:AzResourcesKindServicePrincipal  = 'servicePrincipal'
 $script:AzResourcesCredentialSecret      = 'secret'
 $script:AzResourcesCredentialCertificate = 'certificate'
+
+# Apps tile scope: 'owned' = --show-mine only (the default); 'all' = every app
+# registration / service principal in the tenant the account can read.
+$script:AzResourcesAppScopeOwned = 'owned'
+$script:AzResourcesAppScopeAll   = 'all'
+$script:AzResourcesAppScopes     = @($script:AzResourcesAppScopeOwned, $script:AzResourcesAppScopeAll)
 
 $script:AzResourcesIdentityUserAssigned   = 'userAssigned'
 $script:AzResourcesIdentitySystemAssigned = 'systemAssigned'
@@ -1211,23 +1219,57 @@ function Get-AzResourcesGroupTile {
 }
 
 
+function Get-AzResourcesAppSources {
+    # The az calls behind the apps tile. The owned lists (--show-mine) always
+    # run: they are what isOwner is derived from. The 'all' scope adds the
+    # tenant-wide lists; tenant-wide service principals are limited to apps
+    # this tenant registered (appOwnerOrganizationId), so the thousands of
+    # Microsoft first-party enterprise apps every tenant carries stay out.
+    # Owned sources come first so a record found by both keeps isOwner.
+    param(
+        [Parameter(Mandatory)] [string] $Scope,
+        [Parameter(Mandatory)] [string] $TenantId
+    )
+
+    $sources = New-Object System.Collections.Generic.List[object]
+
+    $sources.Add(@{ ArgList = @('ad', 'app', 'list', '--show-mine'); Kind = $script:AzResourcesKindAppRegistration; IsOwned = $true })
+    $sources.Add(@{ ArgList = @('ad', 'sp', 'list', '--show-mine');  Kind = $script:AzResourcesKindServicePrincipal; IsOwned = $true })
+
+    if ($Scope -eq $script:AzResourcesAppScopeAll) {
+        $tenantSpFilter = "appOwnerOrganizationId eq $TenantId"
+
+        $sources.Add(@{ ArgList = @('ad', 'app', 'list', '--all'); Kind = $script:AzResourcesKindAppRegistration; IsOwned = $false })
+        $sources.Add(@{ ArgList = @('ad', 'sp', 'list', '--all', '--filter', $tenantSpFilter); Kind = $script:AzResourcesKindServicePrincipal; IsOwned = $false })
+    }
+
+    return $sources
+}
+
+
 function Get-AzResourcesAppTile {
-    # App registrations and service principals (enterprise apps) I own, each
-    # with its secrets / certificates and their expiry dates.
-    param([Parameter(Mandatory)] [PSCustomObject] $Context)
+    # App registrations and service principals (enterprise apps) I own — or,
+    # with -Scope all, every one in the tenant I can read — each with its
+    # secrets / certificates and their expiry dates. isOwner marks the ones
+    # --show-mine returned; the result's scope says which mode ran, so the
+    # views can label the data and a viewer refresh can repeat the same mode.
+    param(
+        [Parameter(Mandatory)] [PSCustomObject] $Context,
+        [ValidateSet('owned', 'all')]
+        [string] $Scope = $script:AzResourcesAppScopeOwned
+    )
 
     if (-not $Context.IsUser) {
         $userOnly = Get-AzResourcesUserOnlyTileResult -Label 'Owned applications'
+        $userOnly.scope = $Scope
         return $userOnly
     }
 
     $records = New-Object System.Collections.Generic.List[object]
+    $seenObjectIds = New-Object 'System.Collections.Generic.HashSet[string]'
     $tally = New-AzResourcesCallTally
 
-    $sources = @(
-        @{ ArgList = @('ad', 'app', 'list', '--show-mine'); Kind = $script:AzResourcesKindAppRegistration }
-        @{ ArgList = @('ad', 'sp', 'list', '--show-mine');  Kind = $script:AzResourcesKindServicePrincipal }
-    )
+    $sources = Get-AzResourcesAppSources -Scope $Scope -TenantId $Context.TenantId
 
     foreach ($source in $sources) {
         $what = $source.ArgList -join ' '
@@ -1244,18 +1286,30 @@ function Get-AzResourcesAppTile {
             $appId = [string]$raw.appId
             $objectId = [string]$raw.id
 
+            if (-not $seenObjectIds.Add($objectId)) {
+                continue
+            }
+
             $records.Add([ordered]@{
                 displayName = [string]$raw.displayName
                 appId       = $appId
                 objectId    = $objectId
                 kind        = $source.Kind
+                isOwner     = $source.IsOwned
                 credentials = ConvertTo-AzResourcesCredentials -Raw $raw
                 portalUrl   = Get-AzResourcesPortalUrl -Kind $source.Kind -TenantId $Context.TenantId -ObjectId $objectId -AppId $appId
             })
         }
     }
 
-    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label 'owned applications'
+    $label = if ($Scope -eq $script:AzResourcesAppScopeAll) {
+        'applications'
+    } else {
+        'owned applications'
+    }
+
+    $tileResult = Get-AzResourcesTallyTileResult -Records $records -Tally $tally -Label $label
+    $tileResult.scope = $Scope
     return $tileResult
 }
 
@@ -1443,7 +1497,8 @@ function Invoke-AzResourcesTileFetch {
     param(
         [Parameter(Mandatory)] [string] $Tile,
         [Parameter(Mandatory)] [PSCustomObject] $Context,
-        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions
+        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions,
+        [string] $AppScope = $script:AzResourcesAppScopeOwned
     )
 
     if ((Test-AzResourcesTileNeedsSubscriptions -Tile $Tile) -and $null -eq $Subscriptions) {
@@ -1460,7 +1515,7 @@ function Invoke-AzResourcesTileFetch {
         }
 
         'apps' {
-            $tileResult = Get-AzResourcesAppTile -Context $Context
+            $tileResult = Get-AzResourcesAppTile -Context $Context -Scope $AppScope
         }
 
         'identities' {
@@ -1480,14 +1535,16 @@ function Update-AzResourcesTile {
     # EXPENSIVE: fetch one tile and rewrite its cache file, stamped with the
     # account that fetched it (syncedAs). Throws on a hard failure (the
     # previous cache file is left untouched). Shared by az-Sync-AzResources and
-    # the Resource Viewer's per-tile refresh.
+    # the Resource Viewer's per-tile refresh. -AppScope only affects the apps
+    # tile ('owned' or 'all').
     param(
         [Parameter(Mandatory)] [string] $Tile,
         [Parameter(Mandatory)] [PSCustomObject] $Context,
-        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions
+        [AllowNull()] [System.Collections.Generic.List[object]] $Subscriptions,
+        [string] $AppScope = $script:AzResourcesAppScopeOwned
     )
 
-    $tileResult = Invoke-AzResourcesTileFetch -Tile $Tile -Context $Context -Subscriptions $Subscriptions
+    $tileResult = Invoke-AzResourcesTileFetch -Tile $Tile -Context $Context -Subscriptions $Subscriptions -AppScope $AppScope
     $tileResult.syncedAs = New-AzResourcesSyncedAs -Context $Context
     $path = Get-AzResourcesTilePath -TenantId $Context.TenantId -Tile $Tile
 
@@ -1552,19 +1609,38 @@ function az-Sync-AzResources {
         that fails for any other reason keeps its previous cache, and the other
         tiles still sync. Nothing is written when az isn't logged in.
 
+        The apps tile lists only app registrations / service principals that
+        name you as an Owner in Entra (`az ad ... list --show-mine`). Apps an
+        admin, a pipeline or a teammate created are missing unless you're
+        added as an owner; use -AllApps to list every one you can read.
+
     .PARAMETER Tile
         Refresh only this tile: roles, groups, apps, or identities.
+
+    .PARAMETER AllApps
+        Sync the apps tile in "all in tenant" mode: every app registration you
+        can read, plus every service principal for an app registered in this
+        tenant (Microsoft first-party apps are left out), each marked with
+        whether you own it. This can be slow in a large tenant. The mode is
+        recorded in the cache, so the Resource Viewer's per-tile refresh keeps
+        it; a later sync without -AllApps goes back to owned-only. Credential
+        expiry warnings still cover only the apps you own.
 
     .EXAMPLE
         az-Sync-AzResources
 
     .EXAMPLE
         az-Sync-AzResources -Tile groups
+
+    .EXAMPLE
+        az-Sync-AzResources -Tile apps -AllApps
     #>
     param(
         # Keep in sync with $script:AzResourcesTileNames.
         [ValidateSet('roles', 'groups', 'apps', 'identities')]
-        [string] $Tile
+        [string] $Tile,
+
+        [switch] $AllApps
     )
 
     $context = Get-AzResourcesAccountContext
@@ -1605,11 +1681,17 @@ function az-Sync-AzResources {
         }
     }
 
+    $appScope = if ($AllApps) {
+        $script:AzResourcesAppScopeAll
+    } else {
+        $script:AzResourcesAppScopeOwned
+    }
+
     $failed = 0
 
     foreach ($name in $tiles) {
         try {
-            $tileResult = Update-AzResourcesTile -Tile $name -Context $context -Subscriptions $subscriptions
+            $tileResult = Update-AzResourcesTile -Tile $name -Context $context -Subscriptions $subscriptions -AppScope $appScope
 
             $color = if ($tileResult.state -eq $script:AzResourcesStateOk) {
                 'Green'

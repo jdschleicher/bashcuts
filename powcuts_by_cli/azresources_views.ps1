@@ -50,7 +50,7 @@ $script:AzResourcesExpiringRowType = 'Bashcuts.AzResources.ExpiringCredential'
 
 $script:AzResourcesRoleDisplay     = @('Role', 'Principal', 'ScopeType', 'ScopeName')
 $script:AzResourcesGroupDisplay    = @('Name', 'Relationship', 'GroupType', 'Mail')
-$script:AzResourcesAppDisplay      = @('Name', 'Kind', 'CredentialCount', 'NextExpiry')
+$script:AzResourcesAppDisplay      = @('Name', 'Kind', 'Owned', 'NextExpiry')
 $script:AzResourcesIdentityDisplay = @('Name', 'Type', 'ResourceGroup', 'RoleCount')
 $script:AzResourcesExpiringDisplay = @('App', 'Credential', 'EndDate', 'DaysRemaining')
 
@@ -65,6 +65,13 @@ $script:AzResourcesCredentialLabelSep = ': '                 # "secret: prod-key
 $script:AzResourcesViewEllipsis       = "$([char]0x2026)"   # "abc…" after a secret's 3-char hint
 $script:AzResourcesUnnamedCredential  = '(unnamed)'
 $script:AzResourcesCredentialCert     = 'certificate'
+
+# Apps tile scope labels, printed on the status line so owned-only data never
+# reads like "every app in the tenant" (or the other way round).
+$script:AzResourcesAppScopeLabels = @{
+    $script:AzResourcesAppScopeOwned = 'owned by you only'
+    $script:AzResourcesAppScopeAll   = 'all in tenant'
+}
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +195,39 @@ function Read-AzResourcesTileModel {
 }
 
 
+function Get-AzResourcesCachedAppScope {
+    # The scope ('owned' / 'all') the apps tile was last synced in for
+    # -TenantId, so a Resource Viewer refresh repeats it. A missing, unreadable
+    # or pre-scope cache is 'owned' — the only mode that existed before.
+    param([Parameter(Mandatory)] [string] $TenantId)
+
+    $scope = $script:AzResourcesAppScopeOwned
+
+    $model = Read-AzResourcesTileModel -TenantId $TenantId -Tile $script:AzResourcesTileApps
+    $cachedScope = ''
+    if ($null -ne $model -and $null -ne $model.items) {
+        $cachedScope = [string]$model.items.scope
+    }
+
+    if ($script:AzResourcesAppScopes -contains $cachedScope) {
+        $scope = $cachedScope
+    }
+
+    return $scope
+}
+
+
+function Test-AzResourcesAppOwned {
+    # Whether an apps-tile record is one the syncing account owns. Records
+    # cached before isOwner existed came from --show-mine, so they count as
+    # owned.
+    param([Parameter(Mandatory)] $Record)
+
+    $isOwned = ($null -eq $Record.isOwner) -or [bool]$Record.isOwner
+    return $isOwned
+}
+
+
 function Write-AzResourcesViewMissing {
     # The "nothing to show yet" hint. -TenantId names the tenant that was
     # looked up, so "az is on tenant A but only B was synced" is obvious;
@@ -245,11 +285,19 @@ function Write-AzResourcesViewStatus {
         [Parameter(Mandatory)] [int] $Count,
         [Parameter(Mandatory)] [string] $AgeLabel,
         [Parameter(Mandatory)] [bool] $IsStale,
-        [AllowEmptyString()] [string] $Message = ''
+        [AllowEmptyString()] [string] $Message = '',
+        [AllowEmptyString()] [string] $ScopeLabel = ''
     )
 
     $dot = $script:AzResourcesViewMiddot
-    $status = "${Title}: $Count $dot $AgeLabel"
+
+    $scopePart = if ($ScopeLabel) {
+        " $dot $ScopeLabel"
+    } else {
+        ''
+    }
+
+    $status = "${Title}: $Count$scopePart $dot $AgeLabel"
 
     if ($IsStale) {
         $status = "$status $dot $($script:AzResourcesViewSyncHint)"
@@ -308,8 +356,14 @@ function Read-AzResourcesViewTile {
 
     $records = @($items.records | Where-Object { $null -ne $_ })
 
+    $scopeLabel = ''
+    $cachedScope = [string]$items.scope
+    if ($cachedScope -and $script:AzResourcesAppScopeLabels.ContainsKey($cachedScope)) {
+        $scopeLabel = $script:AzResourcesAppScopeLabels[$cachedScope]
+    }
+
     Write-AzResourcesViewStatus -Title $Title -Count $records.Count -AgeLabel $ageLabel `
-        -IsStale ([bool]$model.stale) -Message ([string]$items.message)
+        -IsStale ([bool]$model.stale) -Message ([string]$items.message) -ScopeLabel $scopeLabel
 
     return $records
 }
@@ -563,10 +617,14 @@ function az-Show-AzGroupMemberships {
 function az-Show-AzAppRegistrations {
     <#
     .SYNOPSIS
-        List the app registrations and service principals you own, from the local cache.
+        List the app registrations and service principals you own (or every one in the tenant), from the local cache.
 
     .DESCRIPTION
         Reads the apps tile written by az-Sync-AzResources (no network call).
+        By default the tile holds only apps that name you as an Owner in Entra;
+        after `az-Sync-AzResources -AllApps` it holds every app you can read,
+        and Owned says which are yours. The status line says which mode the
+        cache was synced in.
         NextExpiry is the soonest secret / certificate end date still in the
         future, as a [datetimeoffset] ($null when none); ExpiredCount counts
         credentials already past their end date. The full list (with start
@@ -575,6 +633,9 @@ function az-Show-AzAppRegistrations {
 
     .EXAMPLE
         az-Show-AzAppRegistrations | Sort-Object NextExpiry
+
+    .EXAMPLE
+        az-Show-AzAppRegistrations | Where-Object Owned
     #>
     $records = Read-AzResourcesViewTile -Tile $script:AzResourcesTileApps -Title $script:AzResourcesAppTitle
     Set-AzResourcesViewDisplay -TypeName $script:AzResourcesAppRowType -Properties $script:AzResourcesAppDisplay
@@ -588,6 +649,7 @@ function az-Show-AzAppRegistrations {
             PSTypeName      = $script:AzResourcesAppRowType
             Name            = [string]$record.displayName
             Kind            = [string]$record.kind
+            Owned           = Test-AzResourcesAppOwned -Record $record
             CredentialCount = $distinctCredentials.Count
             NextExpiry      = $expiry.NextExpiry
             ExpiredCount    = $expiry.ExpiredCount
@@ -659,8 +721,9 @@ function az-Show-AzExpiringCredentials {
         Credential ("secret: <name>"), EndDate, DaysRemaining (negative once
         expired), Status, plus CredentialKind, CredentialName, AppKind, AppId and
         PortalUrl. A SAML signing certificate (several Graph entries sharing one
-        thumbprint) is listed once. Only service principals you own are read, so
-        SAML certificates on an enterprise app you don't own aren't listed.
+        thumbprint) is listed once. Only apps you own are counted — even when
+        the cache was synced with -AllApps — so SAML certificates on an
+        enterprise app you don't own aren't listed.
 
     .PARAMETER WithinDays
         How far ahead counts as "expiring". Default 30; 0 lists only
@@ -684,6 +747,10 @@ function az-Show-AzExpiringCredentials {
     $rows = New-Object System.Collections.Generic.List[object]
 
     foreach ($record in $records) {
+        if (-not (Test-AzResourcesAppOwned -Record $record)) {
+            continue
+        }
+
         foreach ($credential in (Get-AzResourcesDistinctCredentials -Credentials $record.credentials)) {
             $classified = Get-AzResourcesCredentialStatus -Credential $credential -WithinDays $WithinDays -Now $now
 

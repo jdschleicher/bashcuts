@@ -165,7 +165,11 @@ function Invoke-AzResourcesViewerRefresh {
             $subscriptions = Get-AzResourcesSubscriptions -TenantId $TenantId
         }
 
-        $null = Update-AzResourcesTile -Tile $Tile -Context $context -Subscriptions $subscriptions
+        # Repeat the apps tile's last-synced mode, so refreshing an -AllApps
+        # cache doesn't quietly narrow it back to owned-only.
+        $appScope = Get-AzResourcesCachedAppScope -TenantId $TenantId
+
+        $null = Update-AzResourcesTile -Tile $Tile -Context $context -Subscriptions $subscriptions -AppScope $appScope
     }
     catch {
         # Keep az's error text (which can name subscriptions / paths) in the

@@ -406,6 +406,16 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 }
 .count:empty { display: none; }
 
+/* Sync mode of a tile ("Owned" / "All in tenant") — words, not color. */
+.scope-label {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.scope-label:empty { display: none; }
+
 /* ---------- per-tile freshness + refresh ---------- */
 .tile-meta {
   flex: none;
